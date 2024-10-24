@@ -9,10 +9,11 @@
 #
 
 # Load libraries  
-library(shiny)
-library(tidyverse)
-library(DT)  # For interactive tables
-library(ggpubr)
+if(!require("shiny")) install.packages("shiny")
+if(!require("rprojroot")) install.packages("rprojroot")
+if(!require("tidyverse")) install.packages("tidyverse")
+if(!require("DT")) install.packages("DT")
+if(!require("ggpubr")) install.packages("ggpubr")
 
 root_dir <- rprojroot::find_root(rprojroot::has_dir(".git"))
 
