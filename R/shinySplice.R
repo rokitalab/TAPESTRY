@@ -24,7 +24,7 @@ data_dmg <- read_tsv(file.path(root_dir, "input",
 data_hgg <- read_tsv(file.path(root_dir, "input", 
                                "hgg-splice-targets-plus-controls.tsv"))
 gene_gtf <- read_tsv(file.path(root_dir, "input", 
-                               "../input/gencode.v39.primary_assembly.target-filtered.tsv"))
+                               "gencode.v39.primary_assembly.target-filtered.tsv"))
 
 # Define UI for application
 ui <- fluidPage(
