@@ -27,6 +27,9 @@ data_hgg <- read_tsv(file.path(root_dir, "input",
 gtf_df <- read_tsv(file.path(root_dir, "input", 
                                "gencode.v39.primary_assembly.target-filtered.tsv"))
 
+source(file.path(root_dir, "input",
+                 "theme.R"))
+
 # Define UI for application
 ui <- fluidPage(
   
@@ -55,6 +58,39 @@ ui <- fluidPage(
                            choices = NULL)  # Will update based on selected table
              ),
              
+             # Checkbox to enable/disable specificity filtering
+             checkboxInput("filter_specificity", "Filter by Specificity?", value = FALSE),
+             
+             # Dropdown for specificity, only visible if checkbox is selected
+             conditionalPanel(
+               condition = "input.filter_specificity == true",
+               selectInput("specificity", 
+                           "Select Specificity:", 
+                           choices = NULL)  # Will update based on selected table
+             ),
+             
+             # Checkbox to enable/disable consequence filtering
+             checkboxInput("filter_consequence", "Filter by Consequence?", value = FALSE),
+             
+             # Dropdown for consequence, only visible if checkbox is selected
+             conditionalPanel(
+               condition = "input.filter_consequence == true",
+               selectInput("consequence", 
+                           "Select Consequence:", 
+                           choices = NULL)  # Will update based on selected table
+             ),
+             
+             # Checkbox to enable/disable domain filtering
+             checkboxInput("filter_domain", "Filter by Domain?", value = FALSE),
+             
+             # Dropdown for domain, only visible if checkbox is selected
+             conditionalPanel(
+               condition = "input.filter_domain == true",
+               selectInput("exon_uniprot_domain", 
+                           "Select Domain:", 
+                           choices = NULL)  # Will update based on selected table
+             ),
+             
              # Checkbox to enable/disable sample PSI filtering
              checkboxInput("filter_psi", "Filter by Sample PSI?", value = FALSE),
              
@@ -69,18 +105,12 @@ ui <- fluidPage(
                            step = 0.01)
              ),
              
-             # Checkbox to enable/disable dpsi filtering
-             checkboxInput("filter_dpsi", "Filter by dPSI value?", value = FALSE),
+             checkboxInput("filter_coverage", "Filter by Sample Junction Coverage?", value = FALSE),
              
-             # Slider input for both minimum and maximum dpsi values, visible if checkbox is selected
+             # Text input for Gene Symbol, visible if checkbox is selected
              conditionalPanel(
-               condition = "input.filter_dpsi == true",
-               sliderInput("dpsi_range", 
-                           "dPSI Range:", 
-                           min = -1, 
-                           max = 1,  # Will update based on selected table
-                           value = c(0, 1), 
-                           step = 0.01)
+               condition = "input.filter_coverage == true",
+               textInput("coverage", "Enter Minimum Coverage:")
              ),
              
              # Checkbox to enable/disable Gene Symbol filtering
@@ -132,12 +162,9 @@ server <- function(input, output, session) {
   # Update the preference choices based on the selected table
   observe({
     updateSelectInput(session, "preference", choices = unique(selectedData()$preference))
-    
-    # Update the slider range based on dpsi values in the selected table
-    updateSliderInput(session, "dpsi_range", 
-                      min = min(selectedData()$dpsi, na.rm = TRUE), 
-                      max = max(selectedData()$dpsi, na.rm = TRUE), 
-                      value = c(min(selectedData()$dpsi, na.rm = TRUE), max(selectedData()$dpsi, na.rm = TRUE)))
+    updateSelectInput(session, "specificity", choices = unique(selectedData()$specificity))
+    updateSelectInput(session, "consequence", choices = unique(selectedData()$consequence))
+    updateSelectInput(session, "exon_uniprot_domain", choices = unique(selectedData()$exon_uniprot_domain))
     
     # Update the slider range based on psi values in the selected table
     updateSliderInput(session, "psi_range", 
@@ -155,16 +182,33 @@ server <- function(input, output, session) {
       filtered <- filtered[filtered$preference == input$preference, ]
     }
     
+    # Apply specificity filter if checkbox is selected
+    if (input$filter_specificity) {
+      filtered <- filtered[filtered$specificity == input$specificity, ]
+    }
+    
+    # Apply consequence filter if checkbox is selected
+    if (input$filter_consequence) {
+      filtered <- filtered[filtered$consequence == input$consequence, ]
+    }
+    
+    # Apply preference filter if checkbox is selected
+    if (input$filter_domain) {
+      filtered <- filtered[filtered$exon_uniprot_domain == input$exon_uniprot_domain, ]
+    }
+    
     # Apply PSI range filter if checkbox is selected
     if (input$filter_psi) {
       filtered <- filtered[filtered$psi >= input$psi_range[1] & filtered$psi <= input$psi_range[2], ]
     }
     
-    # Apply dPSI range filter if checkbox is selected
-    if (input$filter_dpsi) {
-      filtered <- filtered[filtered$dpsi >= input$dpsi_range[1] & filtered$dpsi <= input$dpsi_range[2], ]
+    # Apply coverage filter if checkbox is selected
+    if (input$filter_coverage && input$coverage != "") {
+      min_coverage <- as.numeric(input$coverage)
+      # Filter rows where gene_symbol is found within the splice_id column
+      filtered <- filtered[filtered$IJ_coverage + filtered$SJ_coverage >= min_coverage, ]
     }
-    
+
     # Apply gene symbol filter if checkbox is selected
     if (input$filter_gene && input$gene_symbol != "") {
       # Filter rows where gene_symbol is found within the splice_id column
@@ -215,14 +259,14 @@ server <- function(input, output, session) {
         labs(title = NULL,
              x = NULL,
              y = "PSI") +
-        ylim(c(0, 1)) +
-        theme_minimal()
+        ylim(c(-0.05, 1.1)) +
+        theme_Publication()
       
       # Create the avg values bar plot
       avg_data <- filteredData()[filteredData()$splice_id == selected_splice_id, ]
       avg_data_first_row <- avg_data[1, ]
       
-      avg_columns <- avg_data_first_row %>% select(ends_with("_avg"), contains("SRR"))
+      avg_columns <- avg_data_first_row %>% select(ends_with("_avg") & !contains("dPSI"), contains("SRR"))
       stdev_columns <- avg_data_first_row %>% select(ends_with("_stdev"))
       
       avg_long <- pivot_longer(avg_columns, cols = everything(), names_to = "Avg_Variable", values_to = "Value")
@@ -245,6 +289,9 @@ server <- function(input, output, session) {
         geom_errorbar(aes(ymin = Value - Stdev, ymax = Value + Stdev), width = 0.2, color = "black") +
         labs(title = NULL, x = NULL, y = "PSI") +
         theme_minimal() +
+        ylim(c(-0.05, 1.1)) +
+       # theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+        theme_Publication() +
         theme(axis.text.x = element_text(angle = 45, hjust = 1))
       
       # Use ggarrange to align the two plots side by side
@@ -271,7 +318,7 @@ server <- function(input, output, session) {
       paste("plot_", Sys.Date(), ".pdf", sep = "")
     },
     content = function(file) {
-      ggsave(file, plot = combined_plot(), device = "pdf", width = 12, height = 5)
+      ggsave(file, plot = combined_plot(), device = "pdf", width = 13, height = 5)
     }
   )
   
