@@ -278,7 +278,12 @@ server <- function(input, output, session) {
       combined_data <- left_join(avg_long, stdev_long, by = c("Avg_Variable" = "Stdev_Variable"))
       combined_data$cohort <- ifelse(grepl("Brain", combined_data$Avg_Variable), "GTEx", 
                                      ifelse(grepl("Forebrain|Hindbrain", combined_data$Avg_Variable), 
-                                            "Evo-Devo", "PedBrain"))
+                                            "Evo-Devo", 
+                                            ifelse(grepl("pediatrics|SRR", combined_data$Avg_Variable), 
+                                                   "PedBrain", "Cell type")))
+      
+      combined_data <- combined_data %>%
+        dplyr::arrange(cohort)
       
       combined_data$Avg_Variable <- gsub("Brain - ", "", combined_data$Avg_Variable)
       combined_data$Avg_Variable <- factor(combined_data$Avg_Variable, levels = combined_data$Avg_Variable)
