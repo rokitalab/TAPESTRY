@@ -21,11 +21,14 @@ root_dir <- rprojroot::find_root(rprojroot::has_dir(".git"))
 data_atrt <- read_tsv(file.path(root_dir, "input", 
                                 "atrt-splice-targets-plus-controls.tsv"))
 data_dmg <- read_tsv(file.path(root_dir, "input", 
-                               "dmg-splice-targets-plus-controls.tsv"))
+                               "shiny_splice_input_plus_expression.tsv"))
 data_hgg <- read_tsv(file.path(root_dir, "input", 
                                "hgg-splice-targets-plus-controls.tsv"))
 gtf_df <- read_tsv(file.path(root_dir, "input", 
                                "gencode.v39.primary_assembly.target-filtered.tsv"))
+
+exon_ct_df <- read_tsv(file.path(root_dir, "input",
+                                 "merged-tumor-specific-splice-event-exon-cts.tsv"))
 
 source(file.path(root_dir, "input",
                  "theme.R"))
@@ -80,17 +83,6 @@ ui <- fluidPage(
                            choices = NULL)  # Will update based on selected table
              ),
              
-             # Checkbox to enable/disable domain filtering
-             checkboxInput("filter_domain", "Filter by Domain?", value = FALSE),
-             
-             # Dropdown for domain, only visible if checkbox is selected
-             conditionalPanel(
-               condition = "input.filter_domain == true",
-               selectInput("exon_uniprot_domain", 
-                           "Select Domain:", 
-                           choices = NULL)  # Will update based on selected table
-             ),
-             
              # Checkbox to enable/disable sample PSI filtering
              checkboxInput("filter_psi", "Filter by Sample PSI?", value = FALSE),
              
@@ -111,6 +103,28 @@ ui <- fluidPage(
              conditionalPanel(
                condition = "input.filter_coverage == true",
                textInput("coverage", "Enter Minimum Coverage:")
+             ),
+             
+             # Checkbox to enable/disable consequence filtering
+             checkboxInput("filter_exon_preference", "Filter by Exon Differential Expression?", value = FALSE),
+             
+             # Dropdown for consequence, only visible if checkbox is selected
+             conditionalPanel(
+               condition = "input.filter_exon_preference == true",
+               selectInput("exon_preference", 
+                           "Select Category:", 
+                           choices = NULL)  # Will update based on selected table
+             ),
+             
+             # Checkbox to enable/disable consequence filtering
+             checkboxInput("filter_exon_specificity", "Filter by Exon Specificity?", value = FALSE),
+             
+             # Dropdown for consequence, only visible if checkbox is selected
+             conditionalPanel(
+               condition = "input.filter_exon_specificity == true",
+               selectInput("exon_specificity", 
+                           "Select Specificity:", 
+                           choices = NULL)  # Will update based on selected table
              ),
              
              # Checkbox to enable/disable Gene Symbol filtering
@@ -135,6 +149,9 @@ ui <- fluidPage(
              htmlOutput("selected_splice_id"),  # For bold splice_id
              fluidRow(
                column(12, plotOutput("combined_plot"))  # Display the combined plot
+             ),
+             fluidRow(
+               column(12, plotOutput("combined_expr_plot"))  # Display the combined plot
              ),
              plotOutput("gene_model_plot", height = "800px") # Add plotOutput for the gene model
            )
@@ -164,8 +181,10 @@ server <- function(input, output, session) {
     updateSelectInput(session, "preference", choices = unique(selectedData()$preference))
     updateSelectInput(session, "specificity", choices = unique(selectedData()$specificity))
     updateSelectInput(session, "consequence", choices = unique(selectedData()$consequence))
-    updateSelectInput(session, "exon_uniprot_domain", choices = unique(selectedData()$exon_uniprot_domain))
+    updateSelectInput(session, "exon_preference", choices = unique(selectedData()$exon_preference))
+    updateSelectInput(session, "exon_specificity", choices = unique(selectedData()$exon_specificity))
     
+
     # Update the slider range based on psi values in the selected table
     updateSliderInput(session, "psi_range", 
                       min = min(selectedData()$psi, na.rm = TRUE), 
@@ -191,12 +210,7 @@ server <- function(input, output, session) {
     if (input$filter_consequence) {
       filtered <- filtered[filtered$consequence == input$consequence, ]
     }
-    
-    # Apply preference filter if checkbox is selected
-    if (input$filter_domain) {
-      filtered <- filtered[filtered$exon_uniprot_domain == input$exon_uniprot_domain, ]
-    }
-    
+
     # Apply PSI range filter if checkbox is selected
     if (input$filter_psi) {
       filtered <- filtered[filtered$psi >= input$psi_range[1] & filtered$psi <= input$psi_range[2], ]
@@ -207,6 +221,16 @@ server <- function(input, output, session) {
       min_coverage <- as.numeric(input$coverage)
       # Filter rows where gene_symbol is found within the splice_id column
       filtered <- filtered[filtered$IJ_coverage + filtered$SJ_coverage >= min_coverage, ]
+    }
+    
+    # Apply exon preference filter if checkbox is selected
+    if (input$filter_exon_preference) {
+      filtered <- filtered[filtered$exon_preference == input$exon_preference, ]
+    }
+    
+    # Apply exon specificity filter if checkbox is selected
+    if (input$filter_exon_specificity) {
+      filtered <- filtered[filtered$exon_specificity == input$exon_specificity, ]
     }
 
     # Apply gene symbol filter if checkbox is selected
@@ -259,7 +283,7 @@ server <- function(input, output, session) {
         labs(title = NULL,
              x = NULL,
              y = "PSI") +
-        ylim(c(-0.05, 1.1)) +
+        ylim(c(-0.1, 1.15)) +
         theme_Publication()
       
       # Create the avg values bar plot
@@ -289,19 +313,18 @@ server <- function(input, output, session) {
       combined_data$Avg_Variable <- factor(combined_data$Avg_Variable, levels = combined_data$Avg_Variable)
       
       
-      avg_values_plot <- ggplot(combined_data, aes(x = Avg_Variable, y = Value, fill = cohort)) +
+      ctrl_psi_plot <- ggplot(combined_data, aes(x = Avg_Variable, y = Value, fill = cohort)) +
         geom_bar(stat = "identity") +
         geom_errorbar(aes(ymin = Value - Stdev, ymax = Value + Stdev), width = 0.2, color = "black") +
         labs(title = NULL, x = NULL, y = "PSI") +
         theme_minimal() +
-        ylim(c(-0.05, 1.1)) +
-       # theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+        ylim(c(-0.1, 1.15)) +
         theme_Publication() +
         theme(axis.text.x = element_text(angle = 45, hjust = 1))
       
       # Use ggarrange to align the two plots side by side
       combined_plot <- ggpubr::ggarrange(psi_plot + theme(plot.margin = unit(c(0.5, 0.1, 0.1, 0.1), "cm")),   # Adjust margins
-                                         avg_values_plot + theme(plot.margin = unit(c(0.5, 0.1, 0.1, 0.1), "cm")), # Adjust margins
+                                             ctrl_psi_plot + theme(plot.margin = unit(c(0.5, 0.1, 0.1, 0.1), "cm")), # Adjust margins
                                          ncol = 2, align = "h",
                                          widths = c(0.15, 0.85))
       annotate_figure(combined_plot, top = text_grob(selected_splice_id, 
@@ -315,6 +338,100 @@ server <- function(input, output, session) {
   # Plot output
   output$combined_plot <- renderPlot({
     combined_plot()  # Call the reactive expression
+  })
+  
+  
+  # Reactive expression to generate combined_plot
+  combined_expr_plot <- reactive({
+    selected_row <- input$filteredTable_rows_selected  # Get the selected row index
+    if (length(selected_row) > 0) {
+      selected_data <- filteredData()[selected_row, ]
+      selected_exon_start <- selected_data$exon_start
+      selected_exon_end <- selected_data$exon_end
+      selected_splice_id <- selected_data$splice_id
+
+      # Filter data for psi plot
+      all_rows_with_splice_id <- filteredData()[filteredData()$splice_id == selected_splice_id, ]
+      
+      # Filter exon ct data
+      filtered_cts <- exon_ct_df %>%
+        dplyr::filter(exonStart_0base == selected_exon_start,
+                      exonEnd == selected_exon_end,
+                      sample_id %in% all_rows_with_splice_id$sample_id)
+      
+      # Dynamic label for x-axis based on the user's table choice (histology)
+      filtered_cts$histology_label <- switch(input$table_choice,
+                                                        "data_atrt" = "ATRT",
+                                                        "data_dmg" = "DMG",
+                                                        "data_hgg" = "HGG")
+      
+      # Create the avg values bar plot
+     # avg_data <- filteredData()[filteredData()$splice_id == selected_splice_id, ]
+      filtered_cts_first_row <- filtered_cts[1, ]
+      
+      avg_columns <- filtered_cts_first_row %>% select(ends_with("_avg"), contains("SRR"))
+      stdev_columns <- filtered_cts_first_row %>% select(ends_with("_stdev"))
+      
+      avg_long <- pivot_longer(avg_columns, cols = everything(), names_to = "Avg_Variable", values_to = "Value")
+      stdev_long <- pivot_longer(stdev_columns, cols = everything(), names_to = "Stdev_Variable", values_to = "Stdev")
+      
+      avg_long$Avg_Variable <- gsub("_avg", "", avg_long$Avg_Variable)
+      stdev_long$Stdev_Variable <- gsub("_stdev", "", stdev_long$Stdev_Variable)
+      
+      combined_data <- left_join(avg_long, stdev_long, by = c("Avg_Variable" = "Stdev_Variable"))
+      combined_data$cohort <- ifelse(grepl("Brain", combined_data$Avg_Variable), "GTEx", 
+                                     ifelse(grepl("Forebrain|Hindbrain", combined_data$Avg_Variable), 
+                                            "Evo-Devo", 
+                                            ifelse(grepl("pediatrics|SRR", combined_data$Avg_Variable), 
+                                                   "PedBrain", "Cell type")))
+      
+      combined_data <- combined_data %>%
+        dplyr::arrange(cohort)
+      
+      combined_data$Avg_Variable <- gsub("Brain - ", "", combined_data$Avg_Variable)
+      combined_data$Avg_Variable <- factor(combined_data$Avg_Variable, levels = combined_data$Avg_Variable)
+      
+      max_y <- max(c(filtered_cts$norm_exon_coverage,
+                     combined_data$Value),
+                   na.rm = TRUE) * 1.25
+      
+      # Create the psi box plot
+      expr_plot <- ggplot(filtered_cts, aes(x = histology_label, 
+                                            y = norm_exon_coverage)) +
+        geom_boxplot(fill = "lightblue", alpha = 0.5, outlier.shape = NA) +  # Transparent box plot
+        geom_jitter(width = 0.2, height = 0, color = "darkblue", alpha = 0.7) +  # Jittered individual points
+        labs(title = NULL,
+             x = NULL,
+             y = "Normalized Exon Expr.") +
+        ylim(c(0, max_y)) +
+        theme_Publication()
+      
+      
+      ctrl_expr_plot <- ggplot(combined_data, aes(x = Avg_Variable, y = Value, fill = cohort)) +
+        geom_bar(stat = "identity") +
+        geom_errorbar(aes(ymin = Value - Stdev, ymax = Value + Stdev), width = 0.2, color = "black") +
+        labs(title = NULL, x = NULL, y = "Normalized Exon Expr.") +
+        ylim(c(0, max_y)) +
+        theme_Publication() +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))
+      
+      # Use ggarrange to align the two plots side by side
+      combined_expr_plot <- ggpubr::ggarrange(expr_plot + theme(plot.margin = unit(c(0.5, 0.1, 0.1, 0.1), "cm")),   # Adjust margins
+                                              ctrl_expr_plot + theme(plot.margin = unit(c(0.5, 0.1, 0.1, 0.1), "cm")), # Adjust margins
+                                         ncol = 2, align = "h",
+                                         widths = c(0.15, 0.85))
+      combined_expr_plot
+      # annotate_figure(combined_plot, top = text_grob(selected_splice_id, 
+      #                                                color = "black", face = "bold", 
+      #                                                size = 14, hjust = 0, x = 0))
+    } else {
+      NULL  # If no splice_id is selected, don't plot anything
+    }
+  })
+  
+  # Plot output
+  output$combined_expr_plot <- renderPlot({
+    combined_expr_plot()  # Call the reactive expression
   })
   
   # Download handler for the plot
