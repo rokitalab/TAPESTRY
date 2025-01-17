@@ -25,7 +25,7 @@ data_dmg <- read_tsv(file.path(root_dir, "input",
 data_hgg <- read_tsv(file.path(root_dir, "input", 
                                "hgg-splice-targets-plus-controls.tsv"))
 gtf_df <- read_tsv(file.path(root_dir, "input", 
-                               "gencode.v39.primary_assembly.target-filtered.tsv"))
+                               "gencode.v39.primary_assembly.annotation.target-filtered.tsv.gz"))
 
 exon_ct_df <- read_tsv(file.path(root_dir, "input",
                                  "merged-tumor-specific-splice-event-exon-cts.tsv"))
