@@ -21,7 +21,7 @@ root_dir <- rprojroot::find_root(rprojroot::has_dir(".git"))
 data_atrt <- read_tsv(file.path(root_dir, "input", 
                                 "atrt-splice-targets-plus-controls.tsv"))
 data_dmg <- read_tsv(file.path(root_dir, "input", 
-                               "shiny_splice_input_plus_expression.tsv"))
+                               "dmg-splice-targets-plus-controls.tsv"))
 data_hgg <- read_tsv(file.path(root_dir, "input", 
                                "hgg-splice-targets-plus-controls.tsv"))
 gtf_df <- read_tsv(file.path(root_dir, "input", 
