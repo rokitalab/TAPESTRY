@@ -283,7 +283,7 @@ server <- function(input, output, session) {
         labs(title = NULL,
              x = NULL,
              y = "PSI") +
-        ylim(c(-0.1, 1.15)) +
+        coord_cartesian(ylim = c(0, 1)) +
         theme_Publication()
       
       # Create the avg values bar plot
@@ -318,9 +318,9 @@ server <- function(input, output, session) {
         geom_errorbar(aes(ymin = Value - Stdev, ymax = Value + Stdev), width = 0.2, color = "black") +
         labs(title = NULL, x = NULL, y = "PSI") +
         theme_minimal() +
-        ylim(c(-0.1, 1.15)) +
+        coord_cartesian(ylim = c(0, 1)) +
         theme_Publication() +
-        theme(axis.text.x = element_text(angle = 45, hjust = 1))
+        theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10))
       
       # Use ggarrange to align the two plots side by side
       combined_plot <- ggpubr::ggarrange(psi_plot + theme(plot.margin = unit(c(0.5, 0.1, 0.1, 0.1), "cm")),   # Adjust margins
@@ -403,7 +403,7 @@ server <- function(input, output, session) {
         labs(title = NULL,
              x = NULL,
              y = "Normalized Exon Expr.") +
-        ylim(c(0, max_y)) +
+        coord_cartesian(ylim = c(0, max_y)) +
         theme_Publication()
       
       
@@ -411,9 +411,9 @@ server <- function(input, output, session) {
         geom_bar(stat = "identity") +
         geom_errorbar(aes(ymin = Value - Stdev, ymax = Value + Stdev), width = 0.2, color = "black") +
         labs(title = NULL, x = NULL, y = "Normalized Exon Expr.") +
-        ylim(c(0, max_y)) +
+        coord_cartesian(ylim = c(0, max_y)) +
         theme_Publication() +
-        theme(axis.text.x = element_text(angle = 45, hjust = 1))
+        theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10))
       
       # Use ggarrange to align the two plots side by side
       combined_expr_plot <- ggpubr::ggarrange(expr_plot + theme(plot.margin = unit(c(0.5, 0.1, 0.1, 0.1), "cm")),   # Adjust margins
