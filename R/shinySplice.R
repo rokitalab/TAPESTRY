@@ -34,7 +34,7 @@ pbta_exon_ct_df <- readRDS(file.path(root_dir, "input",
                                          "pbta-tumor-specific-oncofetal-normalized-exon-coverage.RDS"))
 
 gtf_df <- read_tsv(file.path(root_dir, "input", 
-                               "gencode.v39.primary_assembly.annotation.target-filtered.tsv.gz"))
+                               "gencode.v39.primary_assembly.annotation.tsv.gz"))
 
 plot_mapping <- read_tsv(file.path(root_dir, "input", 
                                    "plot-mapping.tsv"))
