@@ -18,16 +18,19 @@ if(!require("ggpubr")) install.packages("ggpubr")
 root_dir <- rprojroot::find_root(rprojroot::has_dir(".git"))
 
 # Load data
-ts_of_splice_events <- readRDS(file.path(root_dir, "input", 
+display_df <- readRDS(file.path(root_dir, "input", 
                                 "shiny_splice_input_plus_expression.RDS"))
 
-exon_ct_df <- readRDS(file.path(root_dir, "input",
-                                 "merged-tumor-specific-splice-event-exon-cts.RDS"))
+ctrl_psi_df <- readRDS(file.path(root_dir, "input", 
+                                 "tumor-specific-splice-event-ctrl-psis.RDS"))
 
-pbta_ts_of_psis <- readRDS(file.path(root_dir, "input", 
+ctrl_exon_ct_df <- readRDS(file.path(root_dir, "input",
+                                 "tumor-specific-splice-event-ctrl-exon-cts.RDS"))
+
+pbta_psi_df <- readRDS(file.path(root_dir, "input", 
                                       "pbta-tumor-specific-oncofetal-splice-event-psis.RDS"))
 
-pbta_ts_of_exon_df <- readRDS(file.path(root_dir, "input", 
+pbta_exon_ct_df <- readRDS(file.path(root_dir, "input", 
                                          "pbta-tumor-specific-oncofetal-normalized-exon-coverage.RDS"))
 
 gtf_df <- read_tsv(file.path(root_dir, "input", 
@@ -171,21 +174,21 @@ ui <- fluidPage(
              ),
              fluidRow(
                column(12, plotOutput("histology_expr_plot"))  # Display the combined plot
-             )
-           #   plotOutput("gene_model_plot", height = "800px") # Add plotOutput for the gene model
+             ),
+             plotOutput("gene_model_plot", height = "800px") # Add plotOutput for the gene model
             )
     )
   ),
   
-  downloadButton("download_psi_plot", "Download PSI Plot")  # Add a download button for PSI plot
- # downloadButton("download_gene_plot", "Download Gene Plot")
+  downloadButton("download_psi_plot", "Download PSI Plot"),  # Add a download button for PSI plot
+  downloadButton("download_gene_plot", "Download Gene Plot")
 )
 
 # Define server logic
 server <- function(input, output, session) {
   
   selectedData <- reactive({
-    ts_of_splice_events
+    display_df
   })
   
   # Update the preference choices based on the selected table
@@ -313,11 +316,12 @@ server <- function(input, output, session) {
         theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 12))
       
       # Create the avg values bar plot
-      avg_data <- filteredData()[filteredData()$splice_id == selected_splice_id, ]
-      avg_data_first_row <- avg_data[1, ]
+     # avg_data <- filteredData()[filteredData()$splice_id == selected_splice_id, ]
+      avg_data <- ctrl_psi_df[ctrl_psi_df$splice_id == selected_splice_id, ]
+     # avg_data_first_row <- avg_data[1, ]
       
-      avg_columns <- avg_data_first_row %>% dplyr::select(ends_with("_avg") & !contains("dPSI"), contains("SRR"))
-      stdev_columns <- avg_data_first_row %>% dplyr::select(ends_with("_stdev"))
+      avg_columns <- avg_data %>% dplyr::select(ends_with("_avg"), contains("SRR"))
+      stdev_columns <- avg_data %>% dplyr::select(ends_with("_stdev"))
       
       avg_long <- pivot_longer(avg_columns, cols = everything(), names_to = "Avg_Variable", values_to = "Value")
       stdev_long <- pivot_longer(stdev_columns, cols = everything(), names_to = "Stdev_Variable", values_to = "Stdev")
@@ -329,7 +333,7 @@ server <- function(input, output, session) {
       combined_data$cohort <- ifelse(grepl("Brain", combined_data$Avg_Variable), "GTEx", 
                                      ifelse(grepl("Forebrain|Hindbrain", combined_data$Avg_Variable), 
                                             "Evo-Devo", 
-                                            ifelse(grepl("pediatrics|SRR", combined_data$Avg_Variable), 
+                                            ifelse(grepl("GSE|SRR", combined_data$Avg_Variable), 
                                                    "PedBrain", "Cell type")))
       
       combined_data <- combined_data %>%
@@ -375,24 +379,27 @@ server <- function(input, output, session) {
       selected_exon_start <- selected_data$exon_start
       selected_exon_end <- selected_data$exon_end
       selected_splice_id <- selected_data$splice_id
+      selected_gene <- selected_data$gene_symbol
 
       # Filter data for psi plot
       all_rows_with_splice_id <- filteredData()[filteredData()$splice_id == selected_splice_id, ]
       
       # Filter exon ct data
-      filtered_cts <- exon_ct_df %>%
-        dplyr::filter(exonStart_0base == selected_exon_start,
-                      exonEnd == selected_exon_end,
+      tumor_cts <- all_rows_with_splice_id %>%
+        dplyr::filter(exon_start == selected_exon_start,
+                      exon_end == selected_exon_end,
                       sample_id %in% all_rows_with_splice_id$sample_id) %>%
         dplyr::mutate(histology_label = case_when(
           selected_data$histology == "Atypical Teratoid Rhabdoid Tumor" ~ "ATRT",
-          TRUE ~ selected_data$histology))      
-      # Create the avg values bar plot
-     # avg_data <- filteredData()[filteredData()$splice_id == selected_splice_id, ]
-      filtered_cts_first_row <- filtered_cts[1, ]
+          TRUE ~ selected_data$histology))  
       
-      avg_columns <- filtered_cts_first_row %>% dplyr::select(ends_with("_avg"), contains("SRR"))
-      stdev_columns <- filtered_cts_first_row %>% dplyr::select(ends_with("_stdev"))
+      ctrl_cts <- ctrl_exon_ct_df %>%
+        dplyr::filter(geneSymbol == selected_gene,
+                      exonStart_0base == selected_exon_start,
+                      exonEnd == selected_exon_end)
+      
+      avg_columns <- ctrl_cts %>% dplyr::select(ends_with("_avg"), contains("SRR"))
+      stdev_columns <- ctrl_cts %>% dplyr::select(ends_with("_stdev"))
       
       avg_long <- pivot_longer(avg_columns, cols = everything(), names_to = "Avg_Variable", values_to = "Value")
       stdev_long <- pivot_longer(stdev_columns, cols = everything(), names_to = "Stdev_Variable", values_to = "Stdev")
@@ -404,7 +411,7 @@ server <- function(input, output, session) {
       combined_data$cohort <- ifelse(grepl("Brain", combined_data$Avg_Variable), "GTEx", 
                                      ifelse(grepl("Forebrain|Hindbrain", combined_data$Avg_Variable), 
                                             "Evo-Devo", 
-                                            ifelse(grepl("pediatrics|SRR", combined_data$Avg_Variable), 
+                                            ifelse(grepl("GSE|SRR", combined_data$Avg_Variable), 
                                                    "PedBrain", "Cell type")))
       
       combined_data <- combined_data %>%
@@ -413,12 +420,12 @@ server <- function(input, output, session) {
       combined_data$Avg_Variable <- gsub("Brain - ", "", combined_data$Avg_Variable)
       combined_data$Avg_Variable <- factor(combined_data$Avg_Variable, levels = combined_data$Avg_Variable)
       
-      max_y <- max(c(filtered_cts$norm_exon_coverage,
+      max_y <- max(c(tumor_cts$norm_exon_coverage,
                      combined_data$Value),
                    na.rm = TRUE) * 1.25
       
       # Create the psi box plot
-      expr_plot <- ggplot(filtered_cts, aes(x = histology_label, 
+      expr_plot <- ggplot(tumor_cts, aes(x = histology_label, 
                                             y = norm_exon_coverage)) +
         geom_boxplot(fill = "lightblue", alpha = 0.5, outlier.shape = NA) +  # Transparent box plot
         geom_jitter(width = 0.2, height = 0, color = "darkblue", alpha = 0.7) +  # Jittered individual points
@@ -467,10 +474,9 @@ server <- function(input, output, session) {
       all_rows_with_splice_id <- filteredData()[filteredData()$splice_id == selected_splice_id, ]
       
       # Filter exon ct data
-      filtered_psi <- pbta_ts_of_psis %>%
+      filtered_psi <- pbta_psi_df %>%
         dplyr::select(sample_id, histology, selected_splice_id) %>%
         dplyr::rename(psi = selected_splice_id) %>%
-     #   dplyr::filter(splice_id %in% selected_splice_id) %>%
         dplyr::mutate(histology = case_when(
           histology == "Atypical Teratoid Rhabdoid Tumor" ~ "ATRT",
           TRUE ~ histology
@@ -522,17 +528,12 @@ server <- function(input, output, session) {
     selected_row <- input$filteredTable_rows_selected  # Get the selected row index
     if (length(selected_row) > 0) {
       selected_data <- filteredData()[selected_row, ]
-      selected_exon_start <- selected_data$exon_start
-      selected_exon_end <- selected_data$exon_end
-      selected_splice_id <- selected_data$splice_id
-      
-      # Filter data for psi plot
-      all_rows_with_splice_id <- filteredData()[filteredData()$splice_id == selected_splice_id, ]
-      
+      selected_exon_id <- selected_data$exon_id
+
       # Filter exon ct data
-      filtered_cts <- pbta_ts_of_exon_df %>%
-        dplyr::filter(exonStart_0base == selected_exon_start,
-                      exonEnd == selected_exon_end) %>%
+      filtered_cts <- pbta_exon_ct_df %>%
+        dplyr::select(sample_id, histology, selected_exon_id) %>%
+        dplyr::rename(norm_exon_coverage = selected_exon_id) %>%
         dplyr::mutate(histology = case_when(
           histology == "Atypical Teratoid Rhabdoid Tumor" ~ "ATRT",
           TRUE ~ histology
@@ -590,106 +591,103 @@ server <- function(input, output, session) {
     }
   )
   
-  # reactive expression to plot gene model
-  # gene_model_plot <- reactive({
-  #   selected_row <- input$filteredTable_rows_selected  
-  #   if (length(selected_row) > 0) {
-  #     selected_data <- filteredData()[selected_row, ]
-  #     gene <- selected_data$gene_symbol  # Extract gene_symbol
-  #     selected_splice_id <- selected_data$splice_id
-  #     
-  #     gene_gtf <- gtf_df %>%
-  #       dplyr::filter(gene_name == gene, type == "exon") %>%
-  #       dplyr::rename(exon_start = start, exon_end = end) %>%
-  #       arrange(desc(exon_start)) %>%
-  #       distinct(exon_start, exon_end, .keep_all = TRUE)
-  #     
-  #     exon_coords <- as.numeric(unlist(str_extract_all(sub("^[^_]*_", "", selected_splice_id), "\\d+")))
-  #     
-  #     # First, third, and fifth are exon starts; second, fourth, and sixth are exon ends
-  #     exon_starts <- c(exon_coords[1], as.character(as.numeric(exon_coords[c(3, 5)]) + 1))
-  #     exon_ends <- exon_coords[c(2, 4, 6)]
-  #     
-  #     # Filter GTF to get the exons matching the extracted coordinates
-  #     highlighted_exons <- gtf_df %>%
-  #       dplyr::filter(gene_name == gene,
-  #                     type == "exon",
-  #                     (start %in% exon_starts) & (end %in% exon_ends)) %>%
-  #       dplyr::mutate(highlight = TRUE)
-  #     
-  #     # Add a 'highlight' column to gene_gtf for plotting
-  #     gene_gtf <- gene_gtf %>%
-  #       mutate(highlight = ifelse((exon_start %in% exon_starts) & (exon_end %in% exon_ends), TRUE, FALSE))
-  #     
-  #     chr <- unique(gene_gtf$seqnames)
-  #     
-  #     transcript_lines <- gene_gtf %>%
-  #       group_by(transcript_name) %>%
-  #       summarize(leftmost = min(exon_start), rightmost = max(exon_end))
-  #     
-  #     gene_model_plot <- ggplot(gene_gtf) +
-  #       # Existing exon rectangles
-  #       geom_rect(aes(xmin = exon_start, xmax = exon_end, ymin = 0, ymax = 1), 
-  #                 color = "black", fill = "black") +
-  #       
-  #       # Add arrows above the selected exons
-  #       geom_segment(data = gene_gtf %>% filter(exon_start %in% exon_starts & exon_end %in% exon_ends),
-  #                    aes(x = (exon_start+exon_end)/2, xend = (exon_start+exon_end)/2, y = 1.25, yend = 1.05),  # Place the arrows slightly above y=1
-  #                    arrow = arrow(length = unit(0.2, "cm")),  # Customize arrow size
-  #                    color = "red", size = 1) +  # Customize arrow color and size
-  #       
-  #       labs(x = NULL, y = NULL, title = NULL) +
-  #       xlim(c(min(gene_gtf$exon_start) - 100, max(gene_gtf$exon_end) + 100)) +
-  #       ylim(0, 1.25) +  # Increase y limit to make space for arrows
-  #       facet_wrap(~gene_name, strip.position = "left") +
-  #       theme_classic() +
-  #       theme(axis.text.y = element_blank(),
-  #             axis.ticks.y = element_blank(),
-  #             axis.text.x = element_blank(),
-  #             axis.ticks.x = element_blank(),
-  #             strip.text.y.left = element_text(angle = 0))
-  #     
-  #     transcript_plot <- ggplot(gene_gtf) +
-  #       geom_segment(data = transcript_lines, 
-  #                    aes(x = leftmost, xend = rightmost, y = 0.5, yend = 0.5),
-  #                    color = "black", size = 0.5) +
-  #       geom_rect(aes(xmin = exon_start, xmax = exon_end, 
-  #                     ymin = 0, ymax = 1,
-  #                     color = transcript_type,
-  #                     fill = transcript_type)) +
-  #       scale_fill_manual(values = c("protein_coding" = "goldenrod", "nonsense_mediated_decay" = "blue3",
-  #                                    "retained_intron" = "gray", "processed_transcript" = "green3")) +
-  #       scale_color_manual(values = c("protein_coding" = "goldenrod", "nonsense_mediated_decay" = "blue3",
-  #                                    "retained_intron" = "gray", "processed_transcript" = "green3")) +
-  #       labs(x = glue::glue("{chr} position"), y = NULL, title = NULL,
-  #            fill = "Transcript type", color = "Transcript type") +
-  #       facet_wrap(~transcript_name, ncol = 1, strip.position = "left") +
-  #       xlim(c(min(gene_gtf$exon_start) - 100, max(gene_gtf$exon_end) + 100)) +
-  #       ylim(0,1) +
-  #       theme_classic() +
-  #       theme(axis.text.y = element_blank(),
-  #             axis.ticks.y = element_blank(),
-  #             strip.text.y.left = element_text(angle = 0))
-  #     
-  #     ggarrange(gene_model_plot, transcript_plot, ncol = 1, common.legend = TRUE, 
-  #               legend = "bottom", heights = c(0.1, 0.9), align = "v")
-  #   }
-  # })
-  # 
-  # # Plot gene model
-  # output$gene_model_plot <- renderPlot({
-  #   gene_model_plot()  # Call the reactive expression
-  # })
-  # 
-  # # Download handler for the gene model plot
-  # output$download_gene_plot <- downloadHandler(
-  #   filename = function() {
-  #     paste("plot_", Sys.Date(), ".pdf", sep = "")
-  #   },
-  #   content = function(file) {
-  #     ggsave(file, plot = gene_model_plot(), device = "pdf", width = 12, height = 10)
-  #   }
-  # )
+#  reactive expression to plot gene model
+  gene_model_plot <- reactive({
+    selected_row <- input$filteredTable_rows_selected
+    if (length(selected_row) > 0) {
+      selected_data <- filteredData()[selected_row, ]
+      gene <- selected_data$gene_symbol  # Extract gene_symbol
+      selected_splice_id <- selected_data$splice_id
+
+      gene_gtf <- gtf_df %>%
+        dplyr::filter(gene_name == gene, type == "exon") %>%
+        dplyr::rename(exon_start = start, exon_end = end) %>%
+        arrange(desc(exon_start)) %>%
+        distinct(exon_start, exon_end, transcript_name, .keep_all = TRUE)
+
+      exon_coords <- as.numeric(unlist(str_extract_all(sub("^[^_]*_", "", selected_splice_id), "\\d+")))
+
+      # First, third, and fifth are exon starts; second, fourth, and sixth are exon ends
+      exon_starts <- c(exon_coords[1], as.character(as.numeric(exon_coords[c(3, 5)]) + 1))
+      exon_ends <- exon_coords[c(2, 4, 6)]
+      
+      exon_coords <- c(glue::glue("{exon_starts[1]}:{exon_ends[1]}"),
+                       glue::glue("{exon_starts[2]}:{exon_ends[2]}"),
+                       glue::glue("{exon_starts[3]}:{exon_ends[3]}"))
+
+      # Add a 'highlight' column to gene_gtf for plotting
+      gene_gtf <- gene_gtf %>%
+        mutate(highlight = ifelse(glue::glue("{exon_start}:{exon_end}") %in% exon_coords, TRUE, FALSE))
+      
+      chr <- unique(gene_gtf$seqnames)
+
+      transcript_lines <- gene_gtf %>%
+        group_by(transcript_name) %>%
+        summarize(leftmost = min(exon_start), rightmost = max(exon_end))
+
+      gene_model_plot <- ggplot(gene_gtf) +
+        # Existing exon rectangles
+        geom_rect(aes(xmin = exon_start, xmax = exon_end, ymin = 0, ymax = 1),
+                  color = "black", fill = "black") +
+
+        # Add arrows above the selected exons
+        geom_segment(data = gene_gtf %>% filter(highlight == TRUE),
+                     aes(x = (exon_start+exon_end)/2, xend = (exon_start+exon_end)/2, y = 1.25, yend = 1.05),  # Place the arrows slightly above y=1
+                     arrow = arrow(length = unit(0.2, "cm")),  # Customize arrow size
+                     color = "red", size = 1) +  # Customize arrow color and size
+
+        labs(x = NULL, y = NULL, title = NULL) +
+        xlim(c(min(gene_gtf$exon_start) - 100, max(gene_gtf$exon_end) + 100)) +
+        ylim(0, 1.25) +  # Increase y limit to make space for arrows
+        facet_wrap(~gene_name, strip.position = "left") +
+        theme_classic() +
+        theme(axis.text.y = element_blank(),
+              axis.ticks.y = element_blank(),
+              axis.text.x = element_blank(),
+              axis.ticks.x = element_blank(),
+              strip.text.y.left = element_text(angle = 0))
+
+      transcript_plot <- ggplot(gene_gtf) +
+        geom_segment(data = transcript_lines,
+                     aes(x = leftmost, xend = rightmost, y = 0.5, yend = 0.5),
+                     color = "black", size = 0.5) +
+        geom_rect(aes(xmin = exon_start, xmax = exon_end,
+                      ymin = 0, ymax = 1,
+                      color = transcript_type,
+                      fill = transcript_type)) +
+        scale_fill_manual(values = c("protein_coding" = "goldenrod", "nonsense_mediated_decay" = "blue3",
+                                     "retained_intron" = "gray", "processed_transcript" = "green3")) +
+        scale_color_manual(values = c("protein_coding" = "goldenrod", "nonsense_mediated_decay" = "blue3",
+                                     "retained_intron" = "gray", "processed_transcript" = "green3")) +
+        labs(x = glue::glue("{chr} position"), y = NULL, title = NULL,
+             fill = "Transcript type", color = "Transcript type") +
+        facet_wrap(~transcript_name, ncol = 1, strip.position = "left") +
+        xlim(c(min(gene_gtf$exon_start) - 100, max(gene_gtf$exon_end) + 100)) +
+        ylim(0,1) +
+        theme_classic() +
+        theme(axis.text.y = element_blank(),
+              axis.ticks.y = element_blank(),
+              strip.text.y.left = element_text(angle = 0))
+
+      ggarrange(gene_model_plot, transcript_plot, ncol = 1, common.legend = TRUE,
+                legend = "bottom", heights = c(0.1, 0.9), align = "v")
+    }
+  })
+
+  # Plot gene model
+  output$gene_model_plot <- renderPlot({
+    gene_model_plot()  # Call the reactive expression
+  })
+
+  # Download handler for the gene model plot
+  output$download_gene_plot <- downloadHandler(
+    filename = function() {
+      paste("plot_", Sys.Date(), ".pdf", sep = "")
+    },
+    content = function(file) {
+      ggsave(file, plot = gene_model_plot(), device = "pdf", width = 12, height = 10)
+    }
+  )
   
 }
 
