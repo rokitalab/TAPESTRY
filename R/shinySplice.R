@@ -212,11 +212,12 @@ server <- function(input, output, session) {
                ),
                fluidRow(
                  column(12, plotOutput("histology_expr_plot"))  # Display the combined plot
-               )
-               #   plotOutput("gene_model_plot", height = "800px") # Add plotOutput for the gene model
+               ),
+               fluidRow(
+                 column(12, plotOutput("gene_model_plot", height = "800px")) # Add plotOutput for the gene model
              )
       )
-    ),
+    )),
     
     downloadButton("download_psi_plot", "Download PSI Plot")  # Add a download button for PSI plot
     # downloadButton("download_gene_plot", "Download Gene Plot")
