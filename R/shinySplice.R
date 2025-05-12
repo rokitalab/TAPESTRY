@@ -10,12 +10,17 @@
 
 # Load libraries  
 if(!require("shiny")) install.packages("shiny")
+if(!require("shinymanager")) install.packages("shinymanager")
+if(!require("sodium")) install.packages("sodium")
 if(!require("rprojroot")) install.packages("rprojroot")
 if(!require("tidyverse")) install.packages("tidyverse")
 if(!require("DT")) install.packages("DT")
 if(!require("ggpubr")) install.packages("ggpubr")
 
 root_dir <- rprojroot::find_root(rprojroot::has_dir(".git"))
+
+user_base <- readRDS(file.path(root_dir, "input",
+                               "users.RDS"))
 
 # Load data
 ts_of_splice_events <- readRDS(file.path(root_dir, "input", 
@@ -44,145 +49,178 @@ source(file.path(root_dir, "input",
 ui <- fluidPage(
   
   # Application title
-  titlePanel("Query tumor-specific splice variants"),
-  
-  # Create a fluid layout
-  fluidRow(
-    # Sidebar with inputs for filtering, placed in one column
-    column(12, 
-           sidebarPanel(
-             
-             # Checkbox to enable/disable preference filtering
-             checkboxInput("filter_histology", "Filter by Histology?", value = FALSE),
-             
-             # Dropdown for histology, only visible if checkbox is selected
-             conditionalPanel(
-               condition = "input.filter_histology == true",
-               selectInput("histology", 
-                           "Select Histology:", 
-                           choices = NULL)  # Will update based on selected table
-             ),
-             
-             # Checkbox to enable/disable preference filtering
-             checkboxInput("filter_preference", "Filter by Preference?", value = FALSE),
-             
-             # Dropdown for preference, only visible if checkbox is selected
-             conditionalPanel(
-               condition = "input.filter_preference == true",
-               selectInput("preference", 
-                           "Select Preference:", 
-                           choices = NULL)  # Will update based on selected table
-             ),
-             
-             # Checkbox to enable/disable specificity filtering
-             checkboxInput("filter_specificity", "Filter by Specificity?", value = FALSE),
-             
-             # Dropdown for specificity, only visible if checkbox is selected
-             conditionalPanel(
-               condition = "input.filter_specificity == true",
-               selectInput("specificity", 
-                           "Select Specificity:", 
-                           choices = NULL)  # Will update based on selected table
-             ),
-             
-             # Checkbox to enable/disable consequence filtering
-             checkboxInput("filter_consequence", "Filter by Consequence?", value = FALSE),
-             
-             # Dropdown for consequence, only visible if checkbox is selected
-             conditionalPanel(
-               condition = "input.filter_consequence == true",
-               selectInput("consequence", 
-                           "Select Consequence:", 
-                           choices = NULL)  # Will update based on selected table
-             ),
-             
-             # Checkbox to enable/disable sample PSI filtering
-             checkboxInput("filter_psi", "Filter by Sample PSI?", value = FALSE),
-             
-             # Slider input for PSI range, visible if checkbox is selected
-             conditionalPanel(
-               condition = "input.filter_psi == true",
-               sliderInput("psi_range", 
-                           "PSI Range:", 
-                           min = 0, 
-                           max = 1,  # Will update based on selected table
-                           value = c(0, 1), 
-                           step = 0.01)
-             ),
-             
-             checkboxInput("filter_coverage", "Filter by Sample Junction Coverage?", value = FALSE),
-             
-             # Text input for Gene Symbol, visible if checkbox is selected
-             conditionalPanel(
-               condition = "input.filter_coverage == true",
-               textInput("coverage", "Enter Minimum Coverage:")
-             ),
-             
-             # Checkbox to enable/disable consequence filtering
-             checkboxInput("filter_exon_preference", "Filter by Exon Differential Expression?", value = FALSE),
-             
-             # Dropdown for consequence, only visible if checkbox is selected
-             conditionalPanel(
-               condition = "input.filter_exon_preference == true",
-               selectInput("exon_preference", 
-                           "Select Category:", 
-                           choices = NULL)  # Will update based on selected table
-             ),
-             
-             # Checkbox to enable/disable consequence filtering
-             checkboxInput("filter_exon_specificity", "Filter by Exon Specificity?", value = FALSE),
-             
-             # Dropdown for consequence, only visible if checkbox is selected
-             conditionalPanel(
-               condition = "input.filter_exon_specificity == true",
-               selectInput("exon_specificity", 
-                           "Select Specificity:", 
-                           choices = NULL)  # Will update based on selected table
-             ),
-             
-             # Checkbox to enable/disable Gene Symbol filtering
-             checkboxInput("filter_gene", "Filter by Gene Symbol?", value = FALSE),
-             
-             # Text input for Gene Symbol, visible if checkbox is selected
-             conditionalPanel(
-               condition = "input.filter_gene == true",
-               textInput("gene_symbol", "Enter Gene Symbol:")
-             )
-           )
-    )
-  ),
-  
-  # Show the filtered table and plots in another fluid row
-  fluidRow(
-    column(12, 
-           mainPanel(
-             DTOutput("filteredTable"),  # Use DT to render an interactive table
-             
-             # Display the selected splice_id and psi below the table
-             htmlOutput("selected_splice_id"),  # For bold splice_id
-             fluidRow(
-               column(12, plotOutput("combined_plot"))  # Display the combined plot
-             ),
-             fluidRow(
-               column(12, plotOutput("combined_expr_plot"))  # Display the combined plot
-             ),
-             fluidRow(
-               column(12, plotOutput("histology_psi_plot"))  # Display the combined plot
-             ),
-             fluidRow(
-               column(12, plotOutput("histology_expr_plot"))  # Display the combined plot
-             )
-           #   plotOutput("gene_model_plot", height = "800px") # Add plotOutput for the gene model
-            )
-    )
-  ),
-  
-  downloadButton("download_psi_plot", "Download PSI Plot")  # Add a download button for PSI plot
- # downloadButton("download_gene_plot", "Download Gene Plot")
+    titlePanel("Query tumor-specific splice variants"),
+    
+    shinyauthr::loginUI(id = "login"),
+      
+    shinyauthr::logoutUI(id = "logout"),
+    
+    # Dynamically show the app after login
+    uiOutput("main_content")
+    
 )
-
+   
 # Define server logic
 server <- function(input, output, session) {
+  
+  # Authentication module
+  credentials <- shinyauthr::loginServer(
+    id = "login",
+    data = user_base,
+    user_col = user,
+    pwd_col = password,
+    log_out = reactive(logout_init()),
+    sodium_hashed = TRUE
+  )
+
+  # Logout button
+  logout_init <- shinyauthr::logoutServer(
+    id = "logout",
+    active = reactive(credentials()$user_auth)
+  )
+  
+  # render ui content after successful login
+  output$main_content <- renderUI({
+    req(credentials()$user_auth)
+    
+    tagList(
+    # Create a fluid layout
+    fluidRow(
+      # Sidebar with inputs for filtering, placed in one column
+      column(12, 
+             sidebarPanel(
+               
+               # Checkbox to enable/disable preference filtering
+               checkboxInput("filter_histology", "Filter by Histology?", value = FALSE),
+               
+               # Dropdown for histology, only visible if checkbox is selected
+               conditionalPanel(
+                 condition = "input.filter_histology == true",
+                 selectInput("histology", 
+                             "Select Histology:", 
+                             choices = sort(unique(selectedData()$histology)))  # Will update based on selected table
+               ),
+               
+               # Checkbox to enable/disable preference filtering
+               checkboxInput("filter_preference", "Filter by Preference?", value = FALSE),
+               
+               # Dropdown for preference, only visible if checkbox is selected
+               conditionalPanel(
+                 condition = "input.filter_preference == true",
+                 selectInput("preference", 
+                             "Select Preference:", 
+                             choices = sort(unique(selectedData()$preference)))  # Will update based on selected table
+               ),
+               
+               # Checkbox to enable/disable specificity filtering
+               checkboxInput("filter_specificity", "Filter by Specificity?", value = FALSE),
+               
+               # Dropdown for specificity, only visible if checkbox is selected
+               conditionalPanel(
+                 condition = "input.filter_specificity == true",
+                 selectInput("specificity", 
+                             "Select Specificity:", 
+                             choices = sort(unique(selectedData()$specificity)))  # Will update based on selected table
+               ),
+               
+               # Checkbox to enable/disable consequence filtering
+               checkboxInput("filter_consequence", "Filter by Consequence?", value = FALSE),
+               
+               # Dropdown for consequence, only visible if checkbox is selected
+               conditionalPanel(
+                 condition = "input.filter_consequence == true",
+                 selectInput("consequence", 
+                             "Select Consequence:", 
+                             choices = sort(unique(selectedData()$consequence)))  # Will update based on selected table
+               ),
+               
+               # Checkbox to enable/disable sample PSI filtering
+               checkboxInput("filter_psi", "Filter by Sample PSI?", value = FALSE),
+               
+               # Slider input for PSI range, visible if checkbox is selected
+               conditionalPanel(
+                 condition = "input.filter_psi == true",
+                 sliderInput("psi_range", 
+                             "PSI Range:", 
+                             min = 0, 
+                             max = 1,  # Will update based on selected table
+                             value = c(0, 1), 
+                             step = 0.01)
+               ),
+               
+               checkboxInput("filter_coverage", "Filter by Sample Junction Coverage?", value = FALSE),
+               
+               # Text input for Gene Symbol, visible if checkbox is selected
+               conditionalPanel(
+                 condition = "input.filter_coverage == true",
+                 textInput("coverage", "Enter Minimum Coverage:")
+               ),
+               
+               # Checkbox to enable/disable consequence filtering
+               checkboxInput("filter_exon_preference", "Filter by Exon Differential Expression?", value = FALSE),
+               
+               # Dropdown for consequence, only visible if checkbox is selected
+               conditionalPanel(
+                 condition = "input.filter_exon_preference == true",
+                 selectInput("exon_preference", 
+                             "Select Category:", 
+                             choices = sort(unique(selectedData()$exon_preference)))  # Will update based on selected table
+               ),
+               
+               # Checkbox to enable/disable consequence filtering
+               checkboxInput("filter_exon_specificity", "Filter by Exon Specificity?", value = FALSE),
+               
+               # Dropdown for consequence, only visible if checkbox is selected
+               conditionalPanel(
+                 condition = "input.filter_exon_specificity == true",
+                 selectInput("exon_specificity", 
+                             "Select Specificity:", 
+                             choices = sort(unique(selectedData()$exon_specificity)))  # Will update based on selected table
+               ),
+               
+               # Checkbox to enable/disable Gene Symbol filtering
+               checkboxInput("filter_gene", "Filter by Gene Symbol?", value = FALSE),
+               
+               # Text input for Gene Symbol, visible if checkbox is selected
+               conditionalPanel(
+                 condition = "input.filter_gene == true",
+                 textInput("gene_symbol", "Enter Gene Symbol:")
+               )
+             )
+      )
+    ),
+    
+    # Show the filtered table and plots in another fluid row
+    fluidRow(
+      column(12, 
+             mainPanel(
+               DTOutput("filteredTable"),  # Use DT to render an interactive table
+               
+               # Display the selected splice_id and psi below the table
+               htmlOutput("selected_splice_id"),  # For bold splice_id
+               fluidRow(
+                 column(12, plotOutput("combined_plot"))  # Display the combined plot
+               ),
+               fluidRow(
+                 column(12, plotOutput("combined_expr_plot"))  # Display the combined plot
+               ),
+               fluidRow(
+                 column(12, plotOutput("histology_psi_plot"))  # Display the combined plot
+               ),
+               fluidRow(
+                 column(12, plotOutput("histology_expr_plot"))  # Display the combined plot
+               )
+               #   plotOutput("gene_model_plot", height = "800px") # Add plotOutput for the gene model
+             )
+      )
+    ),
+    
+    downloadButton("download_psi_plot", "Download PSI Plot")  # Add a download button for PSI plot
+    # downloadButton("download_gene_plot", "Download Gene Plot")
+    
+    )
+    
+  })
   
   selectedData <- reactive({
     ts_of_splice_events
@@ -190,12 +228,14 @@ server <- function(input, output, session) {
   
   # Update the preference choices based on the selected table
   observe({
-    updateSelectInput(session, "histology", choices = sort(unique(selectedData()$histology)))
-    updateSelectInput(session, "preference", choices = unique(selectedData()$preference))
-    updateSelectInput(session, "specificity", choices = unique(selectedData()$specificity))
-    updateSelectInput(session, "consequence", choices = unique(selectedData()$consequence))
-    updateSelectInput(session, "exon_preference", choices = unique(selectedData()$exon_preference))
-    updateSelectInput(session, "exon_specificity", choices = unique(selectedData()$exon_specificity))
+    req(selectedData())
+    
+    # updateSelectInput(session, "histology", choices = sort(unique(selectedData()$histology)))
+    # updateSelectInput(session, "preference", choices = unique(selectedData()$preference))
+    # updateSelectInput(session, "specificity", choices = unique(selectedData()$specificity))
+    # updateSelectInput(session, "consequence", choices = unique(selectedData()$consequence))
+    # updateSelectInput(session, "exon_preference", choices = unique(selectedData()$exon_preference))
+    # updateSelectInput(session, "exon_specificity", choices = unique(selectedData()$exon_specificity))
     
 
     # Update the slider range based on psi values in the selected table
