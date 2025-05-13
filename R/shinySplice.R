@@ -10,7 +10,7 @@
 
 # Load libraries  
 if(!require("shiny")) install.packages("shiny")
-if(!require("shinymanager")) install.packages("shinymanager")
+if(!require("shinyauthr")) install.packages("shinyauthr")
 if(!require("sodium")) install.packages("sodium")
 if(!require("rprojroot")) install.packages("rprojroot")
 if(!require("tidyverse")) install.packages("tidyverse")
@@ -54,8 +54,10 @@ ui <- fluidPage(
   # Application title
     titlePanel("Query tumor-specific splice variants"),
     
+    # define login UI
     shinyauthr::loginUI(id = "login"),
       
+    # Define logout UI
     shinyauthr::logoutUI(id = "logout"),
     
     # Dynamically show the app after login
