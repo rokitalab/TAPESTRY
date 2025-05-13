@@ -16,6 +16,7 @@ if(!require("rprojroot")) install.packages("rprojroot")
 if(!require("tidyverse")) install.packages("tidyverse")
 if(!require("DT")) install.packages("DT")
 if(!require("ggpubr")) install.packages("ggpubr")
+if(!require("ggthemes")) install.packages("ggthemes")
 
 root_dir <- rprojroot::find_root(rprojroot::has_dir(".git"))
 
