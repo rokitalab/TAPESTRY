@@ -4,7 +4,7 @@
 
 To clone the repository:
 ```
-git clone git@github.com:rokitalab/shinySplice.git
+git clone git@github.com:rokitalab/TAPESTRY.git
 ```
 
 To run the shiny app: 
