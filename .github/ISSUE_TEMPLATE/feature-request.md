@@ -1,6 +1,6 @@
 ---
 name: Request a feature
-about: Use this issue template to request a feature 
+about: Use this issue template to request a feature or analysis 
 title: 'Feature request:'
 labels: enhancement
 assignees: ''
