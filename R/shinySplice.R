@@ -9,6 +9,7 @@
 #
 
 # Load libraries  
+if(!require("qs2")) install.packages("qs2")
 if(!require("shiny")) install.packages("shiny")
 if(!require("shinyauthr")) install.packages("shinyauthr")
 if(!require("sodium")) install.packages("sodium")
@@ -20,24 +21,24 @@ if(!require("ggthemes")) install.packages("ggthemes")
 
 root_dir <- rprojroot::find_root(rprojroot::has_dir(".git"))
 
-user_base <- readRDS(file.path(root_dir, "input",
-                               "users.RDS"))
+user_base <- qs2::qs_read(file.path(root_dir, "input",
+                               "users.qs2"))
 
 # Load data
-display_df <- readRDS(file.path(root_dir, "input", 
-                                "shiny_splice_input_plus_expression.RDS"))
+display_df <- qs2::qs_read(file.path(root_dir, "input", 
+                                "shiny_splice_input_plus_expression.qs2"))
 
-ctrl_psi_df <- readRDS(file.path(root_dir, "input", 
-                                 "tumor-specific-splice-event-ctrl-psis.RDS"))
+ctrl_psi_df <- qs2::qs_read(file.path(root_dir, "input", 
+                                 "tumor-specific-splice-event-ctrl-psis.qs2"))
 
-ctrl_exon_ct_df <- readRDS(file.path(root_dir, "input",
-                                 "tumor-specific-splice-event-ctrl-exon-cts.RDS"))
+ctrl_exon_ct_df <- qs2::qs_read(file.path(root_dir, "input",
+                                 "tumor-specific-splice-event-ctrl-exon-cts.qs2"))
 
-pbta_psi_df <- readRDS(file.path(root_dir, "input", 
-                                      "pbta-tumor-specific-oncofetal-splice-event-psis.RDS"))
+pbta_psi_df <- qs2::qs_read(file.path(root_dir, "input", 
+                                      "pbta-tumor-specific-oncofetal-splice-event-psis.qs2"))
 
-pbta_exon_ct_df <- readRDS(file.path(root_dir, "input", 
-                                         "pbta-tumor-specific-oncofetal-normalized-exon-coverage.RDS"))
+pbta_exon_ct_df <- qs2::qs_read(file.path(root_dir, "input", 
+                                         "pbta-tumor-specific-oncofetal-normalized-exon-coverage.qs2"))
 
 gtf_df <- read_tsv(file.path(root_dir, "input", 
                                "gencode.v39.primary_assembly.annotation.tsv.gz"))
