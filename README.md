@@ -1,15 +1,26 @@
-# TAPESTRY (Tumor Alternative PEdiatric Splicing visualizaTion and queRYing)
+# TAPESTRY
 
-### An R shiny app for exploration of tumor-specific splicing events in pediatric CNS tumors
+**T**umor **A**lternative **PE**diatric **S**plicing visualiza**T**ion and que**RY**ing
 
-To clone the repository:
-```
+A React web application for exploring tumor-specific splicing events in pediatric CNS tumors.
+
+## Running with Docker (recommended)
+
+```bash
 git clone git@github.com:rokitalab/TAPESTRY.git
+cd TAPESTRY
+docker compose up --build
 ```
 
-To run the shiny app: 
-```
-R -e "shiny::runApp('R/shinySplice.R')"
-```
+Then open [http://localhost:5173](http://localhost:5173).
 
-This application is currently hosted at https://rokita-lab.shinyapps.io/TAPESTRY/.
+To stop: `docker compose down`
+
+## Running locally (for development)
+
+Requires [Node.js](https://nodejs.org/) v22+.
+
+```bash
+npm install
+npm run dev
+```
