@@ -4,4 +4,4 @@ services:
     image: tapestry-frontend
     container_name: tapestry-frontend
     ports:
-      - "5173:80"
+      - "${PORT:-5173}:80"
