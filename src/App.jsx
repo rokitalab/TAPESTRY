@@ -4,8 +4,8 @@ import NavBar from "./components/NavBar";
 
 import Home from "./pages/Home";
 // import Explore from "./pages/Explore";
-// import Docs from "./pages/Docs";
-// import About from "./pages/About";
+import Docs from "./pages/Docs";
+import About from "./pages/About";
 
 export default function App({ mode, setMode }) {
   return (
@@ -15,8 +15,8 @@ export default function App({ mode, setMode }) {
         <Routes>
           <Route path="/" element={<Home />} />
           {/* <Route path="/explore" element={<Explore />} /> */}
-          {/* <Route path="/docs" element={<Docs />} /> */}
-          {/* <Route path="/about" element={<About />} /> */}
+          <Route path="/docs" element={<Docs />} />
+          <Route path="/about" element={<About />} />
         </Routes>
       </Container>
     </>
