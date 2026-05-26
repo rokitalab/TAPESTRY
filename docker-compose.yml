@@ -1,0 +1,7 @@
+services:
+  tapestry-frontend:
+    build: .
+    image: tapestry-frontend
+    container_name: tapestry-frontend
+    ports:
+      - "${PORT:-5173}:80"
