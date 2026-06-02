@@ -5,7 +5,6 @@ import TranscriptVis from "./TranscriptVis";
 
 export default function ExonBlocksSvg({
   gene,
-  geneID,
   count,
   exonWidth = 10,
   exonHeight = 20,
@@ -27,73 +26,113 @@ export default function ExonBlocksSvg({
   const [canonExons, setCanonExons] = useState(null); // [{ start, end }]
   const [coordDomain, setCoordDomain] = useState(null); // { min, max, span }
   const [apiStrand, setApiStrand] = useState(null); // '+' | '-' | null
+  const [geneID, setGeneID] = useState(null);
 
   // Fetch canonical transcript exons and shared genomic domain across transcripts
   useEffect(() => {
-    if (!geneID) { setCanonExons(null); setCoordDomain(null); return; }
-    const controller = new AbortController();
-    const url = `https://rest.ensembl.org/lookup/id/${encodeURIComponent(geneID)}?content-type=application/json;expand=1`;
-    const headers = { Accept: "application/json" };
+  if (!gene) {
+    setCanonExons(null);
+    setCoordDomain(null);
+    return;
+  }
 
-    const parseExons = (raw) => {
-      let arr = raw;
-      if (!arr) return [];
-      if (!Array.isArray(arr) && typeof arr === 'object') arr = Object.values(arr);
-      if (!Array.isArray(arr)) return [];
-      return arr
-        .map(e => {
-          const s = Number(e?.start ?? e?.seq_region_start ?? e?.begin ?? e?.location_start);
-          const en = Number(e?.end ?? e?.seq_region_end ?? e?.finish ?? e?.location_end);
-          if (!Number.isFinite(s) || !Number.isFinite(en)) return null;
-          return { start: Math.min(s, en), end: Math.max(s, en) };
-        })
-        .filter(Boolean)
-        .sort((a, b) => a.start - b.start);
-    };
+  const controller = new AbortController();
+  const headers = { Accept: "application/json" };
 
-    fetch(url, { signal: controller.signal, headers })
-      .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then(data => {
-        // Map gene-level strand to '+'/'-'
-        const s = data?.strand;
-        let sChar = null;
-        if (s === 1 || s === "1") sChar = "+";
-        else if (s === -1 || s === "-1") sChar = "-";
-        setApiStrand(sChar);
-        const arr = Array.isArray(data.Transcript) ? data.Transcript
-                  : Array.isArray(data.transcripts) ? data.transcripts
-                  : [];
-        const canonicalId = data?.canonical_transcript || data?.canonicalTranscript || data?.Canonical_transcript || null;
-        let canon = null;
-        if (canonicalId) {
-          canon = arr.find(t => (t?.id || t?.stable_id || t?.transcript_id) === canonicalId) || null;
-        }
-        if (!canon) canon = arr.find(t => t?.is_canonical === 1 || t?.is_canonical === true) || null;
-        if (canon) {
-          const rawCanon = canon?.Exon ?? canon?.exon ?? canon?.exons;
-          const cExons = parseExons(rawCanon);
-          setCanonExons(cExons);
-        } else {
-          setCanonExons(null);
-        }
-        // Compute global domain across all transcripts
-        let min = Infinity, max = -Infinity;
-        arr.forEach(t => {
-          const raw = t?.Exon ?? t?.exon ?? t?.exons;
-          const xs = parseExons(raw);
-          xs.forEach(e => { if (e.start < min) min = e.start; if (e.end > max) max = e.end; });
-        });
-        if (Number.isFinite(min) && Number.isFinite(max) && max > min) {
-          setCoordDomain({ min, max, span: Math.max(1, max - min) });
-        } else {
-          setCoordDomain(null);
-        }
+  const parseExons = (raw) => {
+    let arr = raw;
+    if (!arr) return [];
+    if (!Array.isArray(arr) && typeof arr === "object") arr = Object.values(arr);
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .map(e => {
+        const s = Number(e?.start ?? e?.seq_region_start ?? e?.begin);
+        const en = Number(e?.end ?? e?.seq_region_end ?? e?.finish);
+        if (!Number.isFinite(s) || !Number.isFinite(en)) return null;
+        return { start: Math.min(s, en), end: Math.max(s, en) };
       })
-      .catch(() => { setCanonExons(null); setCoordDomain(null); })
-      .finally(() => {});
+      .filter(Boolean)
+      .sort((a, b) => a.start - b.start);
+  };
+
+  (async () => {
+    try {
+      /* -------- STEP 1: symbol → ENSG -------- */
+      const idUrl =
+        `https://rest.ensembl.org/xrefs/symbol/homo_sapiens/${encodeURIComponent(gene)}` +
+        `?content-type=application/json;expand=1`;
+
+      const idRes = await fetch(idUrl, { signal: controller.signal, headers });
+      if (!idRes.ok) throw new Error(`HTTP ${idRes.status}`);
+      const idData = await idRes.json();
+
+      const ensg = idData.find(
+        e => e.type === "gene" && e.id.startsWith("ENSG")
+      )?.id;
+
+      if (!ensg) throw new Error("No ENSG ID found");
+      setGeneID(ensg);
+
+      /* -------- STEP 2: ENSG → gene lookup -------- */
+      const lookupUrl =
+        `https://rest.ensembl.org/lookup/id/${encodeURIComponent(ensg)}` +
+        `?content-type=application/json;expand=1`;
+
+      const res = await fetch(lookupUrl, { signal: controller.signal, headers });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+
+      /* -------- strand -------- */
+      const strand =
+        data?.strand === 1 ? "+" :
+        data?.strand === -1 ? "-" :
+        null;
+
+      setApiStrand(strand);
+
+      /* -------- transcripts -------- */
+      const transcripts = Array.isArray(data.Transcript)
+        ? data.Transcript
+        : Array.isArray(data.transcripts)
+        ? data.transcripts
+        : [];
+
+      const canonicalId = data?.canonical_transcript ?? null;
+
+      let canon =
+        transcripts.find(
+          t => (t?.id || t?.stable_id) === canonicalId
+        ) ||
+        transcripts.find(t => t?.is_canonical);
+
+      if (canon) {
+        setCanonExons(parseExons(canon?.Exon ?? canon?.exon));
+      } else {
+        setCanonExons(null);
+      }
+
+      /* -------- global domain -------- */
+      let min = Infinity, max = -Infinity;
+      transcripts.forEach(t => {
+        parseExons(t?.Exon ?? t?.exon).forEach(e => {
+          min = Math.min(min, e.start);
+          max = Math.max(max, e.end);
+        });
+      });
+
+      setCoordDomain(
+          Number.isFinite(min) && Number.isFinite(max) && max > min
+            ? { min, max, span: max - min }
+            : null
+        );
+      } catch {
+        setCanonExons(null);
+        setCoordDomain(null);
+      }
+    })();
 
     return () => controller.abort();
-  }, [geneID]);
+  }, [gene]);
 
   function getExonCountForGene(name) {
     const g = (name || "").trim().toUpperCase();
