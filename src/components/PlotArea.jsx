@@ -6,7 +6,7 @@ import {
 import DownloadIcon from "@mui/icons-material/Download";
 import SettingsIcon from "@mui/icons-material/Settings";
 import * as d3 from "d3";
-import { histologyColor } from "../histologyColors";
+import { controlCohortColor, histologyColor } from "../histologyColors";
 
 const MARGIN = { top: 20, right: 20, bottom: 200, left: 100 };
 const API_BASE = (import.meta.env.VITE_API_BASE || "/tapestry-api").replace(/\/$/, "");
@@ -29,9 +29,12 @@ const EVODEVO_LABELS = {
   "12 Week Post Conception": "12wpc", "13 Week Post Conception": "13wpc",
   "16 Week Post Conception": "16wpc", "18 Week Post Conception": "18wpc",
   "19 Week Post Conception": "19wpc",
-  "Neonate": "Neonate", "Infant": "Infant", "Toddler": "Toddler",
+  "Neonate": "Newborn", "Infant": "Infant", "Toddler": "Toddler",
   "School Age Child": "School Age", "Adolescent": "Adolescent", "Young Adult": "Young Adult",
 };
+
+// EvoDevo's "Neonate" timepoint is displayed as "Newborn" in tooltips too.
+const timepointDisplay = (t) => (t === "Neonate" ? "Newborn" : t);
 
 const EVODEVO_COLORS = { Forebrain: "#e67e22", Hindbrain: "#2980b9" };
 
@@ -92,6 +95,12 @@ function triggerDownload(href, filename) {
   link.click();
 }
 
+// Controls are colored by source cohort (GTEx, Evo-devo, etc.) since they
+// don't have per-histology colors; tumor/cell-line groups use histologyColor.
+function groupColor(g) {
+  return g.isControl ? controlCohortColor(g.cohort) : histologyColor(g.label);
+}
+
 export default function PlotArea({
   junction = null,
   gene = null,
@@ -142,8 +151,10 @@ export default function PlotArea({
       log2CpmCorrected: r.log2_cpm_corrected ?? null,
       histology: collapseControlGroup(r.plot_group ?? "Unknown"),
       cancerGroup: r.cancer_group ?? null,
+      cohort: r.cohort ?? null,
       isCellLine: r.composition === "Derived Cell Line",
       isIndependentPrimary: r.is_independent_primary,
+      rnaLibrary: r.rna_library ?? null,
       jitter: Math.random() - 0.5,
     }));
 
@@ -160,6 +171,7 @@ export default function PlotArea({
         return {
           key: histology, label: histology, values, isTumor, isControl,
           isCellLine: isCellLineGroup,
+          cohort: values[0]?.cohort ?? null,
           stats: boxStats(values.map((d) => d.cpm)),
         };
       });
@@ -202,6 +214,7 @@ export default function PlotArea({
           log2CpmCorrected: r.log2_cpm_corrected ?? null,
           region: dash >= 0 ? pg.slice(0, dash) : pg,
           timepoint: dash >= 0 ? pg.slice(dash + 1) : pg,
+          rnaLibrary: r.rna_library ?? null,
         };
       })
       .filter((d) => d.region === "Forebrain" || d.region === "Hindbrain");
@@ -284,12 +297,13 @@ export default function PlotArea({
     const hideTip = () =>
       setTooltip((prev) => ({ ...prev, visible: false }));
 
-    visibleGroups.forEach(({ key, label, values }) => {
+    visibleGroups.forEach((g) => {
+      const { key, label, values } = g;
       const xVals = values.map(xform);
       const { q1, median, q3, lo, hi } = boxStats(xVals);
       const cx = x(key) + x.bandwidth() / 2;
       const bw = x.bandwidth() * 0.55;
-      const color = histologyColor(label);
+      const color = groupColor(g);
       const fmt = (v) => v.toFixed(3);
       const axisLabel = log2Scale ? "log₂(CPM+1)" : "CPM";
 
@@ -338,7 +352,7 @@ export default function PlotArea({
           .attr("stroke-width", highlighted ? 1.5 : 0.5)
           .style("cursor", "pointer")
           .on("mouseover", (e) =>
-            showTip(e, `<strong>${d.id}</strong><br/>${label}<br/>${axisLabel}: ${xform(d).toFixed(3)}${highlighted ? "<br/><em>tumor enriched</em>" : ""}`)
+            showTip(e, `<strong>${d.id}</strong><br/>${label}<br/>${axisLabel}: ${xform(d).toFixed(3)}<br/>RNA library: ${d.rnaLibrary ?? "—"}${highlighted ? "<br/><em>tumor enriched</em>" : ""}`)
           )
           .on("mousemove", moveTip)
           .on("mouseout", hideTip);
@@ -415,7 +429,7 @@ export default function PlotArea({
           .attr("stroke-width", 0.5)
           .style("cursor", "pointer")
           .on("mouseover", (e) =>
-            showTip(e, `<strong>${d.id}</strong><br/>${region} — ${d.timepoint}<br/>CPM: ${xform(d).toFixed(3)}`)
+            showTip(e, `<strong>${d.id}</strong><br/>${region} — ${timepointDisplay(d.timepoint)}<br/>CPM: ${xform(d).toFixed(3)}<br/>RNA library: ${d.rnaLibrary ?? "—"}`)
           )
           .on("mousemove", moveTip)
           .on("mouseout", hideTip);
@@ -446,7 +460,7 @@ export default function PlotArea({
           .attr("stroke-width", 1.5)
           .style("cursor", "pointer")
           .on("mouseover", (e) =>
-            showTip(e, `<strong>${region}</strong><br/>${d.timepoint}<br/>Mean: ${d.value.toFixed(3)}`)
+            showTip(e, `<strong>${region}</strong><br/>${timepointDisplay(d.timepoint)}<br/>Mean: ${d.value.toFixed(3)}`)
           )
           .on("mousemove", moveTip)
           .on("mouseout", hideTip);
@@ -600,18 +614,18 @@ export default function PlotArea({
                   {section.label}
                 </Typography>
               )}
-              {section.items.map(({ key, label }) => (
-                <Box key={key} sx={{ display: "block" }}>
+              {section.items.map((g) => (
+                <Box key={g.key} sx={{ display: "block" }}>
                   <FormControlLabel
                     control={
                       <Checkbox
                         size="small"
-                        checked={selectedGroups.has(key)}
-                        onChange={() => toggleGroup(key)}
-                        sx={{ color: histologyColor(label), "&.Mui-checked": { color: histologyColor(label) } }}
+                        checked={selectedGroups.has(g.key)}
+                        onChange={() => toggleGroup(g.key)}
+                        sx={{ color: groupColor(g), "&.Mui-checked": { color: groupColor(g) } }}
                       />
                     }
-                    label={<Typography variant="body2">{label}</Typography>}
+                    label={<Typography variant="body2">{g.label}</Typography>}
                   />
                 </Box>
               ))}

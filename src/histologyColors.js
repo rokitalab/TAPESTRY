@@ -27,3 +27,16 @@ export function histologyColor(plotGroup, fallback = "#b5b5b5") {
   return HISTOLOGY_COLORS[plotGroup] ?? fallback;
 }
 
+// Control samples don't have per-histology colors; color them by source cohort instead.
+export const CONTROL_COHORT_COLORS = {
+  "GTEx": "#1f77b4",
+  "Evo-devo": "#e67e22",
+  "Pediatric brain": "#2ca02c",
+  "Pediatric brain cell type": "#17becf",
+};
+
+/** Returns the hex color for a control sample's source cohort, or a fallback if not found. */
+export function controlCohortColor(cohort, fallback = "#b5b5b5") {
+  return CONTROL_COHORT_COLORS[cohort] ?? fallback;
+}
+
