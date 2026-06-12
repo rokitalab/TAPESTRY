@@ -297,6 +297,19 @@ export default function PlotArea({
     const hideTip = () =>
       setTooltip((prev) => ({ ...prev, visible: false }));
 
+    // Vertical separator after the Tumor block, before Controls/Cell Lines.
+    const gap = x.step() - x.bandwidth();
+    for (let i = 1; i < visibleGroups.length; i++) {
+      if (!(visibleGroups[i - 1].isTumor && !visibleGroups[i].isTumor)) continue;
+      const dividerX = x(visibleGroups[i].key) - gap / 2;
+      root.append("line")
+        .attr("x1", dividerX).attr("x2", dividerX)
+        .attr("y1", 0).attr("y2", iH)
+        .attr("stroke", "#bbb")
+        .attr("stroke-width", 1)
+        .attr("stroke-dasharray", "2,2");
+    }
+
     visibleGroups.forEach((g) => {
       const { key, label, values } = g;
       const xVals = values.map(xform);
