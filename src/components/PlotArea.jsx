@@ -115,7 +115,7 @@ export default function PlotArea({
         const isTumor = !isCellLineGroup && (hasCancerGroup || isNonNeoplastic);
         const isControl = !isCellLineGroup && !isTumor;
         return {
-          key: histology, label: histology, values, isTumor, isNonNeoplastic, isControl,
+          key: histology, label: histology, values, isTumor, isControl,
           isCellLine: isCellLineGroup,
           stats: boxStats(values.map((d) => d.cpm)),
         };
@@ -136,7 +136,7 @@ export default function PlotArea({
       if (tumorAndControlKeys.has(g.key)) g.key = `${g.key} (Cell Line)`;
     });
 
-    const typeRank = (g) => (g.isTumor ? (g.isNonNeoplastic ? 1 : 0) : g.isControl ? 2 : 3);
+    const typeRank = (g) => (g.isTumor ? 0 : g.isControl ? 1 : 2);
 
     return [...tumorAndControlGroups, ...cellLineGroups].sort((a, b) => {
       const rankDiff = typeRank(a) - typeRank(b);
@@ -165,11 +165,17 @@ export default function PlotArea({
   }, [fetchedRows, rows]);
 
   const tabGroups = useMemo(() => {
+    // Controls and Cell Lines also show tumor groups for histologies where
+    // this junction is histology-enriched (at least one sample is in
+    // highlightIds / sample_tej), as a reference for comparison. `groups` is
+    // already ordered with tumor groups first, so they stay ahead of the
+    // controls/cell lines after filtering.
+    const isEnrichedTumor = (g) => g.isTumor && g.values.some((d) => highlightIds.has(d.id));
     if (activeTab === 0) return groups.filter((g) => g.isTumor);
-    if (activeTab === 1) return groups.filter((g) => g.isControl);
-    if (activeTab === 2) return groups.filter((g) => g.isCellLine);
+    if (activeTab === 1) return groups.filter((g) => g.isControl || isEnrichedTumor(g));
+    if (activeTab === 2) return groups.filter((g) => g.isCellLine || isEnrichedTumor(g));
     return groups;
-  }, [groups, activeTab]);
+  }, [groups, activeTab, highlightIds]);
 
   useEffect(() => {
     setSelectedGroups(new Set(tabGroups.map((g) => g.key)));
@@ -466,8 +472,7 @@ export default function PlotArea({
   }
 
   const groupSections = [
-    { label: "Cancer", items: tabGroups.filter((g) => g.isTumor && !g.isNonNeoplastic) },
-    { label: "Non-neoplastic", items: tabGroups.filter((g) => g.isNonNeoplastic) },
+    { label: "Tumor", items: tabGroups.filter((g) => g.isTumor) },
     { label: "Controls", items: tabGroups.filter((g) => g.isControl) },
     { label: "Cell Lines", items: tabGroups.filter((g) => g.isCellLine) },
   ].filter((s) => s.items.length > 0);
