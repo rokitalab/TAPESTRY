@@ -71,6 +71,7 @@ export default function PlotArea({
   const [tooltip, setTooltip] = useState({ visible: false, x: 0, y: 0, html: "" });
   const [activeTab, setActiveTab] = useState(0);
   const [log2Scale, setLog2Scale] = useState(false);
+  const [sortByMedian, setSortByMedian] = useState(false);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -126,9 +127,10 @@ export default function PlotArea({
     return [...groupByHistology(tumorPts, false), ...groupByHistology(cellLinePts, true)].sort((a, b) => {
       if (a.isTumor && b.isTumor && a.isNonNeoplastic !== b.isNonNeoplastic)
         return a.isNonNeoplastic ? 1 : -1;
+      if (sortByMedian) return b.stats.median - a.stats.median;
       return a.key.localeCompare(b.key);
     });
-  }, [fetchedRows, rows]);
+  }, [fetchedRows, rows, sortByMedian]);
 
   const evodevoPoints = useMemo(() => {
     const src = fetchedRows.length ? fetchedRows : rows;
@@ -466,6 +468,17 @@ export default function PlotArea({
               />
             }
             label={<Typography variant="body2">log₂</Typography>}
+            sx={{ mr: 0.5 }}
+          />
+          <FormControlLabel
+            control={
+              <Switch
+                size="small"
+                checked={sortByMedian}
+                onChange={(e) => setSortByMedian(e.target.checked)}
+              />
+            }
+            label={<Typography variant="body2">Sort by median</Typography>}
             sx={{ mr: 0.5 }}
           />
           <Tooltip title="Configure groups">
