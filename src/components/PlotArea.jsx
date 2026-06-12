@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert, Box, Button, Checkbox, CircularProgress, Divider,
-  FormControlLabel, IconButton, Menu, MenuItem, Paper, Popover, Stack, Switch, Tab, Tabs, Tooltip, Typography,
+  FormControlLabel, IconButton, Menu, MenuItem, Paper, Popover, Stack, Switch, Tab, Tabs, TextField, Tooltip, Typography,
 } from "@mui/material";
 import DownloadIcon from "@mui/icons-material/Download";
 import SettingsIcon from "@mui/icons-material/Settings";
@@ -56,15 +56,47 @@ const EMPTY_SET = new Set();
 // SVG dimensions are in CSS px (96 DPI); scale raster exports up to 300 DPI.
 const EXPORT_SCALE = 300 / 96;
 
-function cloneSvgWithBackground(svgEl) {
+// Extra space (CSS px) reserved at the top of exported images for the plot
+// title, which is normally rendered outside the <svg> as a page heading.
+const TITLE_HEIGHT = 36;
+
+function cloneSvgWithBackground(svgEl, title) {
   const svgWidth = Number(svgEl.getAttribute("width"));
-  const svgHeight = Number(svgEl.getAttribute("height"));
+  const contentHeight = Number(svgEl.getAttribute("height"));
+  const titleHeight = title ? TITLE_HEIGHT : 0;
+  const svgHeight = contentHeight + titleHeight;
+
   const clone = svgEl.cloneNode(true);
+  clone.setAttribute("height", svgHeight);
+
   const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
   bg.setAttribute("width", svgWidth);
   bg.setAttribute("height", svgHeight);
   bg.setAttribute("fill", "white");
   clone.insertBefore(bg, clone.firstChild);
+
+  if (title) {
+    // Shift the existing chart content down to make room for the title.
+    const content = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    content.setAttribute("transform", `translate(0, ${titleHeight})`);
+    Array.from(clone.children).forEach((child) => {
+      if (child !== bg) content.appendChild(child);
+    });
+    clone.appendChild(content);
+
+    const titleEl = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    titleEl.setAttribute("x", svgWidth / 2);
+    titleEl.setAttribute("y", titleHeight / 2);
+    titleEl.setAttribute("text-anchor", "middle");
+    titleEl.setAttribute("dominant-baseline", "central");
+    titleEl.setAttribute("font-size", 16);
+    titleEl.setAttribute("font-weight", 800);
+    titleEl.setAttribute("font-family", "sans-serif");
+    titleEl.setAttribute("fill", "#333");
+    titleEl.textContent = title;
+    clone.appendChild(titleEl);
+  }
+
   return { clone, svgWidth, svgHeight };
 }
 
@@ -101,6 +133,261 @@ function groupColor(g) {
   return g.isControl ? controlCohortColor(g.cohort) : histologyColor(g.label);
 }
 
+// Renders the per-histology box plot into `svg`, sized to `width` x `height`.
+// Shared by the on-screen chart and off-screen export rendering.
+function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightIds, onHover, onMove, onLeave }) {
+  svg.selectAll("*").remove();
+
+  const iW = width - MARGIN.left - MARGIN.right;
+  const iH = height - MARGIN.top - MARGIN.bottom;
+
+  const xform = (d) => log2Scale ? (d.log2CpmCorrected ?? Math.log2(d.cpm + 1)) : d.cpm;
+
+  const allCpms = visibleGroups.flatMap((g) => g.values.map(xform));
+  const yMax = d3.max(allCpms) ?? 1;
+
+  const x = d3.scaleBand()
+    .domain(visibleGroups.map((g) => g.key))
+    .range([0, iW])
+    .padding(0.35);
+
+  const y = d3.scaleLinear().domain([0, yMax]).nice().range([iH, 0]);
+
+  const root = svg.append("g").attr("transform", `translate(${MARGIN.left},${MARGIN.top})`);
+
+  root.append("g")
+    .call(d3.axisLeft(y).tickSize(-iW).tickFormat(""))
+    .call((g) => g.select(".domain").remove())
+    .call((g) => g.selectAll("line").attr("stroke", "#e0e0e0").attr("stroke-dasharray", "3,3"));
+
+  root.append("g")
+    .attr("transform", `translate(0,${iH})`)
+    .call(d3.axisBottom(x))
+    .selectAll("text")
+    .attr("transform", "rotate(-55)")
+    .style("text-anchor", "end")
+    .attr("dx", "-0.5em")
+    .attr("font-size", 11)
+    .attr("dy", "0.15em");
+
+  root.append("g").call(d3.axisLeft(y).tickFormat(d3.format(".2f")));
+
+  root.append("text")
+    .attr("transform", "rotate(-90)")
+    .attr("x", -iH / 2).attr("y", -52)
+    .attr("text-anchor", "middle")
+    .attr("font-size", 16)
+    .attr("font-family", "sans-serif")
+    .attr("fill", "#666")
+    .text(log2Scale ? "log₂(CPM + 1)" : "CPM");
+
+  // Vertical separator after the Tumor block, before Controls/Cell Lines.
+  const gap = x.step() - x.bandwidth();
+  for (let i = 1; i < visibleGroups.length; i++) {
+    if (!(visibleGroups[i - 1].isTumor && !visibleGroups[i].isTumor)) continue;
+    const dividerX = x(visibleGroups[i].key) - gap / 2;
+    root.append("line")
+      .attr("x1", dividerX).attr("x2", dividerX)
+      .attr("y1", 0).attr("y2", iH)
+      .attr("stroke", "#bbb")
+      .attr("stroke-width", 1)
+      .attr("stroke-dasharray", "2,2");
+  }
+
+  visibleGroups.forEach((g) => {
+    const { key, label, values } = g;
+    const xVals = values.map(xform);
+    const { q1, median, q3, lo, hi } = boxStats(xVals);
+    const cx = x(key) + x.bandwidth() / 2;
+    const bw = x.bandwidth() * 0.55;
+    const color = groupColor(g);
+    const fmt = (v) => v.toFixed(3);
+    const axisLabel = log2Scale ? "log₂(CPM+1)" : "CPM";
+
+    const boxTip = `<strong>${label}</strong><br/>n=${values.length}<br/>Median: ${fmt(median)}<br/>IQR: [${fmt(q1)}, ${fmt(q3)}]<br/>Whiskers: [${fmt(lo)}, ${fmt(hi)}]`;
+
+    root.append("line").attr("x1", cx).attr("x2", cx)
+      .attr("y1", y(lo)).attr("y2", y(q1))
+      .attr("stroke", color).attr("stroke-width", 1.5).attr("stroke-dasharray", "4,2");
+    root.append("line").attr("x1", cx).attr("x2", cx)
+      .attr("y1", y(q3)).attr("y2", y(hi))
+      .attr("stroke", color).attr("stroke-width", 1.5).attr("stroke-dasharray", "4,2");
+
+    [lo, hi].forEach((v) =>
+      root.append("line")
+        .attr("x1", cx - bw / 4).attr("x2", cx + bw / 4)
+        .attr("y1", y(v)).attr("y2", y(v))
+        .attr("stroke", color).attr("stroke-width", 1.5)
+    );
+
+    root.append("rect")
+      .attr("x", cx - bw / 2).attr("y", y(q3))
+      .attr("width", bw).attr("height", Math.abs(y(q1) - y(q3)))
+      .attr("fill", color).attr("fill-opacity", 0.2)
+      .attr("stroke", color).attr("stroke-width", 1.5)
+      .attr("rx", 2)
+      .on("mouseover", (e) => onHover(e, boxTip))
+      .on("mousemove", onMove)
+      .on("mouseout", onLeave);
+
+    root.append("line")
+      .attr("x1", cx - bw / 2).attr("x2", cx + bw / 2)
+      .attr("y1", y(median)).attr("y2", y(median))
+      .attr("stroke", color).attr("stroke-width", 2.5)
+      .attr("stroke-linecap", "round");
+
+    const sorted = [...values].sort((a, b) => highlightIds.has(a.id) - highlightIds.has(b.id));
+    sorted.forEach((d) => {
+      const highlighted = highlightIds.has(d.id);
+      root.append("circle")
+        .attr("cx", cx + d.jitter * bw * 0.65)
+        .attr("cy", y(xform(d)))
+        .attr("r", highlighted ? 5 : 3)
+        .attr("fill", color)
+        .attr("fill-opacity", highlighted ? 1 : 0.4)
+        .attr("stroke", "white")
+        .attr("stroke-width", highlighted ? 1.5 : 0.5)
+        .style("cursor", "pointer")
+        .on("mouseover", (e) =>
+          onHover(e, `<strong>${d.id}</strong><br/>${label}<br/>${axisLabel}: ${xform(d).toFixed(3)}<br/>RNA library: ${d.rnaLibrary ?? "—"}${highlighted ? "<br/><em>tumor enriched</em>" : ""}`)
+        )
+        .on("mousemove", onMove)
+        .on("mouseout", onLeave);
+    });
+  });
+}
+
+// Renders the EvoDevo timepoint plot into `svg`, sized to `width` x `height`.
+// Shared by the on-screen chart and off-screen export rendering.
+function drawEvoDevoPlot(svg, { width, height, evodevoPoints, log2Scale, onHover, onMove, onLeave }) {
+  svg.selectAll("*").remove();
+
+  const presentTimepoints = EVODEVO_TIMEPOINTS.filter((t) =>
+    evodevoPoints.some((d) => d.timepoint === t)
+  );
+  if (presentTimepoints.length === 0) return;
+
+  const xform = (d) => log2Scale ? (d.log2CpmCorrected ?? Math.log2(d.cpm + 1)) : d.cpm;
+
+  const iW = width - MARGIN.left - MARGIN.right;
+  const iH = height - MARGIN.top - MARGIN.bottom;
+  const yMax = d3.max(evodevoPoints, xform) ?? 1;
+
+  const x = d3.scalePoint().domain(presentTimepoints).range([0, iW]).padding(0.5);
+  const y = d3.scaleLinear().domain([0, yMax]).nice().range([iH, 0]);
+
+  const root = svg.append("g").attr("transform", `translate(${MARGIN.left},${MARGIN.top})`);
+
+  root.append("g")
+    .call(d3.axisLeft(y).tickSize(-iW).tickFormat(""))
+    .call((g) => g.select(".domain").remove())
+    .call((g) => g.selectAll("line").attr("stroke", "#e0e0e0").attr("stroke-dasharray", "3,3"));
+
+  root.append("g")
+    .attr("transform", `translate(0,${iH})`)
+    .call(d3.axisBottom(x).tickFormat((t) => EVODEVO_LABELS[t] ?? t))
+    .selectAll("text")
+    .attr("transform", "rotate(-45)")
+    .style("text-anchor", "end")
+    .attr("dx", "-0.5em")
+    .attr("font-size", 11)
+    .attr("dy", "0.15em");
+
+  root.append("g").call(d3.axisLeft(y).tickFormat(d3.format(".2f")));
+
+  root.append("text")
+    .attr("transform", "rotate(-90)")
+    .attr("x", -iH / 2).attr("y", -52)
+    .attr("text-anchor", "middle")
+    .attr("font-size", 16)
+    .attr("font-family", "sans-serif")
+    .attr("fill", "#666")
+    .text(log2Scale ? "log₂(CPM + 1)" : "CPM");
+
+  ["Forebrain", "Hindbrain"].forEach((region) => {
+    const color = EVODEVO_COLORS[region];
+    const regionPts = evodevoPoints.filter((d) => d.region === region);
+
+    regionPts.forEach((d) => {
+      if (!presentTimepoints.includes(d.timepoint)) return;
+      root.append("circle")
+        .attr("cx", x(d.timepoint))
+        .attr("cy", y(xform(d)))
+        .attr("r", 3)
+        .attr("fill", color)
+        .attr("fill-opacity", 0.3)
+        .attr("stroke", color)
+        .attr("stroke-width", 0.5)
+        .style("cursor", "pointer")
+        .on("mouseover", (e) =>
+          onHover(e, `<strong>${d.id}</strong><br/>${region} — ${timepointDisplay(d.timepoint)}<br/>CPM: ${xform(d).toFixed(3)}<br/>RNA library: ${d.rnaLibrary ?? "—"}`)
+        )
+        .on("mousemove", onMove)
+        .on("mouseout", onLeave);
+    });
+
+    const meanPoints = presentTimepoints.map((tp) => {
+      const vals = regionPts.filter((d) => d.timepoint === tp).map(xform);
+      return vals.length ? { timepoint: tp, value: d3.mean(vals) } : null;
+    }).filter(Boolean);
+
+    if (meanPoints.length > 1) {
+      root.append("path")
+        .datum(meanPoints)
+        .attr("d", d3.line().x((d) => x(d.timepoint)).y((d) => y(d.value)))
+        .attr("fill", "none")
+        .attr("stroke", color)
+        .attr("stroke-width", 2)
+        .attr("stroke-linejoin", "round");
+    }
+
+    meanPoints.forEach((d) => {
+      root.append("circle")
+        .attr("cx", x(d.timepoint))
+        .attr("cy", y(d.value))
+        .attr("r", 5)
+        .attr("fill", color)
+        .attr("stroke", "white")
+        .attr("stroke-width", 1.5)
+        .style("cursor", "pointer")
+        .on("mouseover", (e) =>
+          onHover(e, `<strong>${region}</strong><br/>${timepointDisplay(d.timepoint)}<br/>Mean: ${d.value.toFixed(3)}`)
+        )
+        .on("mousemove", onMove)
+        .on("mouseout", onLeave);
+    });
+  });
+
+  const legend = root.append("g").attr("transform", `translate(${iW - 100}, 10)`);
+  ["Forebrain", "Hindbrain"].forEach((region, i) => {
+    const g = legend.append("g").attr("transform", `translate(0, ${i * 22})`);
+    g.append("line").attr("x1", 0).attr("x2", 20).attr("y1", 8).attr("y2", 8)
+      .attr("stroke", EVODEVO_COLORS[region]).attr("stroke-width", 2);
+    g.append("circle").attr("cx", 10).attr("cy", 8).attr("r", 4)
+      .attr("fill", EVODEVO_COLORS[region]).attr("stroke", "white").attr("stroke-width", 1);
+    g.append("text").attr("x", 26).attr("y", 12)
+      .attr("font-size", 12).attr("font-family", "sans-serif").attr("fill", "#333").text(region);
+  });
+}
+
+// Tooltip handlers are no-ops for the off-screen SVG built for export.
+const NO_TOOLTIP = { onHover: () => {}, onMove: () => {}, onLeave: () => {} };
+
+// Builds a detached <svg> at the requested export dimensions, drawn with the
+// same logic as the on-screen chart for the active tab.
+function buildExportSvg({ width, height, activeTab, visibleGroups, evodevoPoints, log2Scale, highlightIds }) {
+  const svgEl = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svgEl.setAttribute("width", width);
+  svgEl.setAttribute("height", height);
+  const svg = d3.select(svgEl);
+  if (activeTab === 3) {
+    drawEvoDevoPlot(svg, { width, height, evodevoPoints, log2Scale, ...NO_TOOLTIP });
+  } else {
+    drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightIds, ...NO_TOOLTIP });
+  }
+  return svgEl;
+}
+
 export default function PlotArea({
   junction = null,
   gene = null,
@@ -124,6 +411,8 @@ export default function PlotArea({
   const [activeTab, setActiveTab] = useState(0);
   const [log2Scale, setLog2Scale] = useState(false);
   const [sortByMedian, setSortByMedian] = useState(false);
+  const [exportWidth, setExportWidth] = useState(900);
+  const [exportHeight, setExportHeight] = useState(height);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -244,251 +533,28 @@ export default function PlotArea({
 
   useEffect(() => {
     if (!svgRef.current || activeTab === 3) return;
-
-    const svg = d3.select(svgRef.current);
-    svg.selectAll("*").remove();
-
-    const iW = containerWidth - MARGIN.left - MARGIN.right;
-    const iH = height - MARGIN.top - MARGIN.bottom;
-
-    const xform = (d) => log2Scale ? (d.log2CpmCorrected ?? Math.log2(d.cpm + 1)) : d.cpm;
-
-    const allCpms = visibleGroups.flatMap((g) => g.values.map(xform));
-    const yMax = d3.max(allCpms) ?? 1;
-
-    const x = d3.scaleBand()
-      .domain(visibleGroups.map((g) => g.key))
-      .range([0, iW])
-      .padding(0.35);
-
-    const y = d3.scaleLinear().domain([0, yMax]).nice().range([iH, 0]);
-
-    const root = svg.append("g").attr("transform", `translate(${MARGIN.left},${MARGIN.top})`);
-
-    root.append("g")
-      .call(d3.axisLeft(y).tickSize(-iW).tickFormat(""))
-      .call((g) => g.select(".domain").remove())
-      .call((g) => g.selectAll("line").attr("stroke", "#e0e0e0").attr("stroke-dasharray", "3,3"));
-
-    root.append("g")
-      .attr("transform", `translate(0,${iH})`)
-      .call(d3.axisBottom(x))
-      .selectAll("text")
-      .attr("transform", "rotate(-55)")
-      .style("text-anchor", "end")
-      .attr("dx", "-0.5em")
-      .attr("font-size", 11)
-      .attr("dy", "0.15em");
-
-    root.append("g").call(d3.axisLeft(y).tickFormat(d3.format(".2f")));
-
-    root.append("text")
-      .attr("transform", "rotate(-90)")
-      .attr("x", -iH / 2).attr("y", -52)
-      .attr("text-anchor", "middle")
-      .attr("font-size", 16)
-      .attr("fill", "#666")
-      .text(log2Scale ? "log₂(CPM + 1)" : "CPM");
-
-    const showTip = (event, html) =>
-      setTooltip({ visible: true, x: event.clientX + 14, y: event.clientY - 32, html });
-    const moveTip = (event) =>
-      setTooltip((prev) => ({ ...prev, x: event.clientX + 14, y: event.clientY - 32 }));
-    const hideTip = () =>
-      setTooltip((prev) => ({ ...prev, visible: false }));
-
-    // Vertical separator after the Tumor block, before Controls/Cell Lines.
-    const gap = x.step() - x.bandwidth();
-    for (let i = 1; i < visibleGroups.length; i++) {
-      if (!(visibleGroups[i - 1].isTumor && !visibleGroups[i].isTumor)) continue;
-      const dividerX = x(visibleGroups[i].key) - gap / 2;
-      root.append("line")
-        .attr("x1", dividerX).attr("x2", dividerX)
-        .attr("y1", 0).attr("y2", iH)
-        .attr("stroke", "#bbb")
-        .attr("stroke-width", 1)
-        .attr("stroke-dasharray", "2,2");
-    }
-
-    visibleGroups.forEach((g) => {
-      const { key, label, values } = g;
-      const xVals = values.map(xform);
-      const { q1, median, q3, lo, hi } = boxStats(xVals);
-      const cx = x(key) + x.bandwidth() / 2;
-      const bw = x.bandwidth() * 0.55;
-      const color = groupColor(g);
-      const fmt = (v) => v.toFixed(3);
-      const axisLabel = log2Scale ? "log₂(CPM+1)" : "CPM";
-
-      const boxTip = `<strong>${label}</strong><br/>n=${values.length}<br/>Median: ${fmt(median)}<br/>IQR: [${fmt(q1)}, ${fmt(q3)}]<br/>Whiskers: [${fmt(lo)}, ${fmt(hi)}]`;
-
-      root.append("line").attr("x1", cx).attr("x2", cx)
-        .attr("y1", y(lo)).attr("y2", y(q1))
-        .attr("stroke", color).attr("stroke-width", 1.5).attr("stroke-dasharray", "4,2");
-      root.append("line").attr("x1", cx).attr("x2", cx)
-        .attr("y1", y(q3)).attr("y2", y(hi))
-        .attr("stroke", color).attr("stroke-width", 1.5).attr("stroke-dasharray", "4,2");
-
-      [lo, hi].forEach((v) =>
-        root.append("line")
-          .attr("x1", cx - bw / 4).attr("x2", cx + bw / 4)
-          .attr("y1", y(v)).attr("y2", y(v))
-          .attr("stroke", color).attr("stroke-width", 1.5)
-      );
-
-      root.append("rect")
-        .attr("x", cx - bw / 2).attr("y", y(q3))
-        .attr("width", bw).attr("height", Math.abs(y(q1) - y(q3)))
-        .attr("fill", color).attr("fill-opacity", 0.2)
-        .attr("stroke", color).attr("stroke-width", 1.5)
-        .attr("rx", 2)
-        .on("mouseover", (e) => showTip(e, boxTip))
-        .on("mousemove", moveTip)
-        .on("mouseout", hideTip);
-
-      root.append("line")
-        .attr("x1", cx - bw / 2).attr("x2", cx + bw / 2)
-        .attr("y1", y(median)).attr("y2", y(median))
-        .attr("stroke", color).attr("stroke-width", 2.5)
-        .attr("stroke-linecap", "round");
-
-      const sorted = [...values].sort((a, b) => highlightIds.has(a.id) - highlightIds.has(b.id));
-      sorted.forEach((d) => {
-        const highlighted = highlightIds.has(d.id);
-        root.append("circle")
-          .attr("cx", cx + d.jitter * bw * 0.65)
-          .attr("cy", y(xform(d)))
-          .attr("r", highlighted ? 5 : 3)
-          .attr("fill", color)
-          .attr("fill-opacity", highlighted ? 1 : 0.4)
-          .attr("stroke", highlighted ? "white" : "white")
-          .attr("stroke-width", highlighted ? 1.5 : 0.5)
-          .style("cursor", "pointer")
-          .on("mouseover", (e) =>
-            showTip(e, `<strong>${d.id}</strong><br/>${label}<br/>${axisLabel}: ${xform(d).toFixed(3)}<br/>RNA library: ${d.rnaLibrary ?? "—"}${highlighted ? "<br/><em>tumor enriched</em>" : ""}`)
-          )
-          .on("mousemove", moveTip)
-          .on("mouseout", hideTip);
-      });
+    drawBoxPlot(d3.select(svgRef.current), {
+      width: containerWidth,
+      height,
+      visibleGroups,
+      log2Scale,
+      highlightIds,
+      onHover: (e, html) => setTooltip({ visible: true, x: e.clientX + 14, y: e.clientY - 32, html }),
+      onMove: (e) => setTooltip((prev) => ({ ...prev, x: e.clientX + 14, y: e.clientY - 32 })),
+      onLeave: () => setTooltip((prev) => ({ ...prev, visible: false })),
     });
   }, [visibleGroups, containerWidth, height, activeTab, highlightIds, log2Scale]);
 
   useEffect(() => {
     if (!svgRef.current || activeTab !== 3) return;
-
-    const svg = d3.select(svgRef.current);
-    svg.selectAll("*").remove();
-
-    const presentTimepoints = EVODEVO_TIMEPOINTS.filter((t) =>
-      evodevoPoints.some((d) => d.timepoint === t)
-    );
-    if (presentTimepoints.length === 0) return;
-
-    const xform = (d) => log2Scale ? (d.log2CpmCorrected ?? Math.log2(d.cpm + 1)) : d.cpm;
-
-    const iW = containerWidth - MARGIN.left - MARGIN.right;
-    const iH = height - MARGIN.top - MARGIN.bottom;
-    const yMax = d3.max(evodevoPoints, xform) ?? 1;
-
-    const x = d3.scalePoint().domain(presentTimepoints).range([0, iW]).padding(0.5);
-    const y = d3.scaleLinear().domain([0, yMax]).nice().range([iH, 0]);
-
-    const root = svg.append("g").attr("transform", `translate(${MARGIN.left},${MARGIN.top})`);
-
-    root.append("g")
-      .call(d3.axisLeft(y).tickSize(-iW).tickFormat(""))
-      .call((g) => g.select(".domain").remove())
-      .call((g) => g.selectAll("line").attr("stroke", "#e0e0e0").attr("stroke-dasharray", "3,3"));
-
-    root.append("g")
-      .attr("transform", `translate(0,${iH})`)
-      .call(d3.axisBottom(x).tickFormat((t) => EVODEVO_LABELS[t] ?? t))
-      .selectAll("text")
-      .attr("transform", "rotate(-45)")
-      .style("text-anchor", "end")
-      .attr("dx", "-0.5em")
-      .attr("font-size", 11)
-      .attr("dy", "0.15em");
-
-    root.append("g").call(d3.axisLeft(y).tickFormat(d3.format(".2f")));
-
-    root.append("text")
-      .attr("transform", "rotate(-90)")
-      .attr("x", -iH / 2).attr("y", -52)
-      .attr("text-anchor", "middle")
-      .attr("font-size", 16)
-      .attr("fill", "#666")
-      .text(log2Scale ? "log₂(CPM + 1)" : "CPM");
-
-    const showTip = (event, html) =>
-      setTooltip({ visible: true, x: event.clientX + 14, y: event.clientY - 32, html });
-    const moveTip = (event) =>
-      setTooltip((prev) => ({ ...prev, x: event.clientX + 14, y: event.clientY - 32 }));
-    const hideTip = () => setTooltip((prev) => ({ ...prev, visible: false }));
-
-    ["Forebrain", "Hindbrain"].forEach((region) => {
-      const color = EVODEVO_COLORS[region];
-      const regionPts = evodevoPoints.filter((d) => d.region === region);
-
-      regionPts.forEach((d) => {
-        if (!presentTimepoints.includes(d.timepoint)) return;
-        root.append("circle")
-          .attr("cx", x(d.timepoint))
-          .attr("cy", y(xform(d)))
-          .attr("r", 3)
-          .attr("fill", color)
-          .attr("fill-opacity", 0.3)
-          .attr("stroke", color)
-          .attr("stroke-width", 0.5)
-          .style("cursor", "pointer")
-          .on("mouseover", (e) =>
-            showTip(e, `<strong>${d.id}</strong><br/>${region} — ${timepointDisplay(d.timepoint)}<br/>CPM: ${xform(d).toFixed(3)}<br/>RNA library: ${d.rnaLibrary ?? "—"}`)
-          )
-          .on("mousemove", moveTip)
-          .on("mouseout", hideTip);
-      });
-
-      const meanPoints = presentTimepoints.map((tp) => {
-        const vals = regionPts.filter((d) => d.timepoint === tp).map(xform);
-        return vals.length ? { timepoint: tp, value: d3.mean(vals) } : null;
-      }).filter(Boolean);
-
-      if (meanPoints.length > 1) {
-        root.append("path")
-          .datum(meanPoints)
-          .attr("d", d3.line().x((d) => x(d.timepoint)).y((d) => y(d.value)))
-          .attr("fill", "none")
-          .attr("stroke", color)
-          .attr("stroke-width", 2)
-          .attr("stroke-linejoin", "round");
-      }
-
-      meanPoints.forEach((d) => {
-        root.append("circle")
-          .attr("cx", x(d.timepoint))
-          .attr("cy", y(d.value))
-          .attr("r", 5)
-          .attr("fill", color)
-          .attr("stroke", "white")
-          .attr("stroke-width", 1.5)
-          .style("cursor", "pointer")
-          .on("mouseover", (e) =>
-            showTip(e, `<strong>${region}</strong><br/>${timepointDisplay(d.timepoint)}<br/>Mean: ${d.value.toFixed(3)}`)
-          )
-          .on("mousemove", moveTip)
-          .on("mouseout", hideTip);
-      });
-    });
-
-    const legend = root.append("g").attr("transform", `translate(${iW - 100}, 10)`);
-    ["Forebrain", "Hindbrain"].forEach((region, i) => {
-      const g = legend.append("g").attr("transform", `translate(0, ${i * 22})`);
-      g.append("line").attr("x1", 0).attr("x2", 20).attr("y1", 8).attr("y2", 8)
-        .attr("stroke", EVODEVO_COLORS[region]).attr("stroke-width", 2);
-      g.append("circle").attr("cx", 10).attr("cy", 8).attr("r", 4)
-        .attr("fill", EVODEVO_COLORS[region]).attr("stroke", "white").attr("stroke-width", 1);
-      g.append("text").attr("x", 26).attr("y", 12)
-        .attr("font-size", 12).attr("fill", "#333").text(region);
+    drawEvoDevoPlot(d3.select(svgRef.current), {
+      width: containerWidth,
+      height,
+      evodevoPoints,
+      log2Scale,
+      onHover: (e, html) => setTooltip({ visible: true, x: e.clientX + 14, y: e.clientY - 32, html }),
+      onMove: (e) => setTooltip((prev) => ({ ...prev, x: e.clientX + 14, y: e.clientY - 32 })),
+      onLeave: () => setTooltip((prev) => ({ ...prev, visible: false })),
     });
   }, [evodevoPoints, activeTab, containerWidth, height, log2Scale]);
 
@@ -496,11 +562,21 @@ export default function PlotArea({
     return `junction-cpm${junction ? `-${junction}` : ""}.${ext}`;
   }
 
+  function buildExportSvgEl() {
+    return buildExportSvg({
+      width: exportWidth,
+      height: exportHeight,
+      activeTab,
+      visibleGroups,
+      evodevoPoints,
+      log2Scale,
+      highlightIds,
+    });
+  }
+
   async function downloadAsPdf() {
-    const svgEl = svgRef.current;
-    if (!svgEl) return;
     const { jsPDF } = await import("jspdf");
-    const { clone, svgWidth, svgHeight } = cloneSvgWithBackground(svgEl);
+    const { clone, svgWidth, svgHeight } = cloneSvgWithBackground(buildExportSvgEl(), title);
     const canvas = await svgToCanvas(clone, svgWidth, svgHeight, EXPORT_SCALE);
 
     const pdf = new jsPDF({
@@ -514,17 +590,13 @@ export default function PlotArea({
   }
 
   async function downloadAsPng() {
-    const svgEl = svgRef.current;
-    if (!svgEl) return;
-    const { clone, svgWidth, svgHeight } = cloneSvgWithBackground(svgEl);
+    const { clone, svgWidth, svgHeight } = cloneSvgWithBackground(buildExportSvgEl(), title);
     const canvas = await svgToCanvas(clone, svgWidth, svgHeight, EXPORT_SCALE);
     triggerDownload(canvas.toDataURL("image/png"), exportFilename("png"));
   }
 
   function downloadAsSvg() {
-    const svgEl = svgRef.current;
-    if (!svgEl) return;
-    const { clone } = cloneSvgWithBackground(svgEl);
+    const { clone } = cloneSvgWithBackground(buildExportSvgEl(), title);
     const svgStr = new XMLSerializer().serializeToString(clone);
     const url = URL.createObjectURL(new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" }));
     triggerDownload(url, exportFilename("svg"));
@@ -583,6 +655,32 @@ export default function PlotArea({
             </IconButton>
           </Tooltip>
           <Menu anchorEl={exportAnchor} open={Boolean(exportAnchor)} onClose={() => setExportAnchor(null)}>
+            <Box sx={{ px: 2, py: 1 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                Image size (px)
+              </Typography>
+              <Stack direction="row" spacing={1}>
+                <TextField
+                  label="Width"
+                  type="number"
+                  size="small"
+                  value={exportWidth}
+                  onChange={(e) => setExportWidth(Math.max(100, Number(e.target.value) || 0))}
+                  inputProps={{ min: 100 }}
+                  sx={{ width: 100 }}
+                />
+                <TextField
+                  label="Height"
+                  type="number"
+                  size="small"
+                  value={exportHeight}
+                  onChange={(e) => setExportHeight(Math.max(100, Number(e.target.value) || 0))}
+                  inputProps={{ min: 100 }}
+                  sx={{ width: 100 }}
+                />
+              </Stack>
+            </Box>
+            <Divider />
             <MenuItem onClick={() => { setExportAnchor(null); downloadAsPng(); }}>PNG (300 DPI)</MenuItem>
             <MenuItem onClick={() => { setExportAnchor(null); downloadAsPdf(); }}>PDF (300 DPI)</MenuItem>
             <MenuItem onClick={() => { setExportAnchor(null); downloadAsSvg(); }}>SVG</MenuItem>
