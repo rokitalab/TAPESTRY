@@ -55,6 +55,7 @@ const EMPTY_SET = new Set();
 
 // SVG dimensions are in CSS px (96 DPI); scale raster exports up to 300 DPI.
 const EXPORT_SCALE = 300 / 96;
+const PX_PER_INCH = 96;
 
 // Extra space (CSS px) reserved at the top of exported images for the plot
 // title, which is normally rendered outside the <svg> as a page heading.
@@ -411,8 +412,8 @@ export default function PlotArea({
   const [activeTab, setActiveTab] = useState(0);
   const [log2Scale, setLog2Scale] = useState(false);
   const [sortByMedian, setSortByMedian] = useState(false);
-  const [exportWidth, setExportWidth] = useState(900);
-  const [exportHeight, setExportHeight] = useState(height);
+  const [exportWidthIn, setExportWidthIn] = useState(10);
+  const [exportHeightIn, setExportHeightIn] = useState(5);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -564,8 +565,8 @@ export default function PlotArea({
 
   function buildExportSvgEl() {
     return buildExportSvg({
-      width: exportWidth,
-      height: exportHeight,
+      width: exportWidthIn * PX_PER_INCH,
+      height: exportHeightIn * PX_PER_INCH,
       activeTab,
       visibleGroups,
       evodevoPoints,
@@ -657,25 +658,25 @@ export default function PlotArea({
           <Menu anchorEl={exportAnchor} open={Boolean(exportAnchor)} onClose={() => setExportAnchor(null)}>
             <Box sx={{ px: 2, py: 1 }}>
               <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
-                Image size (px)
+                Image size (in)
               </Typography>
               <Stack direction="row" spacing={1}>
                 <TextField
                   label="Width"
                   type="number"
                   size="small"
-                  value={exportWidth}
-                  onChange={(e) => setExportWidth(Math.max(100, Number(e.target.value) || 0))}
-                  inputProps={{ min: 100 }}
+                  value={exportWidthIn}
+                  onChange={(e) => setExportWidthIn(Math.max(1, Number(e.target.value) || 0))}
+                  inputProps={{ min: 1, step: 0.1 }}
                   sx={{ width: 100 }}
                 />
                 <TextField
                   label="Height"
                   type="number"
                   size="small"
-                  value={exportHeight}
-                  onChange={(e) => setExportHeight(Math.max(100, Number(e.target.value) || 0))}
-                  inputProps={{ min: 100 }}
+                  value={exportHeightIn}
+                  onChange={(e) => setExportHeightIn(Math.max(1, Number(e.target.value) || 0))}
+                  inputProps={{ min: 1, step: 0.1 }}
                   sx={{ width: 100 }}
                 />
               </Stack>
