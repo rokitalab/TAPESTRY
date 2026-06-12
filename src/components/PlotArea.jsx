@@ -98,16 +98,32 @@ export default function PlotArea({
       log2CpmCorrected: r.log2_cpm_corrected ?? null,
       histology: collapseControlGroup(r.plot_group ?? "Unknown"),
       cancerGroup: r.cancer_group ?? null,
+      isCellLine: r.composition === "Derived Cell Line",
+      isIndependentPrimary: r.is_independent_primary,
       jitter: Math.random() - 0.5,
     }));
-    return Array.from(d3.group(pts, (d) => d.histology), ([key, values]) => {
-      const hasCancerGroup = values.some((d) => d.cancerGroup != null);
-      const isNonNeoplastic = key.toLowerCase().includes("non-neoplastic");
-      const isCellLine = key.toLowerCase().includes("cell line");
-      const isTumor = hasCancerGroup || isNonNeoplastic;
-      const isControl = !isTumor && !isCellLine;
-      return { key, values, isTumor, isNonNeoplastic, isControl, isCellLine, stats: boxStats(values.map((d) => d.cpm)) };
-    }).sort((a, b) => {
+
+    // Tumor samples are restricted to independent primaries; cell lines and
+    // controls (is_independent_primary === null) are unaffected by this filter.
+    const filtered = pts.filter((d) => d.isCellLine || d.isIndependentPrimary !== false);
+
+    const groupByHistology = (src, isCellLineGroup) =>
+      Array.from(d3.group(src, (d) => d.histology), ([key, values]) => {
+        const hasCancerGroup = values.some((d) => d.cancerGroup != null);
+        const isNonNeoplastic = !isCellLineGroup && key.toLowerCase().includes("non-neoplastic");
+        const isTumor = !isCellLineGroup && (hasCancerGroup || isNonNeoplastic);
+        const isControl = !isCellLineGroup && !isTumor;
+        return {
+          key, values, isTumor, isNonNeoplastic, isControl,
+          isCellLine: isCellLineGroup,
+          stats: boxStats(values.map((d) => d.cpm)),
+        };
+      });
+
+    const tumorPts = filtered.filter((d) => !d.isCellLine);
+    const cellLinePts = filtered.filter((d) => d.isCellLine);
+
+    return [...groupByHistology(tumorPts, false), ...groupByHistology(cellLinePts, true)].sort((a, b) => {
       if (a.isTumor && b.isTumor && a.isNonNeoplastic !== b.isNonNeoplastic)
         return a.isNonNeoplastic ? 1 : -1;
       return a.key.localeCompare(b.key);
@@ -149,7 +165,7 @@ export default function PlotArea({
   );
 
   useEffect(() => {
-    if (!svgRef.current || activeTab === 2 || activeTab === 3) return;
+    if (!svgRef.current || activeTab === 3) return;
 
     const svg = d3.select(svgRef.current);
     svg.selectAll("*").remove();
@@ -568,18 +584,6 @@ export default function PlotArea({
           </Box>
         ) : fetchError ? (
           <Alert severity="error">Failed to load CPM data: {fetchError}</Alert>
-        ) : activeTab === 2 ? (
-          <Box
-            sx={{
-              display: "flex",
-              justifyContent: "center",
-              alignItems: "center",
-              height,
-              color: "text.disabled",
-            }}
-          >
-            <Typography variant="body2">Coming soon</Typography>
-          </Box>
         ) : (
           <svg ref={svgRef} width={containerWidth} height={height} style={{ display: "block" }} />
         )}
