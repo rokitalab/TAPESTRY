@@ -89,6 +89,26 @@ export default function Explore() {
   const [selectedGene, setSelectedGene] = useState(initialGene || "");
   const [selectedJunction, setSelectedJunction] = useState(null);
 
+  const [tumorSamples, setTumorSamples] = useState([]);
+  const [samplesLoading, setSamplesLoading] = useState(false);
+  const [samplesError, setSamplesError] = useState(null);
+
+  useEffect(() => {
+    if (!selectedJunction) { setTumorSamples([]); return; }
+    setSamplesLoading(true);
+    setSamplesError(null);
+    fetch(`${API_BASE}/junction-sample-view/?junction=${encodeURIComponent(selectedJunction)}`)
+      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+      .then((data) => setTumorSamples(data))
+      .catch((e) => setSamplesError(e.message))
+      .finally(() => setSamplesLoading(false));
+  }, [selectedJunction]);
+
+  const tumorSampleIds = useMemo(
+    () => new Set(tumorSamples.map((s) => s.biospecimen_id)),
+    [tumorSamples],
+  );
+
   const filtered = useMemo(() => {
     const g = gene.trim().toUpperCase();
     if (!g) return geneSummary;
@@ -260,14 +280,13 @@ export default function Explore() {
           onJunctionSelect={setSelectedJunction}
         />
       )}
-      {selectedJunction && <SampleTable junction={selectedJunction} />}
 
       <Box sx={{ mt: 3 }}>
         <ExonVis gene={selectedGene} exonID={null} eventType="" strand="+" />
       </Box>
       {selectedJunction && (
         <Box sx={{ mt: 3 }}>
-          <PlotArea junction={selectedJunction} />
+          <PlotArea junction={selectedJunction} gene={selectedGene} highlightIds={tumorSampleIds} />
         </Box>
       )}
     </>
@@ -400,29 +419,11 @@ function JunctionTable({ gene, selectedJunction, onJunctionSelect }) {
   );
 }
 
-function SampleTable({ junction }) {
-  const [samples, setSamples] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [fetchError, setFetchError] = useState(null);
+function SampleTable({ junction, samples = [], loading = false, fetchError = null }) {
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
 
-  useEffect(() => {
-    if (!junction) return;
-    setLoading(true);
-    setFetchError(null);
-    fetch(`${API_BASE}/junction-sample-view/?junction=${encodeURIComponent(junction)}`)
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then((data) => {
-        setSamples(data);
-        setPage(0);
-      })
-      .catch((e) => setFetchError(e.message))
-      .finally(() => setLoading(false));
-  }, [junction]);
+  useEffect(() => { setPage(0); }, [samples]);
 
   const paged = useMemo(() => {
     const start = page * rowsPerPage;
