@@ -12,6 +12,7 @@ import {
   Divider,
 } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
+import HistologySummary from "../components/HistologySummary";
 
 function SearchCard({
   title,
@@ -99,7 +100,7 @@ export default function Home() {
 
   const examples = useMemo(
     () => ({
-      gene: "CLK1",
+      gene: "NRCAM",
       histology: "HGG",
       spliceEvent: "SE",
     }),
@@ -123,7 +124,7 @@ export default function Home() {
           <SearchCard
             title="Search by gene"
             subtitle="Jump straight to events for a gene symbol."
-            placeholder='e.g. "CLK1"'
+            placeholder='e.g. "NRCAM"'
             value={gene}
             onChange={setGene}
             onSubmit={() => goExplore({ gene: gene.trim() })}
@@ -152,6 +153,9 @@ export default function Home() {
           />
         </Grid>
       </Grid>
+      
+      <Divider sx={{ mt: 5 }} />
+      <HistologySummary />
     </Box>
   );
 }

@@ -5,3 +5,9 @@ services:
     container_name: tapestry-frontend
     ports:
       - "${PORT:-5173}:80"
+    networks:
+      - tapestry-net
+
+networks:
+  tapestry-net:
+

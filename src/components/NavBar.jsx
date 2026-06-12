@@ -41,6 +41,15 @@ export default function NavBar({ mode, setMode }) {
         >
           Explore
         </Button>
+	<Button
+          component={NavLink}
+          to="/tejs"
+          style={linkStyle}
+          color="inherit"
+          sx={{ opacity: 0.9, "&.active": { opacity: 1, fontWeight: 700 } }}
+        >
+          All
+        </Button>
         <Button
           component={NavLink}
           to="/docs"

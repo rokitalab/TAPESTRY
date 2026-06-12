@@ -31,7 +31,7 @@ function Root() {
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <BrowserRouter>
-        <App />
+        <App mode={mode} setMode={setMode} />
       </BrowserRouter>
     </ThemeProvider>
   );
