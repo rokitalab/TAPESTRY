@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert, Box, Button, Checkbox, CircularProgress, Divider,
-  FormControlLabel, IconButton, Paper, Popover, Stack, Switch, Tab, Tabs, Tooltip, Typography,
+  FormControlLabel, IconButton, Menu, MenuItem, Paper, Popover, Stack, Switch, Tab, Tabs, Tooltip, Typography,
 } from "@mui/material";
 import DownloadIcon from "@mui/icons-material/Download";
 import SettingsIcon from "@mui/icons-material/Settings";
@@ -50,6 +50,48 @@ function boxStats(cpms) {
 
 const EMPTY_SET = new Set();
 
+// SVG dimensions are in CSS px (96 DPI); scale raster exports up to 300 DPI.
+const EXPORT_SCALE = 300 / 96;
+
+function cloneSvgWithBackground(svgEl) {
+  const svgWidth = Number(svgEl.getAttribute("width"));
+  const svgHeight = Number(svgEl.getAttribute("height"));
+  const clone = svgEl.cloneNode(true);
+  const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+  bg.setAttribute("width", svgWidth);
+  bg.setAttribute("height", svgHeight);
+  bg.setAttribute("fill", "white");
+  clone.insertBefore(bg, clone.firstChild);
+  return { clone, svgWidth, svgHeight };
+}
+
+function svgToCanvas(clone, svgWidth, svgHeight, scale) {
+  return new Promise((resolve, reject) => {
+    const svgStr = new XMLSerializer().serializeToString(clone);
+    const url = URL.createObjectURL(new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" }));
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = svgWidth * scale;
+      canvas.height = svgHeight * scale;
+      const ctx = canvas.getContext("2d");
+      ctx.scale(scale, scale);
+      ctx.drawImage(img, 0, 0);
+      URL.revokeObjectURL(url);
+      resolve(canvas);
+    };
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+
+function triggerDownload(href, filename) {
+  const link = document.createElement("a");
+  link.href = href;
+  link.download = filename;
+  link.click();
+}
+
 export default function PlotArea({
   junction = null,
   gene = null,
@@ -68,6 +110,7 @@ export default function PlotArea({
   const [fetchError, setFetchError] = useState(null);
   const [selectedGroups, setSelectedGroups] = useState(new Set());
   const [settingsAnchor, setSettingsAnchor] = useState(null);
+  const [exportAnchor, setExportAnchor] = useState(null);
   const [tooltip, setTooltip] = useState({ visible: false, x: 0, y: 0, html: "" });
   const [activeTab, setActiveTab] = useState(0);
   const [log2Scale, setLog2Scale] = useState(false);
@@ -422,45 +465,43 @@ export default function PlotArea({
     });
   }, [evodevoPoints, activeTab, containerWidth, height, log2Scale]);
 
+  function exportFilename(ext) {
+    return `junction-cpm${junction ? `-${junction}` : ""}.${ext}`;
+  }
+
   async function downloadAsPdf() {
-    const { jsPDF } = await import("jspdf");
     const svgEl = svgRef.current;
     if (!svgEl) return;
+    const { jsPDF } = await import("jspdf");
+    const { clone, svgWidth, svgHeight } = cloneSvgWithBackground(svgEl);
+    const canvas = await svgToCanvas(clone, svgWidth, svgHeight, EXPORT_SCALE);
 
-    const svgWidth = Number(svgEl.getAttribute("width"));
-    const svgHeight = Number(svgEl.getAttribute("height"));
+    const pdf = new jsPDF({
+      orientation: svgWidth > svgHeight ? "landscape" : "portrait",
+      unit: "px",
+      format: [svgWidth, svgHeight],
+      hotfixes: ["px_scaling"],
+    });
+    pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, 0, svgWidth, svgHeight);
+    pdf.save(exportFilename("pdf"));
+  }
 
-    const clone = svgEl.cloneNode(true);
-    const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-    bg.setAttribute("width", svgWidth);
-    bg.setAttribute("height", svgHeight);
-    bg.setAttribute("fill", "white");
-    clone.insertBefore(bg, clone.firstChild);
+  async function downloadAsPng() {
+    const svgEl = svgRef.current;
+    if (!svgEl) return;
+    const { clone, svgWidth, svgHeight } = cloneSvgWithBackground(svgEl);
+    const canvas = await svgToCanvas(clone, svgWidth, svgHeight, EXPORT_SCALE);
+    triggerDownload(canvas.toDataURL("image/png"), exportFilename("png"));
+  }
 
+  function downloadAsSvg() {
+    const svgEl = svgRef.current;
+    if (!svgEl) return;
+    const { clone } = cloneSvgWithBackground(svgEl);
     const svgStr = new XMLSerializer().serializeToString(clone);
     const url = URL.createObjectURL(new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" }));
-
-    const img = new Image();
-    img.onload = () => {
-      const scale = 2;
-      const canvas = document.createElement("canvas");
-      canvas.width = svgWidth * scale;
-      canvas.height = svgHeight * scale;
-      const ctx = canvas.getContext("2d");
-      ctx.scale(scale, scale);
-      ctx.drawImage(img, 0, 0);
-      URL.revokeObjectURL(url);
-
-      const pdf = new jsPDF({
-        orientation: svgWidth > svgHeight ? "landscape" : "portrait",
-        unit: "px",
-        format: [svgWidth, svgHeight],
-        hotfixes: ["px_scaling"],
-      });
-      pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, 0, svgWidth, svgHeight);
-      pdf.save(`junction-cpm${junction ? `-${junction}` : ""}.pdf`);
-    };
-    img.src = url;
+    triggerDownload(url, exportFilename("svg"));
+    setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 
   function toggleGroup(key) {
@@ -509,11 +550,16 @@ export default function PlotArea({
               <SettingsIcon fontSize="small" />
             </IconButton>
           </Tooltip>
-          <Tooltip title="Download as PDF">
-            <IconButton size="small" onClick={downloadAsPdf}>
+          <Tooltip title="Download plot">
+            <IconButton size="small" onClick={(e) => setExportAnchor(e.currentTarget)}>
               <DownloadIcon fontSize="small" />
             </IconButton>
           </Tooltip>
+          <Menu anchorEl={exportAnchor} open={Boolean(exportAnchor)} onClose={() => setExportAnchor(null)}>
+            <MenuItem onClick={() => { setExportAnchor(null); downloadAsPng(); }}>PNG (300 DPI)</MenuItem>
+            <MenuItem onClick={() => { setExportAnchor(null); downloadAsPdf(); }}>PDF (300 DPI)</MenuItem>
+            <MenuItem onClick={() => { setExportAnchor(null); downloadAsSvg(); }}>SVG</MenuItem>
+          </Menu>
         </Stack>
       </Box>
 
