@@ -109,13 +109,13 @@ export default function PlotArea({
     const filtered = pts.filter((d) => d.isCellLine || d.isIndependentPrimary !== false);
 
     const groupByHistology = (src, isCellLineGroup) =>
-      Array.from(d3.group(src, (d) => d.histology), ([key, values]) => {
+      Array.from(d3.group(src, (d) => d.histology), ([histology, values]) => {
         const hasCancerGroup = values.some((d) => d.cancerGroup != null);
-        const isNonNeoplastic = !isCellLineGroup && key.toLowerCase().includes("non-neoplastic");
+        const isNonNeoplastic = !isCellLineGroup && histology.toLowerCase().includes("non-neoplastic");
         const isTumor = !isCellLineGroup && (hasCancerGroup || isNonNeoplastic);
         const isControl = !isCellLineGroup && !isTumor;
         return {
-          key, values, isTumor, isNonNeoplastic, isControl,
+          key: histology, label: histology, values, isTumor, isNonNeoplastic, isControl,
           isCellLine: isCellLineGroup,
           stats: boxStats(values.map((d) => d.cpm)),
         };
@@ -124,11 +124,25 @@ export default function PlotArea({
     const tumorPts = filtered.filter((d) => !d.isCellLine);
     const cellLinePts = filtered.filter((d) => d.isCellLine);
 
-    return [...groupByHistology(tumorPts, false), ...groupByHistology(cellLinePts, true)].sort((a, b) => {
-      if (a.isTumor && b.isTumor && a.isNonNeoplastic !== b.isNonNeoplastic)
-        return a.isNonNeoplastic ? 1 : -1;
+    const tumorAndControlGroups = groupByHistology(tumorPts, false);
+    const cellLineGroups = groupByHistology(cellLinePts, true);
+
+    // Cell-line groups can share a histology name with a tumor/control group
+    // (e.g. "DIPG or DMG"). Disambiguate the key in that case so the two stay
+    // distinct for selectedGroups, React list keys, and the scaleBand domain;
+    // `label` keeps the plain histology name for display and color lookup.
+    const tumorAndControlKeys = new Set(tumorAndControlGroups.map((g) => g.key));
+    cellLineGroups.forEach((g) => {
+      if (tumorAndControlKeys.has(g.key)) g.key = `${g.key} (Cell Line)`;
+    });
+
+    const typeRank = (g) => (g.isTumor ? (g.isNonNeoplastic ? 1 : 0) : g.isControl ? 2 : 3);
+
+    return [...tumorAndControlGroups, ...cellLineGroups].sort((a, b) => {
+      const rankDiff = typeRank(a) - typeRank(b);
+      if (rankDiff !== 0) return rankDiff;
       if (sortByMedian) return b.stats.median - a.stats.median;
-      return a.key.localeCompare(b.key);
+      return a.label.localeCompare(b.label);
     });
   }, [fetchedRows, rows, sortByMedian]);
 
@@ -221,16 +235,16 @@ export default function PlotArea({
     const hideTip = () =>
       setTooltip((prev) => ({ ...prev, visible: false }));
 
-    visibleGroups.forEach(({ key, values }) => {
+    visibleGroups.forEach(({ key, label, values }) => {
       const xVals = values.map(xform);
       const { q1, median, q3, lo, hi } = boxStats(xVals);
       const cx = x(key) + x.bandwidth() / 2;
       const bw = x.bandwidth() * 0.55;
-      const color = histologyColor(key);
+      const color = histologyColor(label);
       const fmt = (v) => v.toFixed(3);
-      const label = log2Scale ? "log₂(CPM+1)" : "CPM";
+      const axisLabel = log2Scale ? "log₂(CPM+1)" : "CPM";
 
-      const boxTip = `<strong>${key}</strong><br/>n=${values.length}<br/>Median: ${fmt(median)}<br/>IQR: [${fmt(q1)}, ${fmt(q3)}]<br/>Whiskers: [${fmt(lo)}, ${fmt(hi)}]`;
+      const boxTip = `<strong>${label}</strong><br/>n=${values.length}<br/>Median: ${fmt(median)}<br/>IQR: [${fmt(q1)}, ${fmt(q3)}]<br/>Whiskers: [${fmt(lo)}, ${fmt(hi)}]`;
 
       root.append("line").attr("x1", cx).attr("x2", cx)
         .attr("y1", y(lo)).attr("y2", y(q1))
@@ -275,7 +289,7 @@ export default function PlotArea({
           .attr("stroke-width", highlighted ? 1.5 : 0.5)
           .style("cursor", "pointer")
           .on("mouseover", (e) =>
-            showTip(e, `<strong>${d.id}</strong><br/>${key}<br/>${label}: ${xform(d).toFixed(3)}${highlighted ? "<br/><em>tumor enriched</em>" : ""}`)
+            showTip(e, `<strong>${d.id}</strong><br/>${label}<br/>${axisLabel}: ${xform(d).toFixed(3)}${highlighted ? "<br/><em>tumor enriched</em>" : ""}`)
           )
           .on("mousemove", moveTip)
           .on("mouseout", hideTip);
@@ -451,8 +465,12 @@ export default function PlotArea({
     });
   }
 
-  const cancerGroups = tabGroups.filter((g) => g.isTumor && !g.isNonNeoplastic);
-  const nonNeoplasticGroups = tabGroups.filter((g) => g.isNonNeoplastic);
+  const groupSections = [
+    { label: "Cancer", items: tabGroups.filter((g) => g.isTumor && !g.isNonNeoplastic) },
+    { label: "Non-neoplastic", items: tabGroups.filter((g) => g.isNonNeoplastic) },
+    { label: "Controls", items: tabGroups.filter((g) => g.isControl) },
+    { label: "Cell Lines", items: tabGroups.filter((g) => g.isCellLine) },
+  ].filter((s) => s.items.length > 0);
 
   return (
     <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, width: "100%" }}>
@@ -503,6 +521,7 @@ export default function PlotArea({
         <Tab label="Controls" />
         <Tab label="Cell Lines" />
         <Tab label="EvoDevo" />
+        <Tab label="All" />
       </Tabs>
 
       <Popover
@@ -522,12 +541,15 @@ export default function PlotArea({
             </Button>
           </Stack>
 
-          {cancerGroups.length > 0 && (
-            <>
-              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, display: "block", mb: 0.5 }}>
-                Cancer
-              </Typography>
-              {cancerGroups.map(({ key }) => (
+          {groupSections.map((section, i) => (
+            <Box key={section.label}>
+              {i > 0 && <Divider sx={{ my: 1 }} />}
+              {groupSections.length > 1 && (
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, display: "block", mb: 0.5 }}>
+                  {section.label}
+                </Typography>
+              )}
+              {section.items.map(({ key, label }) => (
                 <Box key={key} sx={{ display: "block" }}>
                   <FormControlLabel
                     control={
@@ -535,56 +557,13 @@ export default function PlotArea({
                         size="small"
                         checked={selectedGroups.has(key)}
                         onChange={() => toggleGroup(key)}
-                        sx={{ color: histologyColor(key), "&.Mui-checked": { color: histologyColor(key) } }}
+                        sx={{ color: histologyColor(label), "&.Mui-checked": { color: histologyColor(label) } }}
                       />
                     }
-                    label={<Typography variant="body2">{key}</Typography>}
+                    label={<Typography variant="body2">{label}</Typography>}
                   />
                 </Box>
               ))}
-            </>
-          )}
-
-          {cancerGroups.length > 0 && nonNeoplasticGroups.length > 0 && (
-            <Divider sx={{ my: 1 }} />
-          )}
-
-          {nonNeoplasticGroups.length > 0 && (
-            <>
-              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, display: "block", mb: 0.5 }}>
-                Non-neoplastic
-              </Typography>
-              {nonNeoplasticGroups.map(({ key }) => (
-                <Box key={key} sx={{ display: "block" }}>
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        size="small"
-                        checked={selectedGroups.has(key)}
-                        onChange={() => toggleGroup(key)}
-                        sx={{ color: histologyColor(key), "&.Mui-checked": { color: histologyColor(key) } }}
-                      />
-                    }
-                    label={<Typography variant="body2">{key}</Typography>}
-                  />
-                </Box>
-              ))}
-            </>
-          )}
-
-          {activeTab !== 0 && tabGroups.map(({ key }) => (
-            <Box key={key} sx={{ display: "block" }}>
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    size="small"
-                    checked={selectedGroups.has(key)}
-                    onChange={() => toggleGroup(key)}
-                    sx={{ color: histologyColor(key), "&.Mui-checked": { color: histologyColor(key) } }}
-                  />
-                }
-                label={<Typography variant="body2">{key}</Typography>}
-              />
             </Box>
           ))}
         </Box>
