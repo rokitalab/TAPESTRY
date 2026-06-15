@@ -286,7 +286,7 @@ function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightId
         .attr("r", highlighted ? 5 : 3)
         .attr("fill", color)
         .attr("fill-opacity", highlighted ? 1 : 0.4)
-        .attr("stroke", "white")
+        .attr("stroke", "black")
         .attr("stroke-width", highlighted ? 1.5 : 0.5)
         .style("cursor", "pointer")
         .on("mouseover", (e) =>
@@ -357,7 +357,7 @@ function drawEvoDevoPlot(svg, { width, height, evodevoPoints, log2Scale, onHover
         .attr("r", 3)
         .attr("fill", color)
         .attr("fill-opacity", 0.3)
-        .attr("stroke", color)
+        .attr("stroke", "black")
         .attr("stroke-width", 0.5)
         .style("cursor", "pointer")
         .on("mouseover", (e) =>
