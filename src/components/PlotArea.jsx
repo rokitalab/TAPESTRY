@@ -636,6 +636,19 @@ export default function PlotArea({
     triggerDownload(canvas.toDataURL("image/png"), exportFilename("png"));
   }
 
+  async function downloadAsTiff() {
+    const UTIFModule = await import("utif2");
+    const UTIF = UTIFModule.default ?? UTIFModule;
+    const { clone, svgWidth, svgHeight } = cloneSvgWithBackground(buildExportSvgEl(), title);
+    const canvas = await svgToCanvas(clone, svgWidth, svgHeight, EXPORT_SCALE);
+    const ctx = canvas.getContext("2d");
+    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const tiff = UTIF.encodeImage(data, canvas.width, canvas.height);
+    const url = URL.createObjectURL(new Blob([tiff], { type: "image/tiff" }));
+    triggerDownload(url, exportFilename("tiff"));
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+
   function downloadAsSvg() {
     const { clone } = cloneSvgWithBackground(buildExportSvgEl(), title);
     const svgStr = new XMLSerializer().serializeToString(clone);
@@ -724,6 +737,7 @@ export default function PlotArea({
             <Divider />
             <MenuItem onClick={() => { setExportAnchor(null); downloadAsPng(); }}>PNG (300 DPI)</MenuItem>
             <MenuItem onClick={() => { setExportAnchor(null); downloadAsPdf(); }}>PDF (300 DPI)</MenuItem>
+            <MenuItem onClick={() => { setExportAnchor(null); downloadAsTiff(); }}>TIFF (300 DPI)</MenuItem>
             <MenuItem onClick={() => { setExportAnchor(null); downloadAsSvg(); }}>SVG</MenuItem>
           </Menu>
         </Stack>
