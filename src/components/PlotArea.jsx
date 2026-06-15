@@ -134,6 +134,27 @@ function groupColor(g) {
   return g.isControl ? controlCohortColor(g.cohort) : histologyColor(g.label);
 }
 
+// Box-plot groups are split into side-by-side facet panels by tumor/control
+// cohort/cell-line, in this order. "Other" catches any control cohort not
+// in COHORT_FACET_NAMES so groups are never silently dropped.
+const COHORT_FACET_NAMES = {
+  "Pediatric brain cell type": "Cell of Origin",
+  "Evo-devo": "Evo-Devo",
+  "Pediatric brain": "Pediatric Brain",
+  "GTEx": "GTEx <40",
+};
+
+const FACET_ORDER = ["Tumor", "Cell of Origin", "Evo-Devo", "Pediatric Brain", "GTEx <40", "Cell Lines", "Other"];
+
+// Gap (px) between facet panels.
+const FACET_GAP = 24;
+
+function facetName(g) {
+  if (g.isTumor) return "Tumor";
+  if (g.isCellLine) return "Cell Lines";
+  return COHORT_FACET_NAMES[g.cohort] ?? "Other";
+}
+
 // Renders the per-histology box plot into `svg`, sized to `width` x `height`.
 // Shared by the on-screen chart and off-screen export rendering.
 function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightIds, onHover, onMove, onLeave }) {
@@ -146,13 +167,29 @@ function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightId
 
   const allCpms = visibleGroups.flatMap((g) => g.values.map(xform));
   const yMax = d3.max(allCpms) ?? 1;
-
-  const x = d3.scaleBand()
-    .domain(visibleGroups.map((g) => g.key))
-    .range([0, iW])
-    .padding(0.35);
-
   const y = d3.scaleLinear().domain([0, yMax]).nice().range([iH, 0]);
+
+  // Split groups into side-by-side facet panels (Tumor, control cohorts,
+  // Cell Lines). Panel widths are proportional to group count, so box
+  // widths stay consistent across panels; all panels share the y-scale above.
+  const facetBuckets = FACET_ORDER
+    .map((name) => ({ name, groups: visibleGroups.filter((g) => facetName(g) === name) }))
+    .filter((f) => f.groups.length > 0);
+
+  const facetGapWidth = FACET_GAP * Math.max(0, facetBuckets.length - 1);
+  const usableWidth = Math.max(iW - facetGapWidth, 0);
+
+  const scaleForKey = new Map();
+  let cursor = 0;
+  facetBuckets.forEach((f) => {
+    const facetWidth = usableWidth * (f.groups.length / visibleGroups.length);
+    f.scale = d3.scaleBand()
+      .domain(f.groups.map((g) => g.key))
+      .range([cursor, cursor + facetWidth])
+      .padding(0.35);
+    f.groups.forEach((g) => scaleForKey.set(g.key, f.scale));
+    cursor += facetWidth + FACET_GAP;
+  });
 
   const root = svg.append("g").attr("transform", `translate(${MARGIN.left},${MARGIN.top})`);
 
@@ -161,15 +198,30 @@ function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightId
     .call((g) => g.select(".domain").remove())
     .call((g) => g.selectAll("line").attr("stroke", "#e0e0e0").attr("stroke-dasharray", "3,3"));
 
-  root.append("g")
-    .attr("transform", `translate(0,${iH})`)
-    .call(d3.axisBottom(x))
-    .selectAll("text")
-    .attr("transform", "rotate(-55)")
-    .style("text-anchor", "end")
-    .attr("dx", "-0.5em")
-    .attr("font-size", 11)
-    .attr("dy", "0.15em");
+  facetBuckets.forEach((f) => {
+    root.append("g")
+      .attr("transform", `translate(0,${iH})`)
+      .call(d3.axisBottom(f.scale))
+      .selectAll("text")
+      .attr("transform", "rotate(-55)")
+      .style("text-anchor", "end")
+      .attr("dx", "-0.5em")
+      .attr("font-size", 11)
+      .attr("dy", "0.15em");
+
+    if (facetBuckets.length > 1 && f.name !== "Evo-Devo") {
+      const [x0, x1] = f.scale.range();
+      root.append("text")
+        .attr("x", (x0 + x1) / 2)
+        .attr("y", -8)
+        .attr("text-anchor", "middle")
+        .attr("font-size", 11)
+        .attr("font-weight", 700)
+        .attr("font-family", "sans-serif")
+        .attr("fill", "#888")
+        .text(f.name);
+    }
+  });
 
   root.append("g").call(d3.axisLeft(y).tickFormat(d3.format(".2f")));
 
@@ -182,25 +234,13 @@ function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightId
     .attr("fill", "#666")
     .text(log2Scale ? "log₂(CPM + 1)" : "CPM");
 
-  // Vertical separator after the Tumor block, before Controls/Cell Lines.
-  const gap = x.step() - x.bandwidth();
-  for (let i = 1; i < visibleGroups.length; i++) {
-    if (!(visibleGroups[i - 1].isTumor && !visibleGroups[i].isTumor)) continue;
-    const dividerX = x(visibleGroups[i].key) - gap / 2;
-    root.append("line")
-      .attr("x1", dividerX).attr("x2", dividerX)
-      .attr("y1", 0).attr("y2", iH)
-      .attr("stroke", "#bbb")
-      .attr("stroke-width", 1)
-      .attr("stroke-dasharray", "2,2");
-  }
-
   visibleGroups.forEach((g) => {
     const { key, label, values } = g;
     const xVals = values.map(xform);
     const { q1, median, q3, lo, hi } = boxStats(xVals);
-    const cx = x(key) + x.bandwidth() / 2;
-    const bw = x.bandwidth() * 0.55;
+    const scale = scaleForKey.get(key);
+    const cx = scale(key) + scale.bandwidth() / 2;
+    const bw = scale.bandwidth() * 0.55;
     const color = groupColor(g);
     const fmt = (v) => v.toFixed(3);
     const axisLabel = log2Scale ? "log₂(CPM+1)" : "CPM";
