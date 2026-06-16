@@ -144,7 +144,7 @@ const COHORT_FACET_NAMES = {
   "GTEx": "GTEx <40",
 };
 
-const FACET_ORDER = ["Tumor", "Cell of Origin", "Evo-devo", "Pediatric Brain", "GTEx <40", "Cell Lines", "Other"];
+const FACET_ORDER = ["Primary Tumors", "Cell of Origin", "Evo-devo", "Pediatric Brain", "GTEx <40", "Cell Lines", "Other"];
 
 // Gap (px) between facet panels.
 const FACET_GAP = 24;
@@ -152,7 +152,7 @@ const FACET_GAP = 24;
 const FACET_STRIP_H = 16;
 
 function facetName(g) {
-  if (g.isTumor) return "Tumor";
+  if (g.isTumor) return "Primary Tumors";
   if (g.isCellLine) return "Cell Lines";
   return COHORT_FACET_NAMES[g.cohort] ?? "Other";
 }
@@ -574,8 +574,11 @@ export default function PlotArea({
   }, [groups, activeTab, highlightIds]);
 
   useEffect(() => {
-    // On Tumors vs Controls, cell lines default to hidden but stay toggleable.
-    const defaultGroups = activeTab === 4 ? tabGroups.filter((g) => !g.isCellLine) : tabGroups;
+    // Tumors vs Controls: cell lines default off. Controls/Cell Lines tabs: enriched tumor
+    // reference groups default off (user must opt in via "Enriched" toggle).
+    let defaultGroups = tabGroups;
+    if (activeTab === 4) defaultGroups = tabGroups.filter((g) => !g.isCellLine);
+    else if (activeTab === 1 || activeTab === 2) defaultGroups = tabGroups.filter((g) => !g.isTumor);
     setSelectedGroups(new Set(defaultGroups.map((g) => g.key)));
   }, [tabGroups, activeTab]);
 
@@ -678,48 +681,44 @@ export default function PlotArea({
   }
 
   const groupSections = [
-    { label: "Tumor", items: tabGroups.filter((g) => g.isTumor) },
+    { label: "Primary Tumors", items: tabGroups.filter((g) => g.isTumor) },
     { label: "Controls", items: tabGroups.filter((g) => g.isControl) },
     { label: "Cell Lines", items: tabGroups.filter((g) => g.isCellLine) },
   ].filter((s) => s.items.length > 0);
 
   return (
     <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, width: "100%" }}>
-      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1 }}>
+      <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", mb: 1 }}>
         <Typography sx={{ fontWeight: 800 }}>{title}</Typography>
-        <Stack direction="row" spacing={0.5} alignItems="center">
-          <FormControlLabel
-            control={
-              <Switch
-                size="small"
-                checked={log2Scale}
-                onChange={(e) => setLog2Scale(e.target.checked)}
-              />
-            }
-            label={<Typography variant="body2">log₂</Typography>}
-            sx={{ mr: 0.5 }}
-          />
-          <FormControlLabel
-            control={
-              <Switch
-                size="small"
-                checked={sortByMedian}
-                onChange={(e) => setSortByMedian(e.target.checked)}
-              />
-            }
-            label={<Typography variant="body2">Sort by median</Typography>}
-            sx={{ mr: 0.5 }}
-          />
-          <Tooltip title="Configure groups">
-            <IconButton size="small" onClick={(e) => setSettingsAnchor(e.currentTarget)}>
-              <SettingsIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Download plot">
-            <IconButton size="small" onClick={(e) => setExportAnchor(e.currentTarget)}>
-              <DownloadIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
+        <Stack direction="column" alignItems="flex-end" spacing={0.5}>
+          <Stack direction="row" spacing={0.5} alignItems="center">
+            <FormControlLabel
+              control={
+                <Switch
+                  size="small"
+                  checked={log2Scale}
+                  onChange={(e) => setLog2Scale(e.target.checked)}
+                />
+              }
+              label={<Typography variant="body2">log₂</Typography>}
+              sx={{ mr: 0.5 }}
+            />
+            <FormControlLabel
+              control={
+                <Switch
+                  size="small"
+                  checked={sortByMedian}
+                  onChange={(e) => setSortByMedian(e.target.checked)}
+                />
+              }
+              label={<Typography variant="body2">Sort by median</Typography>}
+              sx={{ mr: 0.5 }}
+            />
+            <Tooltip title="Download plot">
+              <IconButton size="small" onClick={(e) => setExportAnchor(e.currentTarget)}>
+                <DownloadIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
           <Menu anchorEl={exportAnchor} open={Boolean(exportAnchor)} onClose={() => setExportAnchor(null)}>
             <Box sx={{ px: 2, py: 1 }}>
               <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
@@ -752,6 +751,15 @@ export default function PlotArea({
             <MenuItem onClick={() => { setExportAnchor(null); downloadAsTiff(); }}>TIFF (300 DPI)</MenuItem>
             <MenuItem onClick={() => { setExportAnchor(null); downloadAsSvg(); }}>SVG</MenuItem>
           </Menu>
+          </Stack>
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<SettingsIcon fontSize="small" />}
+            onClick={(e) => setSettingsAnchor(e.currentTarget)}
+          >
+            Configure Samples
+          </Button>
         </Stack>
       </Box>
 
@@ -792,6 +800,34 @@ export default function PlotArea({
                   {section.label}
                 </Typography>
               )}
+              {section.label === "Primary Tumors" && (() => {
+                const enrichedItems = section.items.filter((g) =>
+                  g.values.some((d) => highlightIds.has(d.id))
+                );
+                if (enrichedItems.length === 0) return null;
+                const allOn = enrichedItems.every((g) => selectedGroups.has(g.key));
+                const someOn = enrichedItems.some((g) => selectedGroups.has(g.key));
+                return (
+                  <Box sx={{ display: "block" }}>
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          size="small"
+                          checked={allOn}
+                          indeterminate={!allOn && someOn}
+                          onChange={() => setSelectedGroups((prev) => {
+                            const next = new Set(prev);
+                            if (allOn) enrichedItems.forEach((g) => next.delete(g.key));
+                            else enrichedItems.forEach((g) => next.add(g.key));
+                            return next;
+                          })}
+                        />
+                      }
+                      label={<Typography variant="body2" sx={{ fontStyle: "italic" }}>Enriched</Typography>}
+                    />
+                  </Box>
+                );
+              })()}
               {section.items.map((g) => (
                 <Box key={g.key} sx={{ display: "block" }}>
                   <FormControlLabel
