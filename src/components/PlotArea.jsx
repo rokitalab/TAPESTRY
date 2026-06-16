@@ -139,15 +139,17 @@ function groupColor(g) {
 // in COHORT_FACET_NAMES so groups are never silently dropped.
 const COHORT_FACET_NAMES = {
   "Pediatric brain cell type": "Cell of Origin",
-  "Evo-devo": "Evo-Devo",
+  "Evo-devo": "Evo-devo",
   "Pediatric brain": "Pediatric Brain",
   "GTEx": "GTEx <40",
 };
 
-const FACET_ORDER = ["Tumor", "Cell of Origin", "Evo-Devo", "Pediatric Brain", "GTEx <40", "Cell Lines", "Other"];
+const FACET_ORDER = ["Tumor", "Cell of Origin", "Evo-devo", "Pediatric Brain", "GTEx <40", "Cell Lines", "Other"];
 
 // Gap (px) between facet panels.
 const FACET_GAP = 24;
+// Height (px) of the ggplot-style strip label above each facet panel.
+const FACET_STRIP_H = 16;
 
 function facetName(g) {
   if (g.isTumor) return "Tumor";
@@ -209,16 +211,21 @@ function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightId
       .attr("font-size", 11)
       .attr("dy", "0.15em");
 
-    if (facetBuckets.length > 1 && f.name !== "Evo-Devo") {
+    if (facetBuckets.length > 1) {
       const [x0, x1] = f.scale.range();
+      root.append("rect")
+        .attr("x", x0).attr("y", -FACET_STRIP_H)
+        .attr("width", x1 - x0).attr("height", FACET_STRIP_H)
+        .attr("fill", "#ebebeb");
       root.append("text")
         .attr("x", (x0 + x1) / 2)
-        .attr("y", -8)
+        .attr("y", -FACET_STRIP_H / 2)
         .attr("text-anchor", "middle")
-        .attr("font-size", 11)
+        .attr("dominant-baseline", "central")
+        .attr("font-size", 13)
         .attr("font-weight", 700)
         .attr("font-family", "sans-serif")
-        .attr("fill", "#888")
+        .attr("fill", "#333")
         .text(f.name);
     }
   });
@@ -564,8 +571,10 @@ export default function PlotArea({
   }, [groups, activeTab, highlightIds]);
 
   useEffect(() => {
-    setSelectedGroups(new Set(tabGroups.map((g) => g.key)));
-  }, [tabGroups]);
+    // On Tumors vs Controls, cell lines default to hidden but stay toggleable.
+    const defaultGroups = activeTab === 4 ? tabGroups.filter((g) => !g.isCellLine) : tabGroups;
+    setSelectedGroups(new Set(defaultGroups.map((g) => g.key)));
+  }, [tabGroups, activeTab]);
 
   const visibleGroups = useMemo(
     () => tabGroups.filter((g) => selectedGroups.has(g.key)),
@@ -751,8 +760,8 @@ export default function PlotArea({
         <Tab label="Primary Tumors" />
         <Tab label="Controls" />
         <Tab label="Cell Lines" />
-        <Tab label="EvoDevo" />
-        <Tab label="All" />
+        <Tab label="Evo-Devo" />
+        <Tab label="Tumors vs Controls" />
       </Tabs>
 
       <Popover
