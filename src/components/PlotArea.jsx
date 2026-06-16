@@ -258,16 +258,16 @@ function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightId
 
     root.append("line").attr("x1", cx).attr("x2", cx)
       .attr("y1", y(lo)).attr("y2", y(q1))
-      .attr("stroke", color).attr("stroke-width", 1.5).attr("stroke-dasharray", "4,2");
+      .attr("stroke", "black").attr("stroke-width", 1.5).attr("stroke-dasharray", "4,2");
     root.append("line").attr("x1", cx).attr("x2", cx)
       .attr("y1", y(q3)).attr("y2", y(hi))
-      .attr("stroke", color).attr("stroke-width", 1.5).attr("stroke-dasharray", "4,2");
+      .attr("stroke", "black").attr("stroke-width", 1.5).attr("stroke-dasharray", "4,2");
 
     [lo, hi].forEach((v) =>
       root.append("line")
         .attr("x1", cx - bw / 4).attr("x2", cx + bw / 4)
         .attr("y1", y(v)).attr("y2", y(v))
-        .attr("stroke", color).attr("stroke-width", 1.5)
+        .attr("stroke", "black").attr("stroke-width", 1.5)
     );
 
     root.append("rect")
@@ -283,7 +283,7 @@ function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightId
     root.append("line")
       .attr("x1", cx - bw / 2).attr("x2", cx + bw / 2)
       .attr("y1", y(median)).attr("y2", y(median))
-      .attr("stroke", color).attr("stroke-width", 2.5)
+      .attr("stroke", "black").attr("stroke-width", 2.5)
       .attr("stroke-linecap", "round");
 
     const sorted = [...values].sort((a, b) => highlightIds.has(a.id) - highlightIds.has(b.id));
@@ -442,7 +442,7 @@ export default function PlotArea({
   junction = null,
   gene = null,
   rows = EMPTY_ROWS,
-  height = 460,
+  height = 420,
   highlightIds = EMPTY_SET,
 }) {
   const title = gene && junction
@@ -464,6 +464,8 @@ export default function PlotArea({
   const [showHighlight, setShowHighlight] = useState(true);
   const [exportWidthIn, setExportWidthIn] = useState(10);
   const [exportHeightIn, setExportHeightIn] = useState(5);
+  const [expandedFacets, setExpandedFacets] = useState(new Set());
+  const [selectedTimepoints, setSelectedTimepoints] = useState(new Set(EVODEVO_TIMEPOINTS));
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -562,22 +564,26 @@ export default function PlotArea({
       .filter((d) => d.region === "Forebrain" || d.region === "Hindbrain");
   }, [fetchedRows, rows]);
 
+  const presentTimepoints = useMemo(
+    () => EVODEVO_TIMEPOINTS.filter((tp) => evodevoPoints.some((d) => d.timepoint === tp)),
+    [evodevoPoints],
+  );
+
+  const filteredEvodevoPoints = useMemo(
+    () => evodevoPoints.filter((d) => selectedTimepoints.has(d.timepoint)),
+    [evodevoPoints, selectedTimepoints],
+  );
+
   const tabGroups = useMemo(() => {
-    // Controls and Cell Lines also show tumor groups for histologies where
-    // this junction is histology-enriched (at least one sample is in
-    // highlightIds / sample_tej), as a reference for comparison. `groups` is
-    // already ordered with tumor groups first, so they stay ahead of the
-    // controls/cell lines after filtering.
-    const isEnrichedTumor = (g) => g.isTumor && g.values.some((d) => highlightIds.has(d.id));
     if (activeTab === 0) return groups.filter((g) => g.isTumor);
-    if (activeTab === 1) return groups.filter((g) => g.isControl || isEnrichedTumor(g));
-    if (activeTab === 2) return groups.filter((g) => g.isCellLine || isEnrichedTumor(g));
+    if (activeTab === 1) return groups.filter((g) => g.isControl || g.isTumor);
+    if (activeTab === 2) return groups.filter((g) => g.isCellLine || g.isTumor);
+    if (activeTab === 3) return [];
     return groups;
-  }, [groups, activeTab, highlightIds]);
+  }, [groups, activeTab]);
 
   useEffect(() => {
-    // Tumors vs Controls: cell lines default off. Controls/Cell Lines tabs: enriched tumor
-    // reference groups default off (user must opt in via "Enriched" toggle).
+    // Tumors vs Controls: cell lines default off. Controls/Cell Lines tabs: tumors default off.
     let defaultGroups = tabGroups;
     if (activeTab === 4) defaultGroups = tabGroups.filter((g) => !g.isCellLine);
     else if (activeTab === 1 || activeTab === 2) defaultGroups = tabGroups.filter((g) => !g.isTumor);
@@ -610,13 +616,13 @@ export default function PlotArea({
     drawEvoDevoPlot(d3.select(svgRef.current), {
       width: containerWidth,
       height,
-      evodevoPoints,
+      evodevoPoints: filteredEvodevoPoints,
       log2Scale,
       onHover: (e, html) => setTooltip({ visible: true, x: e.clientX + 14, y: e.clientY - 32, html }),
       onMove: (e) => setTooltip((prev) => ({ ...prev, x: e.clientX + 14, y: e.clientY - 32 })),
       onLeave: () => setTooltip((prev) => ({ ...prev, visible: false })),
     });
-  }, [evodevoPoints, activeTab, containerWidth, height, log2Scale]);
+  }, [filteredEvodevoPoints, activeTab, containerWidth, height, log2Scale]);
 
   function exportFilename(ext) {
     return `junction-cpm${junction ? `-${junction}` : ""}.${ext}`;
@@ -628,7 +634,7 @@ export default function PlotArea({
       height: exportHeightIn * PX_PER_INCH,
       activeTab,
       visibleGroups,
-      evodevoPoints,
+      evodevoPoints: filteredEvodevoPoints,
       log2Scale,
       highlightIds: activeHighlightIds,
     });
@@ -694,46 +700,55 @@ export default function PlotArea({
     <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, width: "100%" }}>
       <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", mb: 1 }}>
         <Typography sx={{ fontWeight: 800 }}>{title}</Typography>
-        <Stack direction="column" alignItems="flex-end" spacing={0.5}>
+        <Stack direction="row" spacing={1.5} alignItems="center">
+          <FormControlLabel
+            control={
+              <Switch
+                size="small"
+                checked={log2Scale}
+                onChange={(e) => setLog2Scale(e.target.checked)}
+              />
+            }
+            label={<Typography variant="body2">log₂</Typography>}
+            sx={{ mr: 0 }}
+          />
+          <FormControlLabel
+            control={
+              <Switch
+                size="small"
+                checked={showHighlight}
+                onChange={(e) => setShowHighlight(e.target.checked)}
+              />
+            }
+            label={<Typography variant="body2">Show enriched</Typography>}
+            sx={{ mr: 0 }}
+          />
           <Stack direction="row" spacing={0.5} alignItems="center">
-            <FormControlLabel
-              control={
-                <Switch
-                  size="small"
-                  checked={log2Scale}
-                  onChange={(e) => setLog2Scale(e.target.checked)}
-                />
-              }
-              label={<Typography variant="body2">log₂</Typography>}
-              sx={{ mr: 0.5 }}
-            />
-            <FormControlLabel
-              control={
-                <Switch
-                  size="small"
-                  checked={showHighlight}
-                  onChange={(e) => setShowHighlight(e.target.checked)}
-                />
-              }
-              label={<Typography variant="body2">Show enriched</Typography>}
-              sx={{ mr: 0.5 }}
-            />
+            <Typography variant="body2" color="text.secondary">Sort:</Typography>
             <ToggleButtonGroup
               size="small"
               exclusive
               value={sortMode}
               onChange={(_, v) => { if (v !== null) setSortMode(v); }}
-              sx={{ mr: 0.5 }}
             >
               <ToggleButton value="asc" sx={{ px: 1, py: 0.25, fontSize: 13 }}>↑</ToggleButton>
               <ToggleButton value="alpha" sx={{ px: 1, py: 0.25, fontSize: 11 }}>A–Z</ToggleButton>
               <ToggleButton value="desc" sx={{ px: 1, py: 0.25, fontSize: 13 }}>↓</ToggleButton>
             </ToggleButtonGroup>
-            <Tooltip title="Download plot">
-              <IconButton size="small" onClick={(e) => setExportAnchor(e.currentTarget)}>
-                <DownloadIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
+          </Stack>
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<SettingsIcon fontSize="small" />}
+            onClick={(e) => setSettingsAnchor(e.currentTarget)}
+          >
+            Configure Samples
+          </Button>
+          <Tooltip title="Download plot">
+            <IconButton size="small" onClick={(e) => setExportAnchor(e.currentTarget)}>
+              <DownloadIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
           <Menu anchorEl={exportAnchor} open={Boolean(exportAnchor)} onClose={() => setExportAnchor(null)}>
             <Box sx={{ px: 2, py: 1 }}>
               <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
@@ -766,15 +781,6 @@ export default function PlotArea({
             <MenuItem onClick={() => { setExportAnchor(null); downloadAsTiff(); }}>TIFF (300 DPI)</MenuItem>
             <MenuItem onClick={() => { setExportAnchor(null); downloadAsSvg(); }}>SVG</MenuItem>
           </Menu>
-          </Stack>
-          <Button
-            size="small"
-            variant="outlined"
-            startIcon={<SettingsIcon fontSize="small" />}
-            onClick={(e) => setSettingsAnchor(e.currentTarget)}
-          >
-            Configure Samples
-          </Button>
         </Stack>
       </Box>
 
@@ -797,17 +803,35 @@ export default function PlotArea({
         anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
         transformOrigin={{ vertical: "top", horizontal: "right" }}
       >
-        <Box sx={{ p: 2, minWidth: 220, maxHeight: 480, overflowY: "auto" }}>
-          <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
-            <Button size="small" onClick={() => setSelectedGroups(new Set(tabGroups.map((g) => g.key)))}>
-              All
-            </Button>
-            <Button size="small" onClick={() => setSelectedGroups(new Set())}>
-              None
-            </Button>
-          </Stack>
+        <Box sx={{ p: 2, minWidth: 240, maxHeight: 480, overflowY: "auto" }}>
+          {activeTab === 3 && (
+            <>
+              <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
+                <Button size="small" onClick={() => setSelectedTimepoints(new Set(presentTimepoints))}>All</Button>
+                <Button size="small" onClick={() => setSelectedTimepoints(new Set())}>None</Button>
+              </Stack>
+              {presentTimepoints.map((tp) => (
+                <Box key={tp} sx={{ display: "block" }}>
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        size="small"
+                        checked={selectedTimepoints.has(tp)}
+                        onChange={() => setSelectedTimepoints((prev) => {
+                          const next = new Set(prev);
+                          next.has(tp) ? next.delete(tp) : next.add(tp);
+                          return next;
+                        })}
+                      />
+                    }
+                    label={<Typography variant="body2">{EVODEVO_LABELS[tp] ?? tp}</Typography>}
+                  />
+                </Box>
+              ))}
+            </>
+          )}
 
-          {groupSections.map((section, i) => (
+          {activeTab !== 3 && groupSections.map((section, i) => (
             <Box key={section.label}>
               {i > 0 && <Divider sx={{ my: 1 }} />}
               {groupSections.length > 1 && (
@@ -815,35 +839,114 @@ export default function PlotArea({
                   {section.label}
                 </Typography>
               )}
-              {section.label === "Primary Tumors" && (() => {
-                const enrichedItems = section.items.filter((g) =>
-                  g.values.some((d) => highlightIds.has(d.id))
-                );
-                if (enrichedItems.length === 0) return null;
-                const allOn = enrichedItems.every((g) => selectedGroups.has(g.key));
-                const someOn = enrichedItems.some((g) => selectedGroups.has(g.key));
-                return (
-                  <Box sx={{ display: "block" }}>
-                    <FormControlLabel
-                      control={
-                        <Checkbox
-                          size="small"
-                          checked={allOn}
-                          indeterminate={!allOn && someOn}
-                          onChange={() => setSelectedGroups((prev) => {
-                            const next = new Set(prev);
-                            if (allOn) enrichedItems.forEach((g) => next.delete(g.key));
-                            else enrichedItems.forEach((g) => next.add(g.key));
-                            return next;
-                          })}
-                        />
-                      }
-                      label={<Typography variant="body2" sx={{ fontStyle: "italic" }}>Enriched</Typography>}
-                    />
-                  </Box>
-                );
-              })()}
-              {section.items.map((g) => (
+
+              {(section.label === "Primary Tumors" || groupSections.length === 1) && (
+                <>
+                  <Stack direction="row" spacing={0.5} sx={{ mb: 0.5 }}>
+                    <Button size="small" onClick={() => setSelectedGroups((prev) => {
+                      const next = new Set(prev);
+                      section.items.forEach((g) => next.add(g.key));
+                      return next;
+                    })}>All</Button>
+                    <Button size="small" onClick={() => setSelectedGroups((prev) => {
+                      const next = new Set(prev);
+                      section.items.forEach((g) => next.delete(g.key));
+                      return next;
+                    })}>None</Button>
+                    {(() => {
+                      const enrichedKeys = section.items
+                        .filter((g) => g.values.some((d) => highlightIds.has(d.id)))
+                        .map((g) => g.key);
+                      if (enrichedKeys.length === 0) return null;
+                      return (
+                        <Button size="small" onClick={() => setSelectedGroups((prev) => {
+                          const next = new Set(prev);
+                          section.items.forEach((g) => next.delete(g.key));
+                          enrichedKeys.forEach((k) => next.add(k));
+                          return next;
+                        })}>Enriched</Button>
+                      );
+                    })()}
+                  </Stack>
+                  {section.items.map((g) => (
+                    <Box key={g.key} sx={{ display: "block" }}>
+                      <FormControlLabel
+                        control={
+                          <Checkbox
+                            size="small"
+                            checked={selectedGroups.has(g.key)}
+                            onChange={() => toggleGroup(g.key)}
+                            sx={{ color: groupColor(g), "&.Mui-checked": { color: groupColor(g) } }}
+                          />
+                        }
+                        label={<Typography variant="body2">{g.label}</Typography>}
+                      />
+                    </Box>
+                  ))}
+                </>
+              )}
+
+              {section.label === "Controls" && (
+                <>
+                  {Object.entries(
+                    section.items.reduce((acc, g) => {
+                      const f = facetName(g);
+                      (acc[f] = acc[f] || []).push(g);
+                      return acc;
+                    }, {})
+                  )
+                  .sort(([a], [b]) => FACET_ORDER.indexOf(a) - FACET_ORDER.indexOf(b))
+                  .map(([facet, items]) => {
+                    const allOn = items.every((g) => selectedGroups.has(g.key));
+                    const someOn = items.some((g) => selectedGroups.has(g.key));
+                    const isExpanded = expandedFacets.has(facet);
+                    return (
+                      <Box key={facet}>
+                        <Stack direction="row" alignItems="center">
+                          <Checkbox
+                            size="small"
+                            checked={allOn}
+                            indeterminate={!allOn && someOn}
+                            onChange={() => setSelectedGroups((prev) => {
+                              const next = new Set(prev);
+                              if (allOn) items.forEach((g) => next.delete(g.key));
+                              else items.forEach((g) => next.add(g.key));
+                              return next;
+                            })}
+                          />
+                          <Typography variant="body2" sx={{ flex: 1 }}>{facet}</Typography>
+                          <IconButton
+                            size="small"
+                            onClick={() => setExpandedFacets((prev) => {
+                              const next = new Set(prev);
+                              next.has(facet) ? next.delete(facet) : next.add(facet);
+                              return next;
+                            })}
+                          >
+                            <Typography variant="caption" sx={{ lineHeight: 1 }}>{isExpanded ? "▴" : "▾"}</Typography>
+                          </IconButton>
+                        </Stack>
+                        {isExpanded && items.map((g) => (
+                          <Box key={g.key} sx={{ pl: 2.5, display: "block" }}>
+                            <FormControlLabel
+                              control={
+                                <Checkbox
+                                  size="small"
+                                  checked={selectedGroups.has(g.key)}
+                                  onChange={() => toggleGroup(g.key)}
+                                />
+                              }
+                              label={<Typography variant="body2">{g.label}</Typography>}
+                            />
+                          </Box>
+                        ))}
+                      </Box>
+                    );
+                  })}
+                </>
+              )}
+
+              {section.label === "Cell Lines" && section.items.map((g) => (
                 <Box key={g.key} sx={{ display: "block" }}>
                   <FormControlLabel
                     control={
