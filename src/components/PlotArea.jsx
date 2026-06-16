@@ -160,7 +160,7 @@ function facetName(g) {
 
 // Renders the per-histology box plot into `svg`, sized to `width` x `height`.
 // Shared by the on-screen chart and off-screen export rendering.
-function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightIds, onHover, onMove, onLeave }) {
+function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightIds, textColor = "#333", onHover, onMove, onLeave }) {
   svg.selectAll("*").remove();
 
   const iW = width - MARGIN.left - MARGIN.right;
@@ -216,12 +216,10 @@ function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightId
 
     {
       const [x0, x1] = f.scale.range();
-      if (facetBuckets.length > 1) {
-        root.append("line")
-          .attr("x1", x0).attr("x2", x1)
-          .attr("y1", 0).attr("y2", 0)
-          .attr("stroke", "black").attr("stroke-width", 1.5);
-      }
+      root.append("line")
+        .attr("x1", x0).attr("x2", x1)
+        .attr("y1", 0).attr("y2", 0)
+        .attr("stroke", textColor).attr("stroke-width", 1.5);
       root.append("text")
         .attr("x", (x0 + x1) / 2)
         .attr("y", -FACET_STRIP_H / 2)
@@ -230,7 +228,7 @@ function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightId
         .attr("font-size", 13)
         .attr("font-weight", 700)
         .attr("font-family", "sans-serif")
-        .attr("fill", "#333")
+        .attr("fill", textColor)
         .text(f.name);
     }
   });
@@ -455,12 +453,14 @@ function drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleG
   const yMax = d3.max(allCpms) ?? 1;
   const y = d3.scaleLinear().domain([0, yMax]).nice().range([iH, 0]);
 
-  // Width proportional to item counts so box width stays consistent with standalone view
+  // Width proportional to item counts so box width stays consistent with standalone view.
+  // A FACET_GAP separates the two panels, just like the box-plot facet layout.
   const tumorCount = visibleGroups.length;
   const timepointCount = presentTimepoints.length;
-  const tumorWidth = Math.floor(iW * tumorCount / (tumorCount + timepointCount));
-  const evoStart = tumorWidth;
-  const evoWidth = iW - tumorWidth;
+  const usableW = iW - FACET_GAP;
+  const tumorWidth = Math.floor(usableW * tumorCount / (tumorCount + timepointCount));
+  const evoStart = tumorWidth + FACET_GAP;
+  const evoWidth = usableW - tumorWidth;
 
   const xTumor = d3.scaleBand()
     .domain(visibleGroups.map((g) => g.key))
@@ -479,12 +479,6 @@ function drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleG
     .call(d3.axisLeft(y).tickSize(-iW).tickFormat(""))
     .call((g) => g.select(".domain").remove())
     .call((g) => g.selectAll("line").attr("stroke", "#e0e0e0").attr("stroke-dasharray", "3,3"));
-
-  // Subtle vertical boundary between sections
-  root.append("line")
-    .attr("x1", evoStart).attr("x2", evoStart)
-    .attr("y1", 0).attr("y2", iH)
-    .attr("stroke", "#ccc").attr("stroke-width", 1);
 
   // — Tumor section —
   root.append("line")
@@ -637,13 +631,13 @@ const NO_TOOLTIP = { onHover: () => {}, onMove: () => {}, onLeave: () => {} };
 
 // Builds a detached <svg> at the requested export dimensions, drawn with the
 // same logic as the on-screen chart for the active tab.
-function buildExportSvg({ width, height, activeTab, visibleGroups, evodevoPoints, log2Scale, highlightIds, showTumorsOnEvodevo }) {
+function buildExportSvg({ width, height, activeTab, visibleGroups, evodevoPoints, log2Scale, highlightIds }) {
   const svgEl = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svgEl.setAttribute("width", width);
   svgEl.setAttribute("height", height);
   const svg = d3.select(svgEl);
   if (activeTab === 3) {
-    if (showTumorsOnEvodevo && visibleGroups.length > 0) {
+    if (visibleGroups.length > 0) {
       drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleGroups, log2Scale, highlightIds, ...NO_TOOLTIP });
     } else {
       drawEvoDevoPlot(svg, { width, height, evodevoPoints, log2Scale, ...NO_TOOLTIP });
@@ -658,7 +652,7 @@ export default function PlotArea({
   junction = null,
   gene = null,
   rows = EMPTY_ROWS,
-  height = 420,
+  height = 380,
   highlightIds = EMPTY_SET,
 }) {
   const theme = useTheme();
@@ -683,7 +677,6 @@ export default function PlotArea({
   const [exportHeightIn, setExportHeightIn] = useState(5);
   const [expandedFacets, setExpandedFacets] = useState(new Set());
   const [selectedTimepoints, setSelectedTimepoints] = useState(new Set(EVODEVO_TIMEPOINTS));
-  const [showTumorsOnEvodevo, setShowTumorsOnEvodevo] = useState(false);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -796,15 +789,15 @@ export default function PlotArea({
     if (activeTab === 0) return groups.filter((g) => g.isTumor);
     if (activeTab === 1) return groups.filter((g) => g.isControl || g.isTumor);
     if (activeTab === 2) return groups.filter((g) => g.isCellLine || g.isTumor);
-    if (activeTab === 3) return showTumorsOnEvodevo ? groups.filter((g) => g.isTumor) : [];
+    if (activeTab === 3) return groups.filter((g) => g.isTumor);
     return groups;
-  }, [groups, activeTab, showTumorsOnEvodevo]);
+  }, [groups, activeTab]);
 
   useEffect(() => {
-    // Tumors vs Controls: cell lines default off. Controls/Cell Lines tabs: tumors default off.
+    // Tumors vs Controls: cell lines default off. Controls/Cell Lines/Evo-devo tabs: tumors default off.
     let defaultGroups = tabGroups;
     if (activeTab === 4) defaultGroups = tabGroups.filter((g) => !g.isCellLine);
-    else if (activeTab === 1 || activeTab === 2) defaultGroups = tabGroups.filter((g) => !g.isTumor);
+    else if (activeTab === 1 || activeTab === 2 || activeTab === 3) defaultGroups = tabGroups.filter((g) => !g.isTumor);
     setSelectedGroups(new Set(defaultGroups.map((g) => g.key)));
   }, [tabGroups, activeTab]);
 
@@ -823,18 +816,19 @@ export default function PlotArea({
       visibleGroups,
       log2Scale,
       highlightIds: activeHighlightIds,
+      textColor: theme.palette.text.primary,
       onHover: (e, html) => setTooltip({ visible: true, x: e.clientX + 14, y: e.clientY - 32, html }),
       onMove: (e) => setTooltip((prev) => ({ ...prev, x: e.clientX + 14, y: e.clientY - 32 })),
       onLeave: () => setTooltip((prev) => ({ ...prev, visible: false })),
     });
-  }, [visibleGroups, containerWidth, height, activeTab, activeHighlightIds, log2Scale]);
+  }, [visibleGroups, containerWidth, height, activeTab, activeHighlightIds, log2Scale, theme.palette.text.primary]);
 
   useEffect(() => {
     if (!svgRef.current || activeTab !== 3) return;
     const onHover = (e, html) => setTooltip({ visible: true, x: e.clientX + 14, y: e.clientY - 32, html });
     const onMove = (e) => setTooltip((prev) => ({ ...prev, x: e.clientX + 14, y: e.clientY - 32 }));
     const onLeave = () => setTooltip((prev) => ({ ...prev, visible: false }));
-    if (showTumorsOnEvodevo && visibleGroups.length > 0) {
+    if (visibleGroups.length > 0) {
       drawEvoDevoWithTumorsPlot(d3.select(svgRef.current), {
         width: containerWidth, height, evodevoPoints: filteredEvodevoPoints,
         visibleGroups, log2Scale, highlightIds: activeHighlightIds,
@@ -847,7 +841,7 @@ export default function PlotArea({
       });
     }
   }, [filteredEvodevoPoints, activeTab, containerWidth, height, log2Scale, theme.palette.text.primary,
-      showTumorsOnEvodevo, visibleGroups, activeHighlightIds]);
+      visibleGroups, activeHighlightIds]);
 
   function exportFilename(ext) {
     return `junction-cpm${junction ? `-${junction}` : ""}.${ext}`;
@@ -862,7 +856,6 @@ export default function PlotArea({
       evodevoPoints: filteredEvodevoPoints,
       log2Scale,
       highlightIds: activeHighlightIds,
-      showTumorsOnEvodevo,
     });
   }
 
@@ -1032,17 +1025,6 @@ export default function PlotArea({
         <Box sx={{ p: 2, minWidth: 240, maxHeight: 480, overflowY: "auto" }}>
           {activeTab === 3 && (
             <>
-              <FormControlLabel
-                control={
-                  <Switch
-                    size="small"
-                    checked={showTumorsOnEvodevo}
-                    onChange={(e) => setShowTumorsOnEvodevo(e.target.checked)}
-                  />
-                }
-                label={<Typography variant="body2">Show tumor boxplots</Typography>}
-              />
-              <Divider sx={{ my: 1 }} />
               <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
                 <Button size="small" onClick={() => setSelectedTimepoints(new Set(presentTimepoints))}>All</Button>
                 <Button size="small" onClick={() => setSelectedTimepoints(new Set())}>None</Button>
@@ -1068,8 +1050,8 @@ export default function PlotArea({
             </>
           )}
 
-          {activeTab === 3 && showTumorsOnEvodevo && groupSections.length > 0 && <Divider sx={{ my: 1 }} />}
-          {(activeTab !== 3 || showTumorsOnEvodevo) && groupSections.map((section, i) => (
+          {activeTab === 3 && groupSections.length > 0 && <Divider sx={{ my: 1 }} />}
+          {groupSections.map((section, i) => (
             <Box key={section.label}>
               {i > 0 && <Divider sx={{ my: 1 }} />}
               {groupSections.length > 1 && (
