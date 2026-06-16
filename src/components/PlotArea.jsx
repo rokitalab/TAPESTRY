@@ -336,6 +336,15 @@ function drawEvoDevoPlot(svg, { width, height, evodevoPoints, log2Scale, textCol
     .call((g) => g.select(".domain").remove())
     .call((g) => g.selectAll("line").attr("stroke", "#e0e0e0").attr("stroke-dasharray", "3,3"));
 
+  root.append("line")
+    .attr("x1", 0).attr("x2", iW).attr("y1", 0).attr("y2", 0)
+    .attr("stroke", "black").attr("stroke-width", 1.5);
+  root.append("text")
+    .attr("x", iW / 2).attr("y", -FACET_STRIP_H / 2)
+    .attr("text-anchor", "middle").attr("dominant-baseline", "central")
+    .attr("font-size", 13).attr("font-weight", 700).attr("font-family", "sans-serif")
+    .attr("fill", textColor).text("Evo-devo");
+
   root.append("g")
     .attr("transform", `translate(0,${iH})`)
     .call(d3.axisBottom(x).tickFormat((t) => EVODEVO_LABELS[t] ?? t))
@@ -423,18 +432,222 @@ function drawEvoDevoPlot(svg, { width, height, evodevoPoints, log2Scale, textCol
   });
 }
 
+// Renders tumor box plots on the left and the evo-devo line plot on the right
+// as two adjacent facets sharing a continuous y-scale and grid lines.
+function drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleGroups, log2Scale, highlightIds, textColor = "#333", onHover, onMove, onLeave }) {
+  svg.selectAll("*").remove();
+
+  const presentTimepoints = EVODEVO_TIMEPOINTS.filter((t) =>
+    evodevoPoints.some((d) => d.timepoint === t)
+  );
+  if (presentTimepoints.length === 0) return;
+
+  const xform = (d) => log2Scale ? (d.log2CpmCorrected ?? Math.log2(d.cpm + 1)) : d.cpm;
+
+  const iW = width - MARGIN.left - MARGIN.right;
+  const iH = height - MARGIN.top - MARGIN.bottom;
+
+  // Shared y-scale across both sections
+  const allCpms = [
+    ...evodevoPoints.map(xform),
+    ...visibleGroups.flatMap((g) => g.values.map(xform)),
+  ];
+  const yMax = d3.max(allCpms) ?? 1;
+  const y = d3.scaleLinear().domain([0, yMax]).nice().range([iH, 0]);
+
+  // Width proportional to item counts so box width stays consistent with standalone view
+  const tumorCount = visibleGroups.length;
+  const timepointCount = presentTimepoints.length;
+  const tumorWidth = Math.floor(iW * tumorCount / (tumorCount + timepointCount));
+  const evoStart = tumorWidth;
+  const evoWidth = iW - tumorWidth;
+
+  const xTumor = d3.scaleBand()
+    .domain(visibleGroups.map((g) => g.key))
+    .range([0, tumorWidth])
+    .padding(0.35);
+
+  const xEvo = d3.scalePoint()
+    .domain(presentTimepoints)
+    .range([evoStart, evoStart + evoWidth])
+    .padding(0.5);
+
+  const root = svg.append("g").attr("transform", `translate(${MARGIN.left},${MARGIN.top})`);
+
+  // Full-width grid lines — continuous across both sections, no gap
+  root.append("g")
+    .call(d3.axisLeft(y).tickSize(-iW).tickFormat(""))
+    .call((g) => g.select(".domain").remove())
+    .call((g) => g.selectAll("line").attr("stroke", "#e0e0e0").attr("stroke-dasharray", "3,3"));
+
+  // Subtle vertical boundary between sections
+  root.append("line")
+    .attr("x1", evoStart).attr("x2", evoStart)
+    .attr("y1", 0).attr("y2", iH)
+    .attr("stroke", "#ccc").attr("stroke-width", 1);
+
+  // — Tumor section —
+  root.append("line")
+    .attr("x1", 0).attr("x2", tumorWidth)
+    .attr("y1", 0).attr("y2", 0)
+    .attr("stroke", "black").attr("stroke-width", 1.5);
+  root.append("text")
+    .attr("x", tumorWidth / 2).attr("y", -FACET_STRIP_H / 2)
+    .attr("text-anchor", "middle").attr("dominant-baseline", "central")
+    .attr("font-size", 13).attr("font-weight", 700).attr("font-family", "sans-serif")
+    .attr("fill", textColor).text("Primary Tumors");
+  root.append("g")
+    .attr("transform", `translate(0,${iH})`)
+    .call(d3.axisBottom(xTumor).tickFormat((key) => {
+      const g = visibleGroups.find((g) => g.key === key);
+      return g ? g.label : key;
+    }))
+    .selectAll("text")
+    .attr("transform", "rotate(-55)").style("text-anchor", "end")
+    .attr("dx", "-0.5em").attr("font-size", 11).attr("dy", "0.15em");
+
+  visibleGroups.forEach((g) => {
+    const { key, label, values } = g;
+    const xVals = values.map(xform);
+    const { q1, median, q3, lo, hi } = boxStats(xVals);
+    const cx = xTumor(key) + xTumor.bandwidth() / 2;
+    const bw = xTumor.bandwidth() * 0.7;
+    const color = groupColor(g);
+    const fmt = (v) => v.toFixed(3);
+    const axisLabel = log2Scale ? "log₂(CPM+1)" : "CPM";
+    const boxTip = `<strong>${label}</strong><br/>n=${values.length}<br/>Median: ${fmt(median)}<br/>IQR: [${fmt(q1)}, ${fmt(q3)}]<br/>Whiskers: [${fmt(lo)}, ${fmt(hi)}]`;
+
+    root.append("line").attr("x1", cx).attr("x2", cx)
+      .attr("y1", y(lo)).attr("y2", y(q1))
+      .attr("stroke", "black").attr("stroke-width", 1.5).attr("stroke-dasharray", "4,2");
+    root.append("line").attr("x1", cx).attr("x2", cx)
+      .attr("y1", y(q3)).attr("y2", y(hi))
+      .attr("stroke", "black").attr("stroke-width", 1.5).attr("stroke-dasharray", "4,2");
+    [lo, hi].forEach((v) =>
+      root.append("line")
+        .attr("x1", cx - bw / 4).attr("x2", cx + bw / 4)
+        .attr("y1", y(v)).attr("y2", y(v))
+        .attr("stroke", "black").attr("stroke-width", 1.5)
+    );
+    root.append("rect")
+      .attr("x", cx - bw / 2).attr("y", y(q3))
+      .attr("width", bw).attr("height", Math.abs(y(q1) - y(q3)))
+      .attr("fill", color).attr("fill-opacity", 0.2)
+      .attr("stroke", "black").attr("stroke-width", 1.5).attr("rx", 2)
+      .on("mouseover", (e) => onHover(e, boxTip))
+      .on("mousemove", onMove).on("mouseout", onLeave);
+    root.append("line")
+      .attr("x1", cx - bw / 2).attr("x2", cx + bw / 2)
+      .attr("y1", y(median)).attr("y2", y(median))
+      .attr("stroke", "black").attr("stroke-width", 2.5).attr("stroke-linecap", "round");
+    const sorted = [...values].sort((a, b) => highlightIds.has(a.id) - highlightIds.has(b.id));
+    sorted.forEach((d) => {
+      const highlighted = highlightIds.has(d.id);
+      root.append("circle")
+        .attr("cx", cx + d.jitter * bw * 0.65).attr("cy", y(xform(d)))
+        .attr("r", highlighted ? 5 : 3).attr("fill", color)
+        .attr("fill-opacity", highlighted ? 1 : 0.4)
+        .attr("stroke", "black").attr("stroke-width", highlighted ? 1.5 : 0.5)
+        .style("cursor", "pointer")
+        .on("mouseover", (e) =>
+          onHover(e, `<strong>${d.id}</strong><br/>${label}<br/>${axisLabel}: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}${highlighted ? "<br/><em>tumor enriched</em>" : ""}`)
+        )
+        .on("mousemove", onMove).on("mouseout", onLeave);
+    });
+  });
+
+  // — Evo-devo section —
+  root.append("line")
+    .attr("x1", evoStart).attr("x2", evoStart + evoWidth)
+    .attr("y1", 0).attr("y2", 0)
+    .attr("stroke", "black").attr("stroke-width", 1.5);
+  root.append("text")
+    .attr("x", evoStart + evoWidth / 2).attr("y", -FACET_STRIP_H / 2)
+    .attr("text-anchor", "middle").attr("dominant-baseline", "central")
+    .attr("font-size", 13).attr("font-weight", 700).attr("font-family", "sans-serif")
+    .attr("fill", textColor).text("Evo-devo");
+  root.append("g")
+    .attr("transform", `translate(0,${iH})`)
+    .call(d3.axisBottom(xEvo).tickFormat((t) => EVODEVO_LABELS[t] ?? t))
+    .selectAll("text")
+    .attr("transform", "rotate(-45)").style("text-anchor", "end")
+    .attr("dx", "-0.5em").attr("font-size", 11).attr("dy", "0.15em");
+
+  root.append("g").call(d3.axisLeft(y).tickFormat(d3.format(".2f")));
+  root.append("text")
+    .attr("transform", "rotate(-90)").attr("x", -iH / 2).attr("y", -52)
+    .attr("text-anchor", "middle").attr("font-size", 16)
+    .attr("font-family", "sans-serif").attr("fill", "#666")
+    .text(log2Scale ? "log₂(CPM + 1)" : "CPM");
+
+  ["Forebrain", "Hindbrain"].forEach((region) => {
+    const color = EVODEVO_COLORS[region];
+    const regionPts = evodevoPoints.filter((d) => d.region === region);
+
+    regionPts.forEach((d) => {
+      if (!presentTimepoints.includes(d.timepoint)) return;
+      root.append("circle")
+        .attr("cx", xEvo(d.timepoint)).attr("cy", y(xform(d)))
+        .attr("r", 3).attr("fill", color).attr("fill-opacity", 0.3)
+        .attr("stroke", "black").attr("stroke-width", 0.5).style("cursor", "pointer")
+        .on("mouseover", (e) =>
+          onHover(e, `<strong>${d.id}</strong><br/>${region} — ${timepointDisplay(d.timepoint)}<br/>CPM: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}`)
+        )
+        .on("mousemove", onMove).on("mouseout", onLeave);
+    });
+
+    const meanPoints = presentTimepoints.map((tp) => {
+      const vals = regionPts.filter((d) => d.timepoint === tp).map(xform);
+      return vals.length ? { timepoint: tp, value: d3.mean(vals) } : null;
+    }).filter(Boolean);
+
+    if (meanPoints.length > 1) {
+      root.append("path")
+        .datum(meanPoints)
+        .attr("d", d3.line().x((d) => xEvo(d.timepoint)).y((d) => y(d.value)))
+        .attr("fill", "none").attr("stroke", color).attr("stroke-width", 2).attr("stroke-linejoin", "round");
+    }
+
+    meanPoints.forEach((d) => {
+      root.append("circle")
+        .attr("cx", xEvo(d.timepoint)).attr("cy", y(d.value)).attr("r", 5)
+        .attr("fill", color).attr("stroke", "white").attr("stroke-width", 1.5)
+        .style("cursor", "pointer")
+        .on("mouseover", (e) =>
+          onHover(e, `<strong>${region}</strong><br/>${timepointDisplay(d.timepoint)}<br/>Mean: ${d.value.toFixed(3)}`)
+        )
+        .on("mousemove", onMove).on("mouseout", onLeave);
+    });
+  });
+
+  const legend = root.append("g").attr("transform", `translate(${evoStart + evoWidth - 100}, 10)`);
+  ["Forebrain", "Hindbrain"].forEach((region, i) => {
+    const lg = legend.append("g").attr("transform", `translate(0, ${i * 22})`);
+    lg.append("line").attr("x1", 0).attr("x2", 20).attr("y1", 8).attr("y2", 8)
+      .attr("stroke", EVODEVO_COLORS[region]).attr("stroke-width", 2);
+    lg.append("circle").attr("cx", 10).attr("cy", 8).attr("r", 4)
+      .attr("fill", EVODEVO_COLORS[region]).attr("stroke", "transparent").attr("stroke-width", 1);
+    lg.append("text").attr("x", 26).attr("y", 12)
+      .attr("font-size", 12).attr("font-family", "sans-serif").attr("fill", textColor).text(region);
+  });
+}
+
 // Tooltip handlers are no-ops for the off-screen SVG built for export.
 const NO_TOOLTIP = { onHover: () => {}, onMove: () => {}, onLeave: () => {} };
 
 // Builds a detached <svg> at the requested export dimensions, drawn with the
 // same logic as the on-screen chart for the active tab.
-function buildExportSvg({ width, height, activeTab, visibleGroups, evodevoPoints, log2Scale, highlightIds }) {
+function buildExportSvg({ width, height, activeTab, visibleGroups, evodevoPoints, log2Scale, highlightIds, showTumorsOnEvodevo }) {
   const svgEl = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svgEl.setAttribute("width", width);
   svgEl.setAttribute("height", height);
   const svg = d3.select(svgEl);
   if (activeTab === 3) {
-    drawEvoDevoPlot(svg, { width, height, evodevoPoints, log2Scale, ...NO_TOOLTIP });
+    if (showTumorsOnEvodevo && visibleGroups.length > 0) {
+      drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleGroups, log2Scale, highlightIds, ...NO_TOOLTIP });
+    } else {
+      drawEvoDevoPlot(svg, { width, height, evodevoPoints, log2Scale, ...NO_TOOLTIP });
+    }
   } else {
     drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightIds, ...NO_TOOLTIP });
   }
@@ -470,6 +683,7 @@ export default function PlotArea({
   const [exportHeightIn, setExportHeightIn] = useState(5);
   const [expandedFacets, setExpandedFacets] = useState(new Set());
   const [selectedTimepoints, setSelectedTimepoints] = useState(new Set(EVODEVO_TIMEPOINTS));
+  const [showTumorsOnEvodevo, setShowTumorsOnEvodevo] = useState(false);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -582,9 +796,9 @@ export default function PlotArea({
     if (activeTab === 0) return groups.filter((g) => g.isTumor);
     if (activeTab === 1) return groups.filter((g) => g.isControl || g.isTumor);
     if (activeTab === 2) return groups.filter((g) => g.isCellLine || g.isTumor);
-    if (activeTab === 3) return [];
+    if (activeTab === 3) return showTumorsOnEvodevo ? groups.filter((g) => g.isTumor) : [];
     return groups;
-  }, [groups, activeTab]);
+  }, [groups, activeTab, showTumorsOnEvodevo]);
 
   useEffect(() => {
     // Tumors vs Controls: cell lines default off. Controls/Cell Lines tabs: tumors default off.
@@ -617,17 +831,23 @@ export default function PlotArea({
 
   useEffect(() => {
     if (!svgRef.current || activeTab !== 3) return;
-    drawEvoDevoPlot(d3.select(svgRef.current), {
-      width: containerWidth,
-      height,
-      evodevoPoints: filteredEvodevoPoints,
-      log2Scale,
-      textColor: theme.palette.text.primary,
-      onHover: (e, html) => setTooltip({ visible: true, x: e.clientX + 14, y: e.clientY - 32, html }),
-      onMove: (e) => setTooltip((prev) => ({ ...prev, x: e.clientX + 14, y: e.clientY - 32 })),
-      onLeave: () => setTooltip((prev) => ({ ...prev, visible: false })),
-    });
-  }, [filteredEvodevoPoints, activeTab, containerWidth, height, log2Scale, theme.palette.text.primary]);
+    const onHover = (e, html) => setTooltip({ visible: true, x: e.clientX + 14, y: e.clientY - 32, html });
+    const onMove = (e) => setTooltip((prev) => ({ ...prev, x: e.clientX + 14, y: e.clientY - 32 }));
+    const onLeave = () => setTooltip((prev) => ({ ...prev, visible: false }));
+    if (showTumorsOnEvodevo && visibleGroups.length > 0) {
+      drawEvoDevoWithTumorsPlot(d3.select(svgRef.current), {
+        width: containerWidth, height, evodevoPoints: filteredEvodevoPoints,
+        visibleGroups, log2Scale, highlightIds: activeHighlightIds,
+        textColor: theme.palette.text.primary, onHover, onMove, onLeave,
+      });
+    } else {
+      drawEvoDevoPlot(d3.select(svgRef.current), {
+        width: containerWidth, height, evodevoPoints: filteredEvodevoPoints,
+        log2Scale, textColor: theme.palette.text.primary, onHover, onMove, onLeave,
+      });
+    }
+  }, [filteredEvodevoPoints, activeTab, containerWidth, height, log2Scale, theme.palette.text.primary,
+      showTumorsOnEvodevo, visibleGroups, activeHighlightIds]);
 
   function exportFilename(ext) {
     return `junction-cpm${junction ? `-${junction}` : ""}.${ext}`;
@@ -642,6 +862,7 @@ export default function PlotArea({
       evodevoPoints: filteredEvodevoPoints,
       log2Scale,
       highlightIds: activeHighlightIds,
+      showTumorsOnEvodevo,
     });
   }
 
@@ -736,9 +957,9 @@ export default function PlotArea({
               value={sortMode}
               onChange={(_, v) => { if (v !== null) setSortMode(v); }}
             >
-              <ToggleButton value="asc" sx={{ px: 1, py: 0.25, fontSize: 13 }}>↑</ToggleButton>
-              <ToggleButton value="alpha" sx={{ px: 1, py: 0.25, fontSize: 11 }}>A–Z</ToggleButton>
-              <ToggleButton value="desc" sx={{ px: 1, py: 0.25, fontSize: 13 }}>↓</ToggleButton>
+              <Tooltip title="Median ascending"><ToggleButton value="asc" sx={{ px: 1, py: 0.25, fontSize: 13 }}>↑</ToggleButton></Tooltip>
+              <Tooltip title="Alphabetical"><ToggleButton value="alpha" sx={{ px: 1, py: 0.25, fontSize: 11 }}>A–Z</ToggleButton></Tooltip>
+              <Tooltip title="Median descending"><ToggleButton value="desc" sx={{ px: 1, py: 0.25, fontSize: 13 }}>↓</ToggleButton></Tooltip>
             </ToggleButtonGroup>
           </Stack>
           <Button
@@ -811,6 +1032,17 @@ export default function PlotArea({
         <Box sx={{ p: 2, minWidth: 240, maxHeight: 480, overflowY: "auto" }}>
           {activeTab === 3 && (
             <>
+              <FormControlLabel
+                control={
+                  <Switch
+                    size="small"
+                    checked={showTumorsOnEvodevo}
+                    onChange={(e) => setShowTumorsOnEvodevo(e.target.checked)}
+                  />
+                }
+                label={<Typography variant="body2">Show tumor boxplots</Typography>}
+              />
+              <Divider sx={{ my: 1 }} />
               <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
                 <Button size="small" onClick={() => setSelectedTimepoints(new Set(presentTimepoints))}>All</Button>
                 <Button size="small" onClick={() => setSelectedTimepoints(new Set())}>None</Button>
@@ -836,7 +1068,8 @@ export default function PlotArea({
             </>
           )}
 
-          {activeTab !== 3 && groupSections.map((section, i) => (
+          {activeTab === 3 && showTumorsOnEvodevo && groupSections.length > 0 && <Divider sx={{ my: 1 }} />}
+          {(activeTab !== 3 || showTumorsOnEvodevo) && groupSections.map((section, i) => (
             <Box key={section.label}>
               {i > 0 && <Divider sx={{ my: 1 }} />}
               {groupSections.length > 1 && (
