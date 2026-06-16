@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert, Box, Button, Checkbox, CircularProgress, Divider,
-  FormControlLabel, IconButton, Menu, MenuItem, Paper, Popover, Stack, Switch, Tab, Tabs, TextField, Tooltip, Typography,
+  FormControlLabel, IconButton, Menu, MenuItem, Paper, Popover, Stack, Switch, Tab, Tabs, TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography,
 } from "@mui/material";
 import DownloadIcon from "@mui/icons-material/Download";
 import SettingsIcon from "@mui/icons-material/Settings";
@@ -147,7 +147,7 @@ const COHORT_FACET_NAMES = {
 const FACET_ORDER = ["Primary Tumors", "Cell of Origin", "Evo-devo", "Pediatric Brain", "GTEx <40", "Cell Lines", "Other"];
 
 // Gap (px) between facet panels.
-const FACET_GAP = 24;
+const FACET_GAP = 16;
 // Height (px) of the ggplot-style strip label above each facet panel.
 const FACET_STRIP_H = 16;
 
@@ -249,7 +249,7 @@ function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightId
     const { q1, median, q3, lo, hi } = boxStats(xVals);
     const scale = scaleForKey.get(key);
     const cx = scale(key) + scale.bandwidth() / 2;
-    const bw = scale.bandwidth() * 0.55;
+    const bw = scale.bandwidth() * 0.7;
     const color = groupColor(g);
     const fmt = (v) => v.toFixed(3);
     const axisLabel = log2Scale ? "log₂(CPM+1)" : "CPM";
@@ -274,7 +274,7 @@ function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightId
       .attr("x", cx - bw / 2).attr("y", y(q3))
       .attr("width", bw).attr("height", Math.abs(y(q1) - y(q3)))
       .attr("fill", color).attr("fill-opacity", 0.2)
-      .attr("stroke", color).attr("stroke-width", 1.5)
+      .attr("stroke", "black").attr("stroke-width", 1.5)
       .attr("rx", 2)
       .on("mouseover", (e) => onHover(e, boxTip))
       .on("mousemove", onMove)
@@ -460,7 +460,8 @@ export default function PlotArea({
   const [tooltip, setTooltip] = useState({ visible: false, x: 0, y: 0, html: "" });
   const [activeTab, setActiveTab] = useState(0);
   const [log2Scale, setLog2Scale] = useState(false);
-  const [sortByMedian, setSortByMedian] = useState(false);
+  const [sortMode, setSortMode] = useState("alpha");
+  const [showHighlight, setShowHighlight] = useState(true);
   const [exportWidthIn, setExportWidthIn] = useState(10);
   const [exportHeightIn, setExportHeightIn] = useState(5);
 
@@ -536,10 +537,11 @@ export default function PlotArea({
     return [...tumorAndControlGroups, ...cellLineGroups].sort((a, b) => {
       const rankDiff = typeRank(a) - typeRank(b);
       if (rankDiff !== 0) return rankDiff;
-      if (sortByMedian) return b.stats.median - a.stats.median;
+      if (sortMode === "asc") return a.stats.median - b.stats.median;
+      if (sortMode === "desc") return b.stats.median - a.stats.median;
       return a.label.localeCompare(b.label);
     });
-  }, [fetchedRows, rows, sortByMedian]);
+  }, [fetchedRows, rows, sortMode]);
 
   const evodevoPoints = useMemo(() => {
     const src = fetchedRows.length ? fetchedRows : rows;
@@ -587,6 +589,8 @@ export default function PlotArea({
     [tabGroups, selectedGroups],
   );
 
+  const activeHighlightIds = showHighlight ? highlightIds : EMPTY_SET;
+
   useEffect(() => {
     if (!svgRef.current || activeTab === 3) return;
     drawBoxPlot(d3.select(svgRef.current), {
@@ -594,12 +598,12 @@ export default function PlotArea({
       height,
       visibleGroups,
       log2Scale,
-      highlightIds,
+      highlightIds: activeHighlightIds,
       onHover: (e, html) => setTooltip({ visible: true, x: e.clientX + 14, y: e.clientY - 32, html }),
       onMove: (e) => setTooltip((prev) => ({ ...prev, x: e.clientX + 14, y: e.clientY - 32 })),
       onLeave: () => setTooltip((prev) => ({ ...prev, visible: false })),
     });
-  }, [visibleGroups, containerWidth, height, activeTab, highlightIds, log2Scale]);
+  }, [visibleGroups, containerWidth, height, activeTab, activeHighlightIds, log2Scale]);
 
   useEffect(() => {
     if (!svgRef.current || activeTab !== 3) return;
@@ -626,7 +630,7 @@ export default function PlotArea({
       visibleGroups,
       evodevoPoints,
       log2Scale,
-      highlightIds,
+      highlightIds: activeHighlightIds,
     });
   }
 
@@ -707,13 +711,24 @@ export default function PlotArea({
               control={
                 <Switch
                   size="small"
-                  checked={sortByMedian}
-                  onChange={(e) => setSortByMedian(e.target.checked)}
+                  checked={showHighlight}
+                  onChange={(e) => setShowHighlight(e.target.checked)}
                 />
               }
-              label={<Typography variant="body2">Sort by median</Typography>}
+              label={<Typography variant="body2">Show enriched</Typography>}
               sx={{ mr: 0.5 }}
             />
+            <ToggleButtonGroup
+              size="small"
+              exclusive
+              value={sortMode}
+              onChange={(_, v) => { if (v !== null) setSortMode(v); }}
+              sx={{ mr: 0.5 }}
+            >
+              <ToggleButton value="asc" sx={{ px: 1, py: 0.25, fontSize: 13 }}>↑</ToggleButton>
+              <ToggleButton value="alpha" sx={{ px: 1, py: 0.25, fontSize: 11 }}>A–Z</ToggleButton>
+              <ToggleButton value="desc" sx={{ px: 1, py: 0.25, fontSize: 13 }}>↓</ToggleButton>
+            </ToggleButtonGroup>
             <Tooltip title="Download plot">
               <IconButton size="small" onClick={(e) => setExportAnchor(e.currentTarget)}>
                 <DownloadIcon fontSize="small" />
