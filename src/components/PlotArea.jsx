@@ -9,7 +9,7 @@ import SettingsIcon from "@mui/icons-material/Settings";
 import * as d3 from "d3";
 import { controlCohortColor, histologyColor } from "../histologyColors";
 
-const MARGIN = { top: 20, right: 20, bottom: 200, left: 100 };
+const MARGIN = { top: 20, right: 20, bottom: 180, left: 100 };
 const API_BASE = (import.meta.env.VITE_API_BASE || "/tapestry-api").replace(/\/$/, "");
 const EMPTY_ROWS = [];
 
@@ -259,23 +259,23 @@ function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightId
 
     root.append("line").attr("x1", cx).attr("x2", cx)
       .attr("y1", y(lo)).attr("y2", y(q1))
-      .attr("stroke", "black").attr("stroke-width", 1.5).attr("stroke-dasharray", "4,2");
+      .attr("stroke", textColor).attr("stroke-width", 1.5).attr("stroke-dasharray", "4,2");
     root.append("line").attr("x1", cx).attr("x2", cx)
       .attr("y1", y(q3)).attr("y2", y(hi))
-      .attr("stroke", "black").attr("stroke-width", 1.5).attr("stroke-dasharray", "4,2");
+      .attr("stroke", textColor).attr("stroke-width", 1.5).attr("stroke-dasharray", "4,2");
 
     [lo, hi].forEach((v) =>
       root.append("line")
         .attr("x1", cx - bw / 4).attr("x2", cx + bw / 4)
         .attr("y1", y(v)).attr("y2", y(v))
-        .attr("stroke", "black").attr("stroke-width", 1.5)
+        .attr("stroke", textColor).attr("stroke-width", 1.5)
     );
 
     root.append("rect")
       .attr("x", cx - bw / 2).attr("y", y(q3))
       .attr("width", bw).attr("height", Math.abs(y(q1) - y(q3)))
       .attr("fill", color).attr("fill-opacity", 0.2)
-      .attr("stroke", "black").attr("stroke-width", 1.5)
+      .attr("stroke", textColor).attr("stroke-width", 1.5)
       .attr("rx", 2)
       .on("mouseover", (e) => onHover(e, boxTip))
       .on("mousemove", onMove)
@@ -284,7 +284,7 @@ function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightId
     root.append("line")
       .attr("x1", cx - bw / 2).attr("x2", cx + bw / 2)
       .attr("y1", y(median)).attr("y2", y(median))
-      .attr("stroke", "black").attr("stroke-width", 2.5)
+      .attr("stroke", textColor).attr("stroke-width", 2.5)
       .attr("stroke-linecap", "round");
 
     const sorted = [...values].sort((a, b) => highlightIds.has(a.id) - highlightIds.has(b.id));
@@ -296,7 +296,7 @@ function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightId
         .attr("r", highlighted ? 5 : 3)
         .attr("fill", color)
         .attr("fill-opacity", highlighted ? 1 : 0.4)
-        .attr("stroke", "black")
+        .attr("stroke", textColor)
         .attr("stroke-width", highlighted ? 1.5 : 0.5)
         .style("cursor", "pointer")
         .on("mouseover", (e) =>
@@ -336,7 +336,7 @@ function drawEvoDevoPlot(svg, { width, height, evodevoPoints, log2Scale, textCol
 
   root.append("line")
     .attr("x1", 0).attr("x2", iW).attr("y1", 0).attr("y2", 0)
-    .attr("stroke", "black").attr("stroke-width", 1.5);
+    .attr("stroke", textColor).attr("stroke-width", 1.5);
   root.append("text")
     .attr("x", iW / 2).attr("y", -FACET_STRIP_H / 2)
     .attr("text-anchor", "middle").attr("dominant-baseline", "central")
@@ -376,7 +376,7 @@ function drawEvoDevoPlot(svg, { width, height, evodevoPoints, log2Scale, textCol
         .attr("r", 3)
         .attr("fill", color)
         .attr("fill-opacity", 0.3)
-        .attr("stroke", "black")
+        .attr("stroke", textColor)
         .attr("stroke-width", 0.5)
         .style("cursor", "pointer")
         .on("mouseover", (e) =>
@@ -484,7 +484,7 @@ function drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleG
   root.append("line")
     .attr("x1", 0).attr("x2", tumorWidth)
     .attr("y1", 0).attr("y2", 0)
-    .attr("stroke", "black").attr("stroke-width", 1.5);
+    .attr("stroke", textColor).attr("stroke-width", 1.5);
   root.append("text")
     .attr("x", tumorWidth / 2).attr("y", -FACET_STRIP_H / 2)
     .attr("text-anchor", "middle").attr("dominant-baseline", "central")
@@ -513,27 +513,27 @@ function drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleG
 
     root.append("line").attr("x1", cx).attr("x2", cx)
       .attr("y1", y(lo)).attr("y2", y(q1))
-      .attr("stroke", "black").attr("stroke-width", 1.5).attr("stroke-dasharray", "4,2");
+      .attr("stroke", textColor).attr("stroke-width", 1.5).attr("stroke-dasharray", "4,2");
     root.append("line").attr("x1", cx).attr("x2", cx)
       .attr("y1", y(q3)).attr("y2", y(hi))
-      .attr("stroke", "black").attr("stroke-width", 1.5).attr("stroke-dasharray", "4,2");
+      .attr("stroke", textColor).attr("stroke-width", 1.5).attr("stroke-dasharray", "4,2");
     [lo, hi].forEach((v) =>
       root.append("line")
         .attr("x1", cx - bw / 4).attr("x2", cx + bw / 4)
         .attr("y1", y(v)).attr("y2", y(v))
-        .attr("stroke", "black").attr("stroke-width", 1.5)
+        .attr("stroke", textColor).attr("stroke-width", 1.5)
     );
     root.append("rect")
       .attr("x", cx - bw / 2).attr("y", y(q3))
       .attr("width", bw).attr("height", Math.abs(y(q1) - y(q3)))
       .attr("fill", color).attr("fill-opacity", 0.2)
-      .attr("stroke", "black").attr("stroke-width", 1.5).attr("rx", 2)
+      .attr("stroke", textColor).attr("stroke-width", 1.5).attr("rx", 2)
       .on("mouseover", (e) => onHover(e, boxTip))
       .on("mousemove", onMove).on("mouseout", onLeave);
     root.append("line")
       .attr("x1", cx - bw / 2).attr("x2", cx + bw / 2)
       .attr("y1", y(median)).attr("y2", y(median))
-      .attr("stroke", "black").attr("stroke-width", 2.5).attr("stroke-linecap", "round");
+      .attr("stroke", textColor).attr("stroke-width", 2.5).attr("stroke-linecap", "round");
     const sorted = [...values].sort((a, b) => highlightIds.has(a.id) - highlightIds.has(b.id));
     sorted.forEach((d) => {
       const highlighted = highlightIds.has(d.id);
@@ -541,7 +541,7 @@ function drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleG
         .attr("cx", cx + d.jitter * bw * 0.65).attr("cy", y(xform(d)))
         .attr("r", highlighted ? 5 : 3).attr("fill", color)
         .attr("fill-opacity", highlighted ? 1 : 0.4)
-        .attr("stroke", "black").attr("stroke-width", highlighted ? 1.5 : 0.5)
+        .attr("stroke", textColor).attr("stroke-width", highlighted ? 1.5 : 0.5)
         .style("cursor", "pointer")
         .on("mouseover", (e) =>
           onHover(e, `<strong>${d.id}</strong><br/>${label}<br/>${axisLabel}: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}${highlighted ? "<br/><em>tumor enriched</em>" : ""}`)
@@ -554,7 +554,7 @@ function drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleG
   root.append("line")
     .attr("x1", evoStart).attr("x2", evoStart + evoWidth)
     .attr("y1", 0).attr("y2", 0)
-    .attr("stroke", "black").attr("stroke-width", 1.5);
+    .attr("stroke", textColor).attr("stroke-width", 1.5);
   root.append("text")
     .attr("x", evoStart + evoWidth / 2).attr("y", -FACET_STRIP_H / 2)
     .attr("text-anchor", "middle").attr("dominant-baseline", "central")
@@ -583,7 +583,7 @@ function drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleG
       root.append("circle")
         .attr("cx", xEvo(d.timepoint)).attr("cy", y(xform(d)))
         .attr("r", 3).attr("fill", color).attr("fill-opacity", 0.3)
-        .attr("stroke", "black").attr("stroke-width", 0.5).style("cursor", "pointer")
+        .attr("stroke", textColor).attr("stroke-width", 0.5).style("cursor", "pointer")
         .on("mouseover", (e) =>
           onHover(e, `<strong>${d.id}</strong><br/>${region} — ${timepointDisplay(d.timepoint)}<br/>CPM: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}`)
         )
@@ -652,7 +652,7 @@ export default function PlotArea({
   junction = null,
   gene = null,
   rows = EMPTY_ROWS,
-  height = 380,
+  height = 460,
   highlightIds = EMPTY_SET,
 }) {
   const theme = useTheme();
@@ -672,7 +672,7 @@ export default function PlotArea({
   const [activeTab, setActiveTab] = useState(0);
   const [log2Scale, setLog2Scale] = useState(false);
   const [sortMode, setSortMode] = useState("alpha");
-  const [showHighlight, setShowHighlight] = useState(true);
+  const [showHighlight, setShowHighlight] = useState(false);
   const [exportWidthIn, setExportWidthIn] = useState(10);
   const [exportHeightIn, setExportHeightIn] = useState(5);
   const [expandedFacets, setExpandedFacets] = useState(new Set());
@@ -1023,34 +1023,6 @@ export default function PlotArea({
         transformOrigin={{ vertical: "top", horizontal: "right" }}
       >
         <Box sx={{ p: 2, minWidth: 240, maxHeight: 480, overflowY: "auto" }}>
-          {activeTab === 3 && (
-            <>
-              <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
-                <Button size="small" onClick={() => setSelectedTimepoints(new Set(presentTimepoints))}>All</Button>
-                <Button size="small" onClick={() => setSelectedTimepoints(new Set())}>None</Button>
-              </Stack>
-              {presentTimepoints.map((tp) => (
-                <Box key={tp} sx={{ display: "block" }}>
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        size="small"
-                        checked={selectedTimepoints.has(tp)}
-                        onChange={() => setSelectedTimepoints((prev) => {
-                          const next = new Set(prev);
-                          next.has(tp) ? next.delete(tp) : next.add(tp);
-                          return next;
-                        })}
-                      />
-                    }
-                    label={<Typography variant="body2">{EVODEVO_LABELS[tp] ?? tp}</Typography>}
-                  />
-                </Box>
-              ))}
-            </>
-          )}
-
-          {activeTab === 3 && groupSections.length > 0 && <Divider sx={{ my: 1 }} />}
           {groupSections.map((section, i) => (
             <Box key={section.label}>
               {i > 0 && <Divider sx={{ my: 1 }} />}
@@ -1183,6 +1155,34 @@ export default function PlotArea({
               ))}
             </Box>
           ))}
+
+          {activeTab === 3 && (
+            <>
+              {groupSections.length > 0 && <Divider sx={{ my: 1 }} />}
+              <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
+                <Button size="small" onClick={() => setSelectedTimepoints(new Set(presentTimepoints))}>All</Button>
+                <Button size="small" onClick={() => setSelectedTimepoints(new Set())}>None</Button>
+              </Stack>
+              {presentTimepoints.map((tp) => (
+                <Box key={tp} sx={{ display: "block" }}>
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        size="small"
+                        checked={selectedTimepoints.has(tp)}
+                        onChange={() => setSelectedTimepoints((prev) => {
+                          const next = new Set(prev);
+                          next.has(tp) ? next.delete(tp) : next.add(tp);
+                          return next;
+                        })}
+                      />
+                    }
+                    label={<Typography variant="body2">{EVODEVO_LABELS[tp] ?? tp}</Typography>}
+                  />
+                </Box>
+              ))}
+            </>
+          )}
         </Box>
       </Popover>
 
