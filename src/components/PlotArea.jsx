@@ -200,10 +200,12 @@ function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightId
     .call((g) => g.select(".domain").remove())
     .call((g) => g.selectAll("line").attr("stroke", "#e0e0e0").attr("stroke-dasharray", "3,3"));
 
+  const labelForKey = new Map(visibleGroups.map((g) => [g.key, g.label]));
+
   facetBuckets.forEach((f) => {
     root.append("g")
       .attr("transform", `translate(0,${iH})`)
-      .call(d3.axisBottom(f.scale))
+      .call(d3.axisBottom(f.scale).tickFormat((key) => labelForKey.get(key) ?? key))
       .selectAll("text")
       .attr("transform", "rotate(-55)")
       .style("text-anchor", "end")
@@ -500,13 +502,14 @@ export default function PlotArea({
     const filtered = pts.filter((d) => d.isCellLine || d.isIndependentPrimary !== false);
 
     const groupByHistology = (src, isCellLineGroup) =>
-      Array.from(d3.group(src, (d) => d.histology), ([histology, values]) => {
+      Array.from(d3.group(src, (d) => `${d.cohort ?? ""}::${d.histology}`), ([groupKey, values]) => {
+        const histology = values[0].histology;
         const hasCancerGroup = values.some((d) => d.cancerGroup != null);
         const isNonNeoplastic = !isCellLineGroup && histology.toLowerCase().includes("non-neoplastic");
         const isTumor = !isCellLineGroup && (hasCancerGroup || isNonNeoplastic);
         const isControl = !isCellLineGroup && !isTumor;
         return {
-          key: histology, label: histology, values, isTumor, isControl,
+          key: groupKey, label: histology, values, isTumor, isControl,
           isCellLine: isCellLineGroup,
           cohort: values[0]?.cohort ?? null,
           stats: boxStats(values.map((d) => d.cpm)),
