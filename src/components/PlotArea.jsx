@@ -215,10 +215,10 @@ function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightId
 
     if (facetBuckets.length > 1) {
       const [x0, x1] = f.scale.range();
-      root.append("rect")
-        .attr("x", x0).attr("y", -FACET_STRIP_H)
-        .attr("width", x1 - x0).attr("height", FACET_STRIP_H)
-        .attr("fill", "#ebebeb");
+      root.append("line")
+        .attr("x1", x0).attr("x2", x1)
+        .attr("y1", 0).attr("y2", 0)
+        .attr("stroke", "black").attr("stroke-width", 1.5);
       root.append("text")
         .attr("x", (x0 + x1) / 2)
         .attr("y", -FACET_STRIP_H / 2)
