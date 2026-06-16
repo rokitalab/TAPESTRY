@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert, Box, Button, Checkbox, CircularProgress, Divider,
   FormControlLabel, IconButton, Menu, MenuItem, Paper, Popover, Stack, Switch, Tab, Tabs, TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography,
+  useTheme,
 } from "@mui/material";
 import DownloadIcon from "@mui/icons-material/Download";
 import SettingsIcon from "@mui/icons-material/Settings";
@@ -213,12 +214,14 @@ function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightId
       .attr("font-size", 11)
       .attr("dy", "0.15em");
 
-    if (facetBuckets.length > 1) {
+    {
       const [x0, x1] = f.scale.range();
-      root.append("line")
-        .attr("x1", x0).attr("x2", x1)
-        .attr("y1", 0).attr("y2", 0)
-        .attr("stroke", "black").attr("stroke-width", 1.5);
+      if (facetBuckets.length > 1) {
+        root.append("line")
+          .attr("x1", x0).attr("x2", x1)
+          .attr("y1", 0).attr("y2", 0)
+          .attr("stroke", "black").attr("stroke-width", 1.5);
+      }
       root.append("text")
         .attr("x", (x0 + x1) / 2)
         .attr("y", -FACET_STRIP_H / 2)
@@ -299,7 +302,7 @@ function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightId
         .attr("stroke-width", highlighted ? 1.5 : 0.5)
         .style("cursor", "pointer")
         .on("mouseover", (e) =>
-          onHover(e, `<strong>${d.id}</strong><br/>${label}<br/>${axisLabel}: ${xform(d).toFixed(3)}<br/>RNA library: ${d.rnaLibrary ?? "—"}${highlighted ? "<br/><em>tumor enriched</em>" : ""}`)
+          onHover(e, `<strong>${d.id}</strong><br/>${label}<br/>${axisLabel}: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}${highlighted ? "<br/><em>tumor enriched</em>" : ""}`)
         )
         .on("mousemove", onMove)
         .on("mouseout", onLeave);
@@ -309,7 +312,7 @@ function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightId
 
 // Renders the EvoDevo timepoint plot into `svg`, sized to `width` x `height`.
 // Shared by the on-screen chart and off-screen export rendering.
-function drawEvoDevoPlot(svg, { width, height, evodevoPoints, log2Scale, onHover, onMove, onLeave }) {
+function drawEvoDevoPlot(svg, { width, height, evodevoPoints, log2Scale, textColor = "#333", onHover, onMove, onLeave }) {
   svg.selectAll("*").remove();
 
   const presentTimepoints = EVODEVO_TIMEPOINTS.filter((t) =>
@@ -370,7 +373,7 @@ function drawEvoDevoPlot(svg, { width, height, evodevoPoints, log2Scale, onHover
         .attr("stroke-width", 0.5)
         .style("cursor", "pointer")
         .on("mouseover", (e) =>
-          onHover(e, `<strong>${d.id}</strong><br/>${region} — ${timepointDisplay(d.timepoint)}<br/>CPM: ${xform(d).toFixed(3)}<br/>RNA library: ${d.rnaLibrary ?? "—"}`)
+          onHover(e, `<strong>${d.id}</strong><br/>${region} — ${timepointDisplay(d.timepoint)}<br/>CPM: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}`)
         )
         .on("mousemove", onMove)
         .on("mouseout", onLeave);
@@ -414,9 +417,9 @@ function drawEvoDevoPlot(svg, { width, height, evodevoPoints, log2Scale, onHover
     g.append("line").attr("x1", 0).attr("x2", 20).attr("y1", 8).attr("y2", 8)
       .attr("stroke", EVODEVO_COLORS[region]).attr("stroke-width", 2);
     g.append("circle").attr("cx", 10).attr("cy", 8).attr("r", 4)
-      .attr("fill", EVODEVO_COLORS[region]).attr("stroke", "white").attr("stroke-width", 1);
+      .attr("fill", EVODEVO_COLORS[region]).attr("stroke", "transparent").attr("stroke-width", 1);
     g.append("text").attr("x", 26).attr("y", 12)
-      .attr("font-size", 12).attr("font-family", "sans-serif").attr("fill", "#333").text(region);
+      .attr("font-size", 12).attr("font-family", "sans-serif").attr("fill", textColor).text(region);
   });
 }
 
@@ -445,6 +448,7 @@ export default function PlotArea({
   height = 420,
   highlightIds = EMPTY_SET,
 }) {
+  const theme = useTheme();
   const title = gene && junction
     ? `${gene} — ${junction}`
     : junction ?? "Junction CPM by histology";
@@ -618,11 +622,12 @@ export default function PlotArea({
       height,
       evodevoPoints: filteredEvodevoPoints,
       log2Scale,
+      textColor: theme.palette.text.primary,
       onHover: (e, html) => setTooltip({ visible: true, x: e.clientX + 14, y: e.clientY - 32, html }),
       onMove: (e) => setTooltip((prev) => ({ ...prev, x: e.clientX + 14, y: e.clientY - 32 })),
       onLeave: () => setTooltip((prev) => ({ ...prev, visible: false })),
     });
-  }, [filteredEvodevoPoints, activeTab, containerWidth, height, log2Scale]);
+  }, [filteredEvodevoPoints, activeTab, containerWidth, height, log2Scale, theme.palette.text.primary]);
 
   function exportFilename(ext) {
     return `junction-cpm${junction ? `-${junction}` : ""}.${ext}`;

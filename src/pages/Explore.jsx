@@ -281,14 +281,14 @@ export default function Explore() {
         />
       )}
 
-      <Box sx={{ mt: 3 }}>
-        <ExonVis gene={selectedGene} exonID={null} eventType="" strand="+" />
-      </Box>
       {selectedJunction && (
         <Box sx={{ mt: 3 }}>
           <PlotArea junction={selectedJunction} gene={selectedGene} highlightIds={tumorSampleIds} />
         </Box>
       )}
+      <Box sx={{ mt: 3 }}>
+        <ExonVis gene={selectedGene} exonID={null} eventType="" strand="+" />
+      </Box>
     </>
   );
 }
