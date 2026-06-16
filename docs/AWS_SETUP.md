@@ -747,7 +747,7 @@ else
     --service-name "$ECS_FRONTEND_SERVICE_NAME" \
     --task-definition "$FRONTEND_TASK_DEF_FAMILY" \
     --launch-type FARGATE \
-    --desired-count 1 \
+    --desired-count 2 \
     --network-configuration "awsvpcConfiguration={subnets=[$PRIVATE_SUBNET_A_ID,$PRIVATE_SUBNET_B_ID],securityGroups=[$FRONTEND_TASK_SG_ID],assignPublicIp=DISABLED}" \
     --load-balancers targetGroupArn="$FRONTEND_TG_ARN",containerName="$CONTAINER_NAME",containerPort="$CONTAINER_PORT" \
     --health-check-grace-period-seconds 60
@@ -769,7 +769,7 @@ else
     --service-name "$ECS_API_SERVICE_NAME" \
     --task-definition "$API_TASK_DEF_FAMILY" \
     --launch-type FARGATE \
-    --desired-count 1 \
+    --desired-count 2 \
     --network-configuration "awsvpcConfiguration={subnets=[$PRIVATE_SUBNET_A_ID,$PRIVATE_SUBNET_B_ID],securityGroups=[$API_TASK_SG_ID],assignPublicIp=DISABLED}" \
     --load-balancers targetGroupArn="$API_TG_ARN",containerName="$API_CONTAINER_NAME",containerPort="$API_CONTAINER_PORT"
 fi
@@ -795,6 +795,85 @@ aws elbv2 describe-target-health \
   --region "$AWS_REGION" \
   --target-group-arn "$FRONTEND_TG_ARN" \
   --query 'TargetHealthDescriptions[*].[Target.Id,Target.Port,TargetHealth.State,TargetHealth.Reason]' \
+  --output table
+```
+
+
+### 6f) Production ECS service autoscaling
+
+Production ECS Service Auto Scaling is configured through Application Auto Scaling after service creation. Keep at least two production tasks per service for basic availability, then allow autoscaling to raise task count during CPU pressure.
+
+Register scalable targets.
+
+```bash
+aws application-autoscaling register-scalable-target \
+  --region "$AWS_REGION" \
+  --service-namespace ecs \
+  --resource-id "service/$ECS_CLUSTER_NAME/$ECS_FRONTEND_SERVICE_NAME" \
+  --scalable-dimension ecs:service:DesiredCount \
+  --min-capacity 2 \
+  --max-capacity 4
+
+aws application-autoscaling register-scalable-target \
+  --region "$AWS_REGION" \
+  --service-namespace ecs \
+  --resource-id "service/$ECS_CLUSTER_NAME/$ECS_API_SERVICE_NAME" \
+  --scalable-dimension ecs:service:DesiredCount \
+  --min-capacity 2 \
+  --max-capacity 6
+```
+
+Create CPU target-tracking policies.
+
+```bash
+aws application-autoscaling put-scaling-policy \
+  --region "$AWS_REGION" \
+  --service-namespace ecs \
+  --resource-id "service/$ECS_CLUSTER_NAME/$ECS_FRONTEND_SERVICE_NAME" \
+  --scalable-dimension ecs:service:DesiredCount \
+  --policy-name tapestry-frontend-cpu-target \
+  --policy-type TargetTrackingScaling \
+  --target-tracking-scaling-policy-configuration '{"TargetValue":65.0,"PredefinedMetricSpecification":{"PredefinedMetricType":"ECSServiceAverageCPUUtilization"},"ScaleOutCooldown":60,"ScaleInCooldown":300}'
+
+aws application-autoscaling put-scaling-policy \
+  --region "$AWS_REGION" \
+  --service-namespace ecs \
+  --resource-id "service/$ECS_CLUSTER_NAME/$ECS_API_SERVICE_NAME" \
+  --scalable-dimension ecs:service:DesiredCount \
+  --policy-name tapestry-api-cpu-target \
+  --policy-type TargetTrackingScaling \
+  --target-tracking-scaling-policy-configuration '{"TargetValue":60.0,"PredefinedMetricSpecification":{"PredefinedMetricType":"ECSServiceAverageCPUUtilization"},"ScaleOutCooldown":60,"ScaleInCooldown":300}'
+```
+
+Current public production baseline:
+
+- Frontend service: minimum 2 tasks, maximum 4 tasks, target tracking on ECS average CPU at 65%.
+- API service: minimum 2 tasks, maximum 6 tasks, target tracking on ECS average CPU at 60%.
+- Scale-out cooldown: 60 seconds.
+- Scale-in cooldown: 300 seconds.
+
+Verify the live autoscaling targets and policies.
+
+```bash
+aws application-autoscaling describe-scalable-targets \
+  --region "$AWS_REGION" \
+  --service-namespace ecs \
+  --resource-ids "service/$ECS_CLUSTER_NAME/$ECS_FRONTEND_SERVICE_NAME" "service/$ECS_CLUSTER_NAME/$ECS_API_SERVICE_NAME" \
+  --query 'ScalableTargets[*].[ResourceId,MinCapacity,MaxCapacity]' \
+  --output table
+
+aws application-autoscaling describe-scaling-policies \
+  --region "$AWS_REGION" \
+  --service-namespace ecs \
+  --resource-id "service/$ECS_CLUSTER_NAME/$ECS_FRONTEND_SERVICE_NAME" \
+  --query 'ScalingPolicies[*].[PolicyName,PolicyType,TargetTrackingScalingPolicyConfiguration.TargetValue]' \
+  --output table
+
+aws application-autoscaling describe-scaling-policies \
+  --region "$AWS_REGION" \
+  --service-namespace ecs \
+  --resource-id "service/$ECS_CLUSTER_NAME/$ECS_API_SERVICE_NAME" \
+  --query 'ScalingPolicies[*].[PolicyName,PolicyType,TargetTrackingScalingPolicyConfiguration.TargetValue]' \
   --output table
 ```
 

@@ -438,7 +438,7 @@ else
     --service-name "$DEV_FRONTEND_SERVICE_NAME" \
     --task-definition "$DEV_FRONTEND_TASK_DEF_FAMILY" \
     --launch-type FARGATE \
-    --desired-count 1 \
+    --desired-count 2 \
     --network-configuration "awsvpcConfiguration={subnets=[$PRIVATE_SUBNET_A_ID,$PRIVATE_SUBNET_B_ID],securityGroups=[$DEV_FRONTEND_TASK_SG_ID],assignPublicIp=DISABLED}" \
     --load-balancers targetGroupArn="$DEV_FRONTEND_TG_ARN",containerName="$FRONTEND_CONTAINER_NAME",containerPort="$FRONTEND_CONTAINER_PORT" \
     --health-check-grace-period-seconds 60
@@ -464,7 +464,7 @@ else
     --service-name "$DEV_API_SERVICE_NAME" \
     --task-definition "$DEV_API_TASK_DEF_FAMILY" \
     --launch-type FARGATE \
-    --desired-count 1 \
+    --desired-count 2 \
     --network-configuration "awsvpcConfiguration={subnets=[$PRIVATE_SUBNET_A_ID,$PRIVATE_SUBNET_B_ID],securityGroups=[$DEV_API_TASK_SG_ID],assignPublicIp=DISABLED}" \
     --load-balancers targetGroupArn="$DEV_API_TG_ARN",containerName="$API_CONTAINER_NAME",containerPort="$API_CONTAINER_PORT" \
     --health-check-grace-period-seconds 60
