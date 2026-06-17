@@ -942,6 +942,32 @@ export default function PlotArea({
     setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 
+  function downloadAsTsv() {
+    const columns = [
+      ["biospecimen_id", (r) => r.biospecimen_id],
+      ["patient_id", (r) => r.patient_id],
+      ["junction", (r) => r.junction],
+      ["gene_symbol", () => gene],
+      ["plot_group", (r) => r.plot_group],
+      ["cancer_group", (r) => r.cancer_group],
+      ["cohort", (r) => r.cohort],
+      ["composition", (r) => r.composition],
+      ["rna_library", (r) => r.rna_library],
+      ["is_independent_primary", (r) => r.is_independent_primary],
+      ["cpm", (r) => r.cpm],
+      ["log2_cpm_corrected", (r) => r.log2_cpm_corrected],
+      ["tumor_enriched", (r) => highlightIds.has(r.biospecimen_id)],
+    ];
+    const escape = (v) => (v === null || v === undefined ? "" : String(v).replace(/[\t\n\r]/g, " "));
+    const lines = [
+      columns.map(([name]) => name).join("\t"),
+      ...fetchedRows.map((r) => columns.map(([, get]) => escape(get(r))).join("\t")),
+    ];
+    const url = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/tab-separated-values;charset=utf-8" }));
+    triggerDownload(url, exportFilename("tsv"));
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+
   function toggleGroup(key) {
     setSelectedGroups((prev) => {
       const next = new Set(prev);
@@ -1040,6 +1066,10 @@ export default function PlotArea({
             <MenuItem onClick={() => { setExportAnchor(null); downloadAsPdf(); }}>PDF (300 DPI)</MenuItem>
             <MenuItem onClick={() => { setExportAnchor(null); downloadAsTiff(); }}>TIFF (300 DPI)</MenuItem>
             <MenuItem onClick={() => { setExportAnchor(null); downloadAsSvg(); }}>SVG</MenuItem>
+            <Divider />
+            <MenuItem disabled={fetchedRows.length === 0} onClick={() => { setExportAnchor(null); downloadAsTsv(); }}>
+              TSV (plot data)
+            </MenuItem>
           </Menu>
         </Stack>
       </Box>
