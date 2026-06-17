@@ -333,7 +333,7 @@ function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightId
         .attr("stroke-width", highlighted ? 1.5 : 0.5)
         .style("cursor", "pointer")
         .on("mouseover", (e) =>
-          onHover(e, `<strong>${d.id}</strong><br/>${label}<br/>${axisLabel}: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}${enriched ? "<br/><em>tumor enriched</em>" : ""}`)
+          onHover(e, `<strong>${d.id}</strong><br/>${label}${d.molecularSubtype ? `<br/>${d.molecularSubtype}` : ""}<br/>${axisLabel}: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}${enriched ? "<br/><em>tumor enriched</em>" : ""}`)
         )
         .on("mousemove", onMove)
         .on("mouseout", onLeave);
@@ -578,7 +578,7 @@ function drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleG
         .attr("stroke", textColor).attr("stroke-width", highlighted ? 1.5 : 0.5)
         .style("cursor", "pointer")
         .on("mouseover", (e) =>
-          onHover(e, `<strong>${d.id}</strong><br/>${label}<br/>${axisLabel}: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}${enriched ? "<br/><em>tumor enriched</em>" : ""}`)
+          onHover(e, `<strong>${d.id}</strong><br/>${label}${d.molecularSubtype ? `<br/>${d.molecularSubtype}` : ""}<br/>${axisLabel}: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}${enriched ? "<br/><em>tumor enriched</em>" : ""}`)
         )
         .on("mousemove", onMove).on("mouseout", onLeave);
     });
@@ -745,6 +745,7 @@ export default function PlotArea({
         log2CpmCorrected: r.log2_cpm_corrected ?? null,
         histology: collapseControlGroup(r.plot_group ?? "Unknown"),
         cancerGroup: r.cancer_group ?? null,
+        molecularSubtype: r.molecular_subtype ?? null,
         cohort: r.cohort ?? null,
         isCellLine: r.composition === "Derived Cell Line",
         isIndependentPrimary: r.is_independent_primary,
