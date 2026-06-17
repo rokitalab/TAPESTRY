@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Box,
@@ -6,6 +6,10 @@ import {
   Paper,
   Grid,
   TextField,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
   Button,
   Stack,
   InputAdornment,
@@ -13,15 +17,11 @@ import {
 } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
 import HistologySummary from "../components/HistologySummary";
+import { HISTOLOGY_COLORS } from "../histologyColors";
 
-function SearchCard({
-  title,
-  subtitle,
-  placeholder,
-  value,
-  onChange,
-  onSubmit,
-}) {
+const HISTOLOGIES = Object.keys(HISTOLOGY_COLORS).sort();
+
+function SearchCard({ title, subtitle, onSubmit, submitDisabled, children }) {
   return (
     <Paper
       variant="outlined"
@@ -39,8 +39,8 @@ function SearchCard({
         },
       }}
     >
-      <Stack spacing={2} sx={{ height: "100%", width: "100%"}}>
-        <Box >
+      <Stack spacing={2} sx={{ height: "100%", width: "100%" }}>
+        <Box>
           <Typography variant="h5" sx={{ fontWeight: 700 }}>
             {title}
           </Typography>
@@ -49,30 +49,14 @@ function SearchCard({
           </Typography>
         </Box>
 
-        <TextField
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-          size="medium"
-          fullWidth
-          onKeyDown={(e) => {
-            if (e.key === "Enter") onSubmit();
-          }}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchIcon />
-              </InputAdornment>
-            ),
-          }}
-        />
+        {children}
 
         <Box sx={{ flexGrow: 1 }} />
 
         <Button
           variant="contained"
           onClick={onSubmit}
-          disabled={!value.trim()}
+          disabled={submitDisabled}
           sx={{ alignSelf: "flex-start" }}
         >
           Search
@@ -85,27 +69,13 @@ function SearchCard({
 export default function Home() {
   const navigate = useNavigate();
 
-  // Big “global” search (optional but nice)
-  const [globalQuery, setGlobalQuery] = useState("");
-
-  // The three “big button” searches
   const [gene, setGene] = useState("");
   const [histology, setHistology] = useState("");
-  const [spliceEvent, setSpliceEvent] = useState("");
 
   const goExplore = (params) => {
     const sp = new URLSearchParams(params);
     navigate(`/explore?${sp.toString()}`);
   };
-
-  const examples = useMemo(
-    () => ({
-      gene: "NRCAM",
-      histology: "HGG",
-      spliceEvent: "SE",
-    }),
-    []
-  );
 
   return (
     <Box>
@@ -118,42 +88,59 @@ export default function Home() {
 
       <Divider sx={{ my: 4 }} />
 
-      {/* Three big “search cards” */}
+      {/* Two "search card" entry points */}
       <Grid container spacing={3} alignItems="stretch">
-        <Grid item xs={12} md={4} sx={{ display: "flex", width: "30%" }}>
+        <Grid item xs={12} md={6} sx={{ display: "flex", width: "45%" }}>
           <SearchCard
             title="Search by gene"
             subtitle="Jump straight to events for a gene symbol."
-            placeholder='e.g. "NRCAM"'
-            value={gene}
-            onChange={setGene}
             onSubmit={() => goExplore({ gene: gene.trim() })}
-          />
+            submitDisabled={!gene.trim()}
+          >
+            <TextField
+              value={gene}
+              onChange={(e) => setGene(e.target.value)}
+              placeholder='e.g. "NRCAM"'
+              size="medium"
+              fullWidth
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && gene.trim()) goExplore({ gene: gene.trim() });
+              }}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon />
+                  </InputAdornment>
+                ),
+              }}
+            />
+          </SearchCard>
         </Grid>
 
-        <Grid item xs={12} md={4} sx={{ display: "flex", width: "30%" }}>
+        <Grid item xs={12} md={6} sx={{ display: "flex", width: "45%" }}>
           <SearchCard
             title="Search by histology"
             subtitle="Filter by tumor type."
-            placeholder='e.g. "HGG", "LGG'
-            value={histology}
-            onChange={setHistology}
-            onSubmit={() => goExplore({ histology: histology.trim() })}
-          />
-        </Grid>
-
-        <Grid item xs={12} md={4} sx={{ display: "flex", width: "30%" }}>
-          <SearchCard
-            title="Search by splice event"
-            subtitle="Start with an rMATS event class."
-            placeholder='e.g. "SE", "A3SS"'
-            value={spliceEvent}
-            onChange={setSpliceEvent}
-            onSubmit={() => goExplore({ event: spliceEvent.trim() })}
-          />
+            onSubmit={() => goExplore({ histology })}
+            submitDisabled={!histology}
+          >
+            <FormControl fullWidth size="medium">
+              <InputLabel id="home-histology-label">Histology</InputLabel>
+              <Select
+                labelId="home-histology-label"
+                label="Histology"
+                value={histology}
+                onChange={(e) => setHistology(e.target.value)}
+              >
+                {HISTOLOGIES.map((h) => (
+                  <MenuItem key={h} value={h}>{h}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </SearchCard>
         </Grid>
       </Grid>
-      
+
       <Divider sx={{ mt: 5 }} />
       <HistologySummary />
     </Box>
