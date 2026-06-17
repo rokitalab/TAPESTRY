@@ -89,7 +89,7 @@ export default function Home() {
       <Divider sx={{ my: 4 }} />
 
       {/* Two "search card" entry points */}
-      <Grid container spacing={3} alignItems="stretch">
+      <Grid container spacing={3} alignItems="stretch" justifyContent="center">
         <Grid item xs={12} md={6} sx={{ display: "flex", width: "45%" }}>
           <SearchCard
             title="Search by gene"
