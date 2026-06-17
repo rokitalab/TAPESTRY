@@ -274,19 +274,47 @@ export default function Explore() {
     { header: "num_samples", get: (r) => r.num_samples },
   ];
 
+  // Short, filename-safe tags for the active filters, in the same order as
+  // activeChips but stripped to bare values (no "Histology: " labels/units/
+  // symbols) since those aren't valid/readable in a filename. Capped so a
+  // heavily-filtered export still gets a usable name instead of one with
+  // every slider value crammed in.
+  const filenameTag = useMemo(() => {
+    const slug = (s) => String(s).replace(/[^a-zA-Z0-9]+/g, "");
+    const parts = [];
+    if (histology) parts.push(slug(histology));
+    if (geneFilter.trim()) parts.push(slug(geneFilter.trim()));
+    if (statusFilter) parts.push(slug(statusFilter));
+    if (eventTypeFilter) parts.push(slug(eventTypeFilter));
+    if (specificityFilter) parts.push(slug(specificityFilter));
+    if (isMinActive(fcMin, FC_BOUNDS)) parts.push(`FC${slug(fmtNum(fcMin))}`);
+    if (isMinActive(snrMin, SNR_BOUNDS)) parts.push(`SNR${slug(fmtNum(snrMin))}`);
+    if (isMaxActive(maxMeanCpmMax, MAX_MEAN_CPM_BOUNDS)) parts.push(`MaxCPM${slug(fmtNum(maxMeanCpmMax))}`);
+
+    const MAX_PARTS = 3;
+    const shown = parts.slice(0, MAX_PARTS);
+    if (parts.length > MAX_PARTS) shown.push(`+${parts.length - MAX_PARTS}more`);
+    return shown.map((p) => `_${p}`).join("");
+  }, [histology, geneFilter, statusFilter, eventTypeFilter, specificityFilter, fcMin, snrMin, maxMeanCpmMax]);
+
+  const exportFilename = (ext) => {
+    const date = new Date().toISOString().slice(0, 10);
+    return `TAPESTRY${filenameTag}_${date}.${ext}`;
+  };
+
   const downloadTsv = () => {
     const escapeTsv = (v) => String(v ?? "").replace(/\t/g, " ").replace(/\r?\n/g, " ");
     const lines = [exportColumns.map((c) => c.header).join("\t")];
     sorted.forEach((r) => lines.push(exportColumns.map((c) => escapeTsv(c.get(r))).join("\t")));
     const blob = new Blob([lines.join("\n")], { type: "text/tab-separated-values;charset=utf-8" });
-    triggerDownload(URL.createObjectURL(blob), "tejs.tsv");
+    triggerDownload(URL.createObjectURL(blob), exportFilename("tsv"));
   };
 
   const downloadExcel = async () => {
     const headers = exportColumns.map((c) => c.header);
     const rows = sorted.map((r) => exportColumns.map((c) => c.get(r)));
     const blob = await writeXlsxFile([headers, ...rows]).toBlob();
-    triggerDownload(URL.createObjectURL(blob), "tejs.xlsx");
+    triggerDownload(URL.createObjectURL(blob), exportFilename("xlsx"));
   };
 
   const paged = useMemo(() => {
