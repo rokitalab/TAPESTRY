@@ -31,6 +31,7 @@ import {
   TableSortLabel,
 } from "@mui/material";
 import DownloadIcon from "@mui/icons-material/Download";
+import writeXlsxFile from "write-excel-file/universal";
 import { HISTOLOGY_COLORS } from "../histologyColors";
 import PlotArea from "../components/PlotArea";
 import ExonVis from "../components/ExonVis";
@@ -57,44 +58,6 @@ function triggerDownload(href, filename) {
   link.click();
 }
 
-function escapeXml(v) {
-  return String(v ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-// Builds a SpreadsheetML (Excel 2003 XML) document, which Excel opens
-// natively without requiring an XLSX-writing dependency.
-function buildExcelXml(headers, rows) {
-  const headerRow = `<Row>${headers
-    .map((h) => `<Cell><Data ss:Type="String">${escapeXml(h)}</Data></Cell>`)
-    .join("")}</Row>`;
-  const dataRows = rows
-    .map((row) => {
-      const cells = row
-        .map((v) => {
-          const isNum = typeof v === "number" && Number.isFinite(v);
-          return `<Cell><Data ss:Type="${isNum ? "Number" : "String"}">${escapeXml(v)}</Data></Cell>`;
-        })
-        .join("");
-      return `<Row>${cells}</Row>`;
-    })
-    .join("");
-  return `<?xml version="1.0"?>
-<?mso-application progid="Excel.Sheet"?>
-<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
- xmlns:o="urn:schemas-microsoft-com:office:office"
- xmlns:x="urn:schemas-microsoft-com:office:excel"
- xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
- <Worksheet ss:Name="TEJs">
-  <Table>
-   ${headerRow}
-   ${dataRows}
-  </Table>
- </Worksheet>
-</Workbook>`;
-}
 
 export default function Explore() {
   const location = useLocation();
@@ -319,11 +282,11 @@ export default function Explore() {
     triggerDownload(URL.createObjectURL(blob), "tejs.tsv");
   };
 
-  const downloadExcel = () => {
+  const downloadExcel = async () => {
     const headers = exportColumns.map((c) => c.header);
     const rows = sorted.map((r) => exportColumns.map((c) => c.get(r)));
-    const blob = new Blob([buildExcelXml(headers, rows)], { type: "application/vnd.ms-excel" });
-    triggerDownload(URL.createObjectURL(blob), "tejs.xls");
+    const blob = await writeXlsxFile([headers, ...rows]).toBlob();
+    triggerDownload(URL.createObjectURL(blob), "tejs.xlsx");
   };
 
   const paged = useMemo(() => {
