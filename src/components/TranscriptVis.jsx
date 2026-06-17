@@ -45,8 +45,17 @@ export default function TranscriptVis({ geneID, strand = "+" }) {
   const [canonicalOnly, setCanonicalOnly] = useState(false);
   const [apiStrand, setApiStrand] = useState(null);
 
+  // Clears transcripts when geneID is cleared. Done during render (rather
+  // than as a setState call inside the fetch effect below) by comparing
+  // against the geneID seen on the previous render.
+  const [prevGeneID, setPrevGeneID] = useState(geneID);
+  if (geneID !== prevGeneID) {
+    setPrevGeneID(geneID);
+    if (!geneID) setTxList([]);
+  }
+
   useEffect(() => {
-    if (!geneID) { setTxList([]); return; }
+    if (!geneID) return;
     const controller = new AbortController();
     const url = `https://rest.ensembl.org/lookup/id/${encodeURIComponent(geneID)}?content-type=application/json;expand=1`;
     fetch(url, { signal: controller.signal, headers: { Accept: "application/json" } })
@@ -55,7 +64,6 @@ export default function TranscriptVis({ geneID, strand = "+" }) {
         return r.json();
       })
       .then(data => {
-        console.log("[TranscriptVis Ensembl lookup]", data);
         // Derive strand from gene lookup: 1 => '+', -1 => '-'
         const s = data?.strand;
         let sChar = null;
@@ -103,10 +111,6 @@ export default function TranscriptVis({ geneID, strand = "+" }) {
             .filter(Boolean)
             .sort((a, b) => a.start - b.start);
           if (exonCount == null) exonCount = exons.length > 0 ? exons.length : null;
-          console.log('[TranscriptVis] exon debug', {
-            id,
-            counts: { exonCount, inferredFromCoords: exons.length },
-          });
           return { id, biotype, isCanonical, colour, exonCount, exons };
         }).filter(Boolean);
         setTxList(items);
@@ -207,19 +211,28 @@ export default function TranscriptVis({ geneID, strand = "+" }) {
     return () => controller.abort();
   }, [geneID, txList]);
  
-  // Initialize selection to include all available biotypes when data changes
-  useEffect(() => {
-    if (legendItems.length === 0) { setActiveBiotypes(new Set()); setCanonicalOnly(false); return; }
-    // If current active set doesn't match available biotypes, reset to all
-    const available = new Set(legendItems.map(([bio]) => bio));
-    let differs = false;
-    if (activeBiotypes.size !== available.size) {
-      differs = true;
+  // Resets the biotype selection to "all" whenever the available legend
+  // items change. Done during render, comparing against the legendItems
+  // seen on the previous render, rather than as a setState call inside an
+  // effect.
+  const [prevLegendItems, setPrevLegendItems] = useState(legendItems);
+  if (legendItems !== prevLegendItems) {
+    setPrevLegendItems(legendItems);
+    if (legendItems.length === 0) {
+      setActiveBiotypes(new Set());
+      setCanonicalOnly(false);
     } else {
-      for (const b of available) { if (!activeBiotypes.has(b)) { differs = true; break; } }
+      const available = new Set(legendItems.map(([bio]) => bio));
+      let differs = activeBiotypes.size !== available.size;
+      if (!differs) {
+        for (const b of available) { if (!activeBiotypes.has(b)) { differs = true; break; } }
+      }
+      if (differs) {
+        setActiveBiotypes(available);
+        setCanonicalOnly(false);
+      }
     }
-    if (differs) { setActiveBiotypes(available); setCanonicalOnly(false); }
-  }, [legendItems]);
+  }
 
 
   const toggleBio = (bio) => {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 import {
   Alert,
@@ -126,8 +126,6 @@ export default function Explore() {
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
 
-  const [selectedRow, setSelectedRow] = useState(null);
-
   // Fetch whenever histology changes (other filters are client-side)
   useEffect(() => {
     let active = true;
@@ -223,24 +221,31 @@ export default function Explore() {
 
   const scopeLabel = cohortScope === "postnatal" ? "postnatal" : "all";
 
-  const getSortValue = (row, key) => {
-    switch (key) {
-      case "gene_symbol":
-      case "consensus_specificity":
-      case "event_type":
-        return row[key];
-      case "fc":
-        return row[`min_cpm_fc_${cohortScope}`];
-      case "snr":
-        return row[`min_cpm_snr_${cohortScope}`];
-      case "maxMeanCpm":
-        return row[`max_mean_cpm_${cohortScope}`];
-      case "num_samples":
-        return row.num_samples;
-      default:
-        return null;
-    }
-  };
+  // Looks up the sort value for a row/column, reading from the
+  // cohort-scoped field (min_cpm_fc_all vs. min_cpm_fc_postnatal, etc.)
+  // for the metric columns. Memoized so `sorted` depends on the function
+  // reference rather than on `cohortScope` directly.
+  const getSortValue = useCallback(
+    (row, key) => {
+      switch (key) {
+        case "gene_symbol":
+        case "consensus_specificity":
+        case "event_type":
+          return row[key];
+        case "fc":
+          return row[`min_cpm_fc_${cohortScope}`];
+        case "snr":
+          return row[`min_cpm_snr_${cohortScope}`];
+        case "maxMeanCpm":
+          return row[`max_mean_cpm_${cohortScope}`];
+        case "num_samples":
+          return row.num_samples;
+        default:
+          return null;
+      }
+    },
+    [cohortScope]
+  );
 
   const sorted = useMemo(() => {
     if (!sortKey) return filtered;
@@ -257,17 +262,21 @@ export default function Explore() {
       return sortDir === "asc" ? va - vb : vb - va;
     });
     return arr;
-  }, [filtered, sortKey, sortDir, cohortScope]);
+  }, [filtered, sortKey, sortDir, getSortValue]);
 
-  // Keep the current selection if it's still in the filtered/sorted set;
-  // otherwise default to the top row so the plots/transcripts below always
-  // reflect something on the page (including on first load).
-  useEffect(() => {
-    setSelectedRow((prev) => {
-      if (prev && sorted.some((r) => r.junction === prev.junction)) return prev;
-      return sorted[0] ?? null;
-    });
-  }, [sorted]);
+  // Resets the selection to the top row whenever `sorted` changes and the
+  // current selection is no longer in it; otherwise leaves it as-is. Runs
+  // during render, matching the `prevFiltered` page-reset above, so the
+  // plots/transcripts below always have a row to show, including on first
+  // load.
+  const [prevSorted, setPrevSorted] = useState(sorted);
+  const [selectedRow, setSelectedRow] = useState(() => sorted[0] ?? null);
+  if (sorted !== prevSorted) {
+    setPrevSorted(sorted);
+    if (!(selectedRow && sorted.some((r) => r.junction === selectedRow.junction))) {
+      setSelectedRow(sorted[0] ?? null);
+    }
+  }
 
   const handleSort = (key) => {
     if (sortKey === key) {
@@ -345,7 +354,7 @@ export default function Explore() {
     statusFilter,
     eventTypeFilter,
     specificityFilter,
-    cohortScope,
+    scopeLabel,
     fcMin,
     snrMin,
     maxMeanCpmMax,
@@ -366,7 +375,10 @@ export default function Explore() {
 
   useEffect(() => {
     const junction = selectedRow?.junction;
-    if (!junction) { setTumorSamples([]); return; }
+    // Skips the fetch with no junction selected, leaving tumorSamples as-is.
+    // PlotArea (the only consumer of tumorSampleIds) doesn't render without
+    // selectedRow, so the stale value is never shown.
+    if (!junction) return;
     let active = true;
     fetch(`${API_BASE}/junction-sample-view/?junction=${encodeURIComponent(junction)}`)
       .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })

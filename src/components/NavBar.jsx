@@ -3,7 +3,7 @@ import { NavLink } from "react-router-dom";
 import { LightMode, DarkMode } from '@mui/icons-material';
 
 
-const linkStyle = ({ isActive }) => ({
+const linkStyle = () => ({
   textDecoration: "none",
 });
 
