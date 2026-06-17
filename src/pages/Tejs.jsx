@@ -6,7 +6,9 @@ import {
   Chip,
   Divider,
   FormControl,
+  IconButton,
   InputLabel,
+  Menu,
   MenuItem,
   Paper,
   Select,
@@ -16,6 +18,7 @@ import {
   Button,
   ToggleButton,
   ToggleButtonGroup,
+  Tooltip,
   Typography,
   Table,
   TableBody,
@@ -24,7 +27,9 @@ import {
   TableHead,
   TableRow,
   TablePagination,
+  TableSortLabel,
 } from "@mui/material";
+import DownloadIcon from "@mui/icons-material/Download";
 import { HISTOLOGY_COLORS } from "../histologyColors";
 
 const API_BASE = (import.meta.env.VITE_API_BASE || "/tapestry-api").replace(/\/$/, "");
@@ -42,13 +47,65 @@ const isMaxActive = (v, bounds) => v !== bounds[1];
 const fmtNum = (n) => (Number.isInteger(n) ? n : n.toFixed(1));
 const fmt2 = (n) => (n == null ? "—" : n.toFixed(2));
 
+function triggerDownload(href, filename) {
+  const link = document.createElement("a");
+  link.href = href;
+  link.download = filename;
+  link.click();
+}
+
+function escapeXml(v) {
+  return String(v ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+// Builds a SpreadsheetML (Excel 2003 XML) document, which Excel opens
+// natively without requiring an XLSX-writing dependency.
+function buildExcelXml(headers, rows) {
+  const headerRow = `<Row>${headers
+    .map((h) => `<Cell><Data ss:Type="String">${escapeXml(h)}</Data></Cell>`)
+    .join("")}</Row>`;
+  const dataRows = rows
+    .map((row) => {
+      const cells = row
+        .map((v) => {
+          const isNum = typeof v === "number" && Number.isFinite(v);
+          return `<Cell><Data ss:Type="${isNum ? "Number" : "String"}">${escapeXml(v)}</Data></Cell>`;
+        })
+        .join("");
+      return `<Row>${cells}</Row>`;
+    })
+    .join("");
+  return `<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+ <Worksheet ss:Name="TEJs">
+  <Table>
+   ${headerRow}
+   ${dataRows}
+  </Table>
+ </Worksheet>
+</Workbook>`;
+}
+
 export default function Tejs() {
   const [histology, setHistology] = useState("");
   const [geneFilter, setGeneFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [eventTypeFilter, setEventTypeFilter] = useState("");
+  const [specificityFilter, setSpecificityFilter] = useState("");
   const [cohortScope, setCohortScope] = useState("all"); // "all" | "postnatal"
   const [fcMin, setFcMin] = useState(FC_BOUNDS[0]);
   const [snrMin, setSnrMin] = useState(SNR_BOUNDS[0]);
   const [maxMeanCpmMax, setMaxMeanCpmMax] = useState(MAX_MEAN_CPM_BOUNDS[1]);
+
+  const [sortKey, setSortKey] = useState(null);
+  const [sortDir, setSortDir] = useState("asc");
 
   const [rows, setRows] = useState([]);
   const [fetchError, setFetchError] = useState(null);
@@ -58,7 +115,7 @@ export default function Tejs() {
   const loading = loadedFor !== histology;
 
   const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(25);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
 
   // Fetch whenever histology changes (gene filter is client-side)
   useEffect(() => {
@@ -87,6 +144,19 @@ export default function Tejs() {
     return () => { active = false; };
   }, [histology]);
 
+  const statusOptions = useMemo(
+    () => Array.from(new Set(rows.map((r) => r.status).filter(Boolean))).sort(),
+    [rows]
+  );
+  const eventTypeOptions = useMemo(
+    () => Array.from(new Set(rows.map((r) => r.event_type).filter(Boolean))).sort(),
+    [rows]
+  );
+  const specificityOptions = useMemo(
+    () => Array.from(new Set(rows.map((r) => r.consensus_specificity).filter(Boolean))).sort(),
+    [rows]
+  );
+
   const filtered = useMemo(() => {
     const g = geneFilter.trim().toUpperCase();
     const fcField = `min_cpm_fc_${cohortScope}`;
@@ -98,6 +168,9 @@ export default function Tejs() {
 
     return rows.filter((r) => {
       if (g && !(r.gene_symbol ?? "").toUpperCase().includes(g)) return false;
+      if (statusFilter && r.status !== statusFilter) return false;
+      if (eventTypeFilter && r.event_type !== eventTypeFilter) return false;
+      if (specificityFilter && r.consensus_specificity !== specificityFilter) return false;
       if (fcActive) {
         // null means the reference cohort has zero expression, i.e. an
         // infinite (maximally specific) fold-change, so it always passes.
@@ -116,7 +189,17 @@ export default function Tejs() {
       }
       return true;
     });
-  }, [rows, geneFilter, cohortScope, fcMin, snrMin, maxMeanCpmMax]);
+  }, [
+    rows,
+    geneFilter,
+    statusFilter,
+    eventTypeFilter,
+    specificityFilter,
+    cohortScope,
+    fcMin,
+    snrMin,
+    maxMeanCpmMax,
+  ]);
 
   // Reset to the first page whenever the filtered result set changes.
   // useMemo returns the same `filtered` reference across renders where its
@@ -127,17 +210,104 @@ export default function Tejs() {
     setPage(0);
   }
 
+  const scopeLabel = cohortScope === "postnatal" ? "postnatal" : "all";
+
+  const getSortValue = (row, key) => {
+    switch (key) {
+      case "gene_symbol":
+      case "consensus_specificity":
+      case "event_type":
+        return row[key];
+      case "fc":
+        return row[`min_cpm_fc_${cohortScope}`];
+      case "snr":
+        return row[`min_cpm_snr_${cohortScope}`];
+      case "maxMeanCpm":
+        return row[`max_mean_cpm_${cohortScope}`];
+      case "num_samples":
+        return row.num_samples;
+      default:
+        return null;
+    }
+  };
+
+  const sorted = useMemo(() => {
+    if (!sortKey) return filtered;
+    const arr = [...filtered];
+    arr.sort((a, b) => {
+      const va = getSortValue(a, sortKey);
+      const vb = getSortValue(b, sortKey);
+      if (va == null && vb == null) return 0;
+      if (va == null) return 1;
+      if (vb == null) return -1;
+      if (typeof va === "string") {
+        return sortDir === "asc" ? va.localeCompare(vb) : vb.localeCompare(va);
+      }
+      return sortDir === "asc" ? va - vb : vb - va;
+    });
+    return arr;
+  }, [filtered, sortKey, sortDir, cohortScope]);
+
+  const handleSort = (key) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  };
+
+  const [downloadAnchor, setDownloadAnchor] = useState(null);
+
+  // Snake-case headers matching the tej-view API fields directly, so the
+  // export can be loaded/joined programmatically (e.g. pandas) without
+  // re-mapping human-readable labels. chr/strand are split out from the
+  // junction string since downstream genomic tools expect them separately.
+  const exportColumns = [
+    { header: "junction_name", get: (r) => r.junction_name },
+    { header: "junction_id", get: (r) => r.junction },
+    { header: "chr", get: (r) => r.chr },
+    { header: "strand", get: (r) => r.strand },
+    { header: "gene_symbol", get: (r) => r.gene_symbol },
+    { header: "consensus_specificity", get: (r) => r.consensus_specificity },
+    { header: "status", get: (r) => r.status },
+    { header: "event_type", get: (r) => r.event_type },
+    { header: "min_cpm_fc_all", get: (r) => r.min_cpm_fc_all },
+    { header: "min_cpm_fc_postnatal", get: (r) => r.min_cpm_fc_postnatal },
+    { header: "min_cpm_snr_all", get: (r) => r.min_cpm_snr_all },
+    { header: "min_cpm_snr_postnatal", get: (r) => r.min_cpm_snr_postnatal },
+    { header: "max_mean_cpm_all", get: (r) => r.max_mean_cpm_all },
+    { header: "max_mean_cpm_postnatal", get: (r) => r.max_mean_cpm_postnatal },
+    { header: "num_samples", get: (r) => r.num_samples },
+  ];
+
+  const downloadTsv = () => {
+    const escapeTsv = (v) => String(v ?? "").replace(/\t/g, " ").replace(/\r?\n/g, " ");
+    const lines = [exportColumns.map((c) => c.header).join("\t")];
+    sorted.forEach((r) => lines.push(exportColumns.map((c) => escapeTsv(c.get(r))).join("\t")));
+    const blob = new Blob([lines.join("\n")], { type: "text/tab-separated-values;charset=utf-8" });
+    triggerDownload(URL.createObjectURL(blob), "tejs.tsv");
+  };
+
+  const downloadExcel = () => {
+    const headers = exportColumns.map((c) => c.header);
+    const rows = sorted.map((r) => exportColumns.map((c) => c.get(r)));
+    const blob = new Blob([buildExcelXml(headers, rows)], { type: "application/vnd.ms-excel" });
+    triggerDownload(URL.createObjectURL(blob), "tejs.xls");
+  };
+
   const paged = useMemo(() => {
     const start = page * rowsPerPage;
-    return filtered.slice(start, start + rowsPerPage);
-  }, [filtered, page, rowsPerPage]);
-
-  const scopeLabel = cohortScope === "postnatal" ? "postnatal" : "all";
+    return sorted.slice(start, start + rowsPerPage);
+  }, [sorted, page, rowsPerPage]);
 
   const activeChips = useMemo(() => {
     const chips = [];
     if (histology) chips.push({ key: "histology", label: `Histology: ${histology}` });
     if (geneFilter.trim()) chips.push({ key: "gene", label: `Gene: ${geneFilter.trim()}` });
+    if (statusFilter) chips.push({ key: "status", label: `Status: ${statusFilter}` });
+    if (eventTypeFilter) chips.push({ key: "eventType", label: `Event type: ${eventTypeFilter}` });
+    if (specificityFilter) chips.push({ key: "specificity", label: `Specificity: ${specificityFilter}` });
     if (isMinActive(fcMin, FC_BOUNDS)) {
       chips.push({ key: "fc", label: `Fold-change (${scopeLabel}) ≥ ${fmtNum(fcMin)}` });
     }
@@ -148,11 +318,24 @@ export default function Tejs() {
       chips.push({ key: "maxMeanCpm", label: `Max mean CPM (${scopeLabel}) ≤ ${fmtNum(maxMeanCpmMax)}` });
     }
     return chips;
-  }, [histology, geneFilter, cohortScope, fcMin, snrMin, maxMeanCpmMax]);
+  }, [
+    histology,
+    geneFilter,
+    statusFilter,
+    eventTypeFilter,
+    specificityFilter,
+    cohortScope,
+    fcMin,
+    snrMin,
+    maxMeanCpmMax,
+  ]);
 
   const removeChip = (key) => {
     if (key === "histology") setHistology("");
     if (key === "gene") setGeneFilter("");
+    if (key === "status") setStatusFilter("");
+    if (key === "eventType") setEventTypeFilter("");
+    if (key === "specificity") setSpecificityFilter("");
     if (key === "fc") setFcMin(FC_BOUNDS[0]);
     if (key === "snr") setSnrMin(SNR_BOUNDS[0]);
     if (key === "maxMeanCpm") setMaxMeanCpmMax(MAX_MEAN_CPM_BOUNDS[1]);
@@ -166,9 +349,6 @@ export default function Tejs() {
           <Box>
             <Typography variant="h5" sx={{ fontWeight: 800 }}>
               TEJ Browser
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Browse all tumor-exclusive junctions.
             </Typography>
           </Box>
 
@@ -191,12 +371,57 @@ export default function Tejs() {
 
           <TextField
             label="Gene"
-            placeholder='e.g. "CLK1"'
+            placeholder='e.g. "NRCAM"'
             value={geneFilter}
             size="small"
             onChange={(e) => setGeneFilter(e.target.value)}
             fullWidth
           />
+
+          <FormControl fullWidth size="small">
+            <InputLabel id="status-label">Junction status</InputLabel>
+            <Select
+              labelId="status-label"
+              label="Junction status"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
+              <MenuItem value="">All statuses</MenuItem>
+              {statusOptions.map((s) => (
+                <MenuItem key={s} value={s}>{s}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          <FormControl fullWidth size="small">
+            <InputLabel id="event-type-label">Event type</InputLabel>
+            <Select
+              labelId="event-type-label"
+              label="Event type"
+              value={eventTypeFilter}
+              onChange={(e) => setEventTypeFilter(e.target.value)}
+            >
+              <MenuItem value="">All event types</MenuItem>
+              {eventTypeOptions.map((e) => (
+                <MenuItem key={e} value={e}>{e}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          <FormControl fullWidth size="small">
+            <InputLabel id="specificity-label">Specificity</InputLabel>
+            <Select
+              labelId="specificity-label"
+              label="Specificity"
+              value={specificityFilter}
+              onChange={(e) => setSpecificityFilter(e.target.value)}
+            >
+              <MenuItem value="">All specificities</MenuItem>
+              {specificityOptions.map((s) => (
+                <MenuItem key={s} value={s}>{s}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
 
           <Divider />
 
@@ -273,6 +498,9 @@ export default function Tejs() {
             onClick={() => {
               setHistology("");
               setGeneFilter("");
+              setStatusFilter("");
+              setEventTypeFilter("");
+              setSpecificityFilter("");
               setCohortScope("all");
               setFcMin(FC_BOUNDS[0]);
               setSnrMin(SNR_BOUNDS[0]);
@@ -281,6 +509,9 @@ export default function Tejs() {
             disabled={
               !histology &&
               !geneFilter.trim() &&
+              !statusFilter &&
+              !eventTypeFilter &&
+              !specificityFilter &&
               !isMinActive(fcMin, FC_BOUNDS) &&
               !isMinActive(snrMin, SNR_BOUNDS) &&
               !isMaxActive(maxMeanCpmMax, MAX_MEAN_CPM_BOUNDS)
@@ -293,16 +524,32 @@ export default function Tejs() {
 
       {/* Results */}
       <Box>
-        <Stack direction="row" spacing={1} sx={{ mb: 2, flexWrap: "wrap" }}>
-          {activeChips.length === 0 ? (
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-              No filters applied — showing all TEJs.
-            </Typography>
-          ) : (
-            activeChips.map((c) => (
-              <Chip color="secondary" key={c.key} label={c.label} onDelete={() => removeChip(c.key)} />
-            ))
-          )}
+        <Stack direction="row" spacing={1} sx={{ mb: 2, justifyContent: "space-between", alignItems: "flex-start" }}>
+          <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap" }}>
+            {activeChips.length === 0 ? (
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                No filters applied — showing all TEJs.
+              </Typography>
+            ) : (
+              activeChips.map((c) => (
+                <Chip color="secondary" key={c.key} label={c.label} onDelete={() => removeChip(c.key)} />
+              ))
+            )}
+          </Stack>
+
+          <Tooltip title="Download table">
+            <IconButton
+              size="small"
+              disabled={sorted.length === 0}
+              onClick={(e) => setDownloadAnchor(e.currentTarget)}
+            >
+              <DownloadIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+          <Menu anchorEl={downloadAnchor} open={Boolean(downloadAnchor)} onClose={() => setDownloadAnchor(null)}>
+            <MenuItem onClick={() => { setDownloadAnchor(null); downloadTsv(); }}>TSV</MenuItem>
+            <MenuItem onClick={() => { setDownloadAnchor(null); downloadExcel(); }}>Excel</MenuItem>
+          </Menu>
         </Stack>
 
         {loading ? (
@@ -318,13 +565,69 @@ export default function Tejs() {
                 <TableHead>
                   <TableRow>
                     <TableCell sx={{ fontWeight: 700 }}>Junction</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>Gene</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>Specificity</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>Event Type</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }} align="right">Fold-change ({scopeLabel})</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }} align="right">SNR ({scopeLabel})</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }} align="right">Max mean CPM ({scopeLabel})</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }} align="right">Samples</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>
+                      <TableSortLabel
+                        active={sortKey === "gene_symbol"}
+                        direction={sortKey === "gene_symbol" ? sortDir : "asc"}
+                        onClick={() => handleSort("gene_symbol")}
+                      >
+                        Gene
+                      </TableSortLabel>
+                    </TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>
+                      <TableSortLabel
+                        active={sortKey === "consensus_specificity"}
+                        direction={sortKey === "consensus_specificity" ? sortDir : "asc"}
+                        onClick={() => handleSort("consensus_specificity")}
+                      >
+                        Specificity
+                      </TableSortLabel>
+                    </TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>
+                      <TableSortLabel
+                        active={sortKey === "event_type"}
+                        direction={sortKey === "event_type" ? sortDir : "asc"}
+                        onClick={() => handleSort("event_type")}
+                      >
+                        Event Type
+                      </TableSortLabel>
+                    </TableCell>
+                    <TableCell sx={{ fontWeight: 700 }} align="right">
+                      <TableSortLabel
+                        active={sortKey === "fc"}
+                        direction={sortKey === "fc" ? sortDir : "asc"}
+                        onClick={() => handleSort("fc")}
+                      >
+                        Fold-change ({scopeLabel})
+                      </TableSortLabel>
+                    </TableCell>
+                    <TableCell sx={{ fontWeight: 700 }} align="right">
+                      <TableSortLabel
+                        active={sortKey === "snr"}
+                        direction={sortKey === "snr" ? sortDir : "asc"}
+                        onClick={() => handleSort("snr")}
+                      >
+                        SNR ({scopeLabel})
+                      </TableSortLabel>
+                    </TableCell>
+                    <TableCell sx={{ fontWeight: 700 }} align="right">
+                      <TableSortLabel
+                        active={sortKey === "maxMeanCpm"}
+                        direction={sortKey === "maxMeanCpm" ? sortDir : "asc"}
+                        onClick={() => handleSort("maxMeanCpm")}
+                      >
+                        Max mean CPM ({scopeLabel})
+                      </TableSortLabel>
+                    </TableCell>
+                    <TableCell sx={{ fontWeight: 700 }} align="right">
+                      <TableSortLabel
+                        active={sortKey === "num_samples"}
+                        direction={sortKey === "num_samples" ? sortDir : "asc"}
+                        onClick={() => handleSort("num_samples")}
+                      >
+                        Samples
+                      </TableSortLabel>
+                    </TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
