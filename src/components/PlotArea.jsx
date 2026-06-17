@@ -7,11 +7,43 @@ import {
 import DownloadIcon from "@mui/icons-material/Download";
 import SettingsIcon from "@mui/icons-material/Settings";
 import * as d3 from "d3";
+import { jsPDF } from "jspdf";
+import UTIF from "utif2";
 import { controlCohortColor, histologyColor } from "../histologyColors";
 
-const MARGIN = { top: 20, right: 20, bottom: 180, left: 100 };
+const MARGIN = { top: 20, right: 20, bottom: 160, left: 100 };
 const API_BASE = (import.meta.env.VITE_API_BASE || "/tapestry-api").replace(/\/$/, "");
 const EMPTY_ROWS = [];
+
+// Tab indices, named so reordering the <Tab> elements doesn't require
+// touching every activeTab === N check scattered through this file.
+const TAB_TUMORS = 0;
+const TAB_CONTROLS = 1;
+const TAB_EVO_DEVO = 2;
+const TAB_TUMORS_VS_CONTROLS = 3;
+const TAB_CELL_LINES = 4;
+
+// Deterministic per-sample horizontal jitter for box-plot points, derived
+// from the sample id so it's stable across re-renders (calling Math.random
+// during render violates React's purity rules).
+function jitterFromId(id) {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = (hash * 31 + id.charCodeAt(i)) | 0;
+  }
+  return (Math.abs(hash) % 1000) / 1000 - 0.5;
+}
+
+// Sample groups selected by default when landing on a tab: Tumors vs
+// Controls starts with cell lines hidden; the control-facing tabs start
+// with tumors hidden.
+function defaultGroupsForTab(tabGroups, activeTab) {
+  if (activeTab === TAB_TUMORS_VS_CONTROLS) return tabGroups.filter((g) => !g.isCellLine);
+  if (activeTab === TAB_CONTROLS || activeTab === TAB_CELL_LINES || activeTab === TAB_EVO_DEVO) {
+    return tabGroups.filter((g) => !g.isTumor);
+  }
+  return tabGroups;
+}
 
 const EVODEVO_TIMEPOINTS = [
   "4 Week Post Conception", "5 Week Post Conception", "6 Week Post Conception",
@@ -160,7 +192,7 @@ function facetName(g) {
 
 // Renders the per-histology box plot into `svg`, sized to `width` x `height`.
 // Shared by the on-screen chart and off-screen export rendering.
-function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightIds, textColor = "#333", onHover, onMove, onLeave }) {
+function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightIds, enrichedIds = highlightIds, textColor = "#333", onHover, onMove, onLeave }) {
   svg.selectAll("*").remove();
 
   const iW = width - MARGIN.left - MARGIN.right;
@@ -290,6 +322,7 @@ function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightId
     const sorted = [...values].sort((a, b) => highlightIds.has(a.id) - highlightIds.has(b.id));
     sorted.forEach((d) => {
       const highlighted = highlightIds.has(d.id);
+      const enriched = enrichedIds.has(d.id);
       root.append("circle")
         .attr("cx", cx + d.jitter * bw * 0.65)
         .attr("cy", y(xform(d)))
@@ -300,7 +333,7 @@ function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightId
         .attr("stroke-width", highlighted ? 1.5 : 0.5)
         .style("cursor", "pointer")
         .on("mouseover", (e) =>
-          onHover(e, `<strong>${d.id}</strong><br/>${label}<br/>${axisLabel}: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}${highlighted ? "<br/><em>tumor enriched</em>" : ""}`)
+          onHover(e, `<strong>${d.id}</strong><br/>${label}<br/>${axisLabel}: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}${enriched ? "<br/><em>tumor enriched</em>" : ""}`)
         )
         .on("mousemove", onMove)
         .on("mouseout", onLeave);
@@ -432,7 +465,7 @@ function drawEvoDevoPlot(svg, { width, height, evodevoPoints, log2Scale, textCol
 
 // Renders tumor box plots on the left and the evo-devo line plot on the right
 // as two adjacent facets sharing a continuous y-scale and grid lines.
-function drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleGroups, log2Scale, highlightIds, textColor = "#333", onHover, onMove, onLeave }) {
+function drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleGroups, log2Scale, highlightIds, enrichedIds = highlightIds, textColor = "#333", onHover, onMove, onLeave }) {
   svg.selectAll("*").remove();
 
   const presentTimepoints = EVODEVO_TIMEPOINTS.filter((t) =>
@@ -537,6 +570,7 @@ function drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleG
     const sorted = [...values].sort((a, b) => highlightIds.has(a.id) - highlightIds.has(b.id));
     sorted.forEach((d) => {
       const highlighted = highlightIds.has(d.id);
+      const enriched = enrichedIds.has(d.id);
       root.append("circle")
         .attr("cx", cx + d.jitter * bw * 0.65).attr("cy", y(xform(d)))
         .attr("r", highlighted ? 5 : 3).attr("fill", color)
@@ -544,7 +578,7 @@ function drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleG
         .attr("stroke", textColor).attr("stroke-width", highlighted ? 1.5 : 0.5)
         .style("cursor", "pointer")
         .on("mouseover", (e) =>
-          onHover(e, `<strong>${d.id}</strong><br/>${label}<br/>${axisLabel}: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}${highlighted ? "<br/><em>tumor enriched</em>" : ""}`)
+          onHover(e, `<strong>${d.id}</strong><br/>${label}<br/>${axisLabel}: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}${enriched ? "<br/><em>tumor enriched</em>" : ""}`)
         )
         .on("mousemove", onMove).on("mouseout", onLeave);
     });
@@ -636,7 +670,7 @@ function buildExportSvg({ width, height, activeTab, visibleGroups, evodevoPoints
   svgEl.setAttribute("width", width);
   svgEl.setAttribute("height", height);
   const svg = d3.select(svgEl);
-  if (activeTab === 3) {
+  if (activeTab === TAB_EVO_DEVO) {
     if (visibleGroups.length > 0) {
       drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleGroups, log2Scale, highlightIds, ...NO_TOOLTIP });
     } else {
@@ -686,7 +720,12 @@ export default function PlotArea({
   }, []);
 
   useEffect(() => {
-    if (!junction) { setFetchedRows([]); return; }
+    if (!junction) return;
+    // Kicking off loading/error state for an in-flight fetch — the canonical
+    // "fetch data in an effect" pattern from React's own docs. There's no
+    // render-derivable substitute for "a request is currently in flight",
+    // so this rule is intentionally not satisfiable here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     setFetchError(null);
     fetch(`${API_BASE}/junction-cpm/?junction=${encodeURIComponent(junction)}`)
@@ -697,19 +736,22 @@ export default function PlotArea({
   }, [junction]);
 
   const groups = useMemo(() => {
-    const src = fetchedRows.length ? fetchedRows : rows;
-    const pts = src.map((r, i) => ({
-      id: r.biospecimen_id ?? `S${i}`,
-      cpm: Number(r.cpm),
-      log2CpmCorrected: r.log2_cpm_corrected ?? null,
-      histology: collapseControlGroup(r.plot_group ?? "Unknown"),
-      cancerGroup: r.cancer_group ?? null,
-      cohort: r.cohort ?? null,
-      isCellLine: r.composition === "Derived Cell Line",
-      isIndependentPrimary: r.is_independent_primary,
-      rnaLibrary: r.rna_library ?? null,
-      jitter: Math.random() - 0.5,
-    }));
+    const src = junction ? fetchedRows : rows;
+    const pts = src.map((r, i) => {
+      const id = r.biospecimen_id ?? `S${i}`;
+      return {
+        id,
+        cpm: Number(r.cpm),
+        log2CpmCorrected: r.log2_cpm_corrected ?? null,
+        histology: collapseControlGroup(r.plot_group ?? "Unknown"),
+        cancerGroup: r.cancer_group ?? null,
+        cohort: r.cohort ?? null,
+        isCellLine: r.composition === "Derived Cell Line",
+        isIndependentPrimary: r.is_independent_primary,
+        rnaLibrary: r.rna_library ?? null,
+        jitter: jitterFromId(id),
+      };
+    });
 
     // Tumor samples are restricted to independent primaries; cell lines and
     // controls (is_independent_primary === null) are unaffected by this filter.
@@ -754,10 +796,10 @@ export default function PlotArea({
       if (sortMode === "desc") return b.stats.median - a.stats.median;
       return a.label.localeCompare(b.label);
     });
-  }, [fetchedRows, rows, sortMode]);
+  }, [junction, fetchedRows, rows, sortMode]);
 
   const evodevoPoints = useMemo(() => {
-    const src = fetchedRows.length ? fetchedRows : rows;
+    const src = junction ? fetchedRows : rows;
     return src
       .filter((r) => r.cohort === "Evo-devo")
       .map((r, i) => {
@@ -773,7 +815,7 @@ export default function PlotArea({
         };
       })
       .filter((d) => d.region === "Forebrain" || d.region === "Hindbrain");
-  }, [fetchedRows, rows]);
+  }, [junction, fetchedRows, rows]);
 
   const presentTimepoints = useMemo(
     () => EVODEVO_TIMEPOINTS.filter((tp) => evodevoPoints.some((d) => d.timepoint === tp)),
@@ -786,20 +828,21 @@ export default function PlotArea({
   );
 
   const tabGroups = useMemo(() => {
-    if (activeTab === 0) return groups.filter((g) => g.isTumor);
-    if (activeTab === 1) return groups.filter((g) => g.isControl || g.isTumor);
-    if (activeTab === 2) return groups.filter((g) => g.isCellLine || g.isTumor);
-    if (activeTab === 3) return groups.filter((g) => g.isTumor);
+    if (activeTab === TAB_TUMORS) return groups.filter((g) => g.isTumor);
+    if (activeTab === TAB_CONTROLS) return groups.filter((g) => g.isControl || g.isTumor);
+    if (activeTab === TAB_CELL_LINES) return groups.filter((g) => g.isCellLine || g.isTumor);
+    if (activeTab === TAB_EVO_DEVO) return groups.filter((g) => g.isTumor);
     return groups;
   }, [groups, activeTab]);
 
-  useEffect(() => {
-    // Tumors vs Controls: cell lines default off. Controls/Cell Lines/Evo-devo tabs: tumors default off.
-    let defaultGroups = tabGroups;
-    if (activeTab === 4) defaultGroups = tabGroups.filter((g) => !g.isCellLine);
-    else if (activeTab === 1 || activeTab === 2 || activeTab === 3) defaultGroups = tabGroups.filter((g) => !g.isTumor);
-    setSelectedGroups(new Set(defaultGroups.map((g) => g.key)));
-  }, [tabGroups, activeTab]);
+  // Reset the sample selection to the tab's defaults whenever tabGroups
+  // changes (new tab or new junction data) — adjusted during render rather
+  // than in an effect, per https://react.dev/learn/you-might-not-need-an-effect.
+  const [prevTabGroups, setPrevTabGroups] = useState(tabGroups);
+  if (tabGroups !== prevTabGroups) {
+    setPrevTabGroups(tabGroups);
+    setSelectedGroups(new Set(defaultGroupsForTab(tabGroups, activeTab).map((g) => g.key)));
+  }
 
   const visibleGroups = useMemo(
     () => tabGroups.filter((g) => selectedGroups.has(g.key)),
@@ -809,29 +852,30 @@ export default function PlotArea({
   const activeHighlightIds = showHighlight ? highlightIds : EMPTY_SET;
 
   useEffect(() => {
-    if (!svgRef.current || activeTab === 3) return;
+    if (!svgRef.current || activeTab === TAB_EVO_DEVO) return;
     drawBoxPlot(d3.select(svgRef.current), {
       width: containerWidth,
       height,
       visibleGroups,
       log2Scale,
       highlightIds: activeHighlightIds,
+      enrichedIds: highlightIds,
       textColor: theme.palette.text.primary,
       onHover: (e, html) => setTooltip({ visible: true, x: e.clientX + 14, y: e.clientY - 32, html }),
       onMove: (e) => setTooltip((prev) => ({ ...prev, x: e.clientX + 14, y: e.clientY - 32 })),
       onLeave: () => setTooltip((prev) => ({ ...prev, visible: false })),
     });
-  }, [visibleGroups, containerWidth, height, activeTab, activeHighlightIds, log2Scale, theme.palette.text.primary]);
+  }, [visibleGroups, containerWidth, height, activeTab, activeHighlightIds, highlightIds, log2Scale, theme.palette.text.primary]);
 
   useEffect(() => {
-    if (!svgRef.current || activeTab !== 3) return;
+    if (!svgRef.current || activeTab !== TAB_EVO_DEVO) return;
     const onHover = (e, html) => setTooltip({ visible: true, x: e.clientX + 14, y: e.clientY - 32, html });
     const onMove = (e) => setTooltip((prev) => ({ ...prev, x: e.clientX + 14, y: e.clientY - 32 }));
     const onLeave = () => setTooltip((prev) => ({ ...prev, visible: false }));
     if (visibleGroups.length > 0) {
       drawEvoDevoWithTumorsPlot(d3.select(svgRef.current), {
         width: containerWidth, height, evodevoPoints: filteredEvodevoPoints,
-        visibleGroups, log2Scale, highlightIds: activeHighlightIds,
+        visibleGroups, log2Scale, highlightIds: activeHighlightIds, enrichedIds: highlightIds,
         textColor: theme.palette.text.primary, onHover, onMove, onLeave,
       });
     } else {
@@ -841,7 +885,7 @@ export default function PlotArea({
       });
     }
   }, [filteredEvodevoPoints, activeTab, containerWidth, height, log2Scale, theme.palette.text.primary,
-      visibleGroups, activeHighlightIds]);
+      visibleGroups, activeHighlightIds, highlightIds]);
 
   function exportFilename(ext) {
     return `junction-cpm${junction ? `-${junction}` : ""}.${ext}`;
@@ -860,7 +904,6 @@ export default function PlotArea({
   }
 
   async function downloadAsPdf() {
-    const { jsPDF } = await import("jspdf");
     const { clone, svgWidth, svgHeight } = cloneSvgWithBackground(buildExportSvgEl(), title);
     const canvas = await svgToCanvas(clone, svgWidth, svgHeight, EXPORT_SCALE);
 
@@ -881,8 +924,6 @@ export default function PlotArea({
   }
 
   async function downloadAsTiff() {
-    const UTIFModule = await import("utif2");
-    const UTIF = UTIFModule.default ?? UTIFModule;
     const { clone, svgWidth, svgHeight } = cloneSvgWithBackground(buildExportSvgEl(), title);
     const canvas = await svgToCanvas(clone, svgWidth, svgHeight, EXPORT_SCALE);
     const ctx = canvas.getContext("2d");
@@ -898,6 +939,32 @@ export default function PlotArea({
     const svgStr = new XMLSerializer().serializeToString(clone);
     const url = URL.createObjectURL(new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" }));
     triggerDownload(url, exportFilename("svg"));
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+
+  function downloadAsTsv() {
+    const columns = [
+      ["biospecimen_id", (r) => r.biospecimen_id],
+      ["patient_id", (r) => r.patient_id],
+      ["junction", (r) => r.junction],
+      ["gene_symbol", () => gene],
+      ["plot_group", (r) => r.plot_group],
+      ["cancer_group", (r) => r.cancer_group],
+      ["cohort", (r) => r.cohort],
+      ["composition", (r) => r.composition],
+      ["rna_library", (r) => r.rna_library],
+      ["is_independent_primary", (r) => r.is_independent_primary],
+      ["cpm", (r) => r.cpm],
+      ["log2_cpm_corrected", (r) => r.log2_cpm_corrected],
+      ["tumor_enriched", (r) => highlightIds.has(r.biospecimen_id)],
+    ];
+    const escape = (v) => (v === null || v === undefined ? "" : String(v).replace(/[\t\n\r]/g, " "));
+    const lines = [
+      columns.map(([name]) => name).join("\t"),
+      ...fetchedRows.map((r) => columns.map(([, get]) => escape(get(r))).join("\t")),
+    ];
+    const url = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/tab-separated-values;charset=utf-8" }));
+    triggerDownload(url, exportFilename("tsv"));
     setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 
@@ -999,6 +1066,10 @@ export default function PlotArea({
             <MenuItem onClick={() => { setExportAnchor(null); downloadAsPdf(); }}>PDF (300 DPI)</MenuItem>
             <MenuItem onClick={() => { setExportAnchor(null); downloadAsTiff(); }}>TIFF (300 DPI)</MenuItem>
             <MenuItem onClick={() => { setExportAnchor(null); downloadAsSvg(); }}>SVG</MenuItem>
+            <Divider />
+            <MenuItem disabled={fetchedRows.length === 0} onClick={() => { setExportAnchor(null); downloadAsTsv(); }}>
+              TSV (plot data)
+            </MenuItem>
           </Menu>
         </Stack>
       </Box>
@@ -1010,9 +1081,9 @@ export default function PlotArea({
       >
         <Tab label="Primary Tumors" />
         <Tab label="Controls" />
-        <Tab label="Cell Lines" />
         <Tab label="Evo-Devo" />
         <Tab label="Tumors vs Controls" />
+        <Tab label="Cell Lines" />
       </Tabs>
 
       <Popover
@@ -1156,7 +1227,7 @@ export default function PlotArea({
             </Box>
           ))}
 
-          {activeTab === 3 && (
+          {activeTab === TAB_EVO_DEVO && (
             <>
               {groupSections.length > 0 && <Divider sx={{ my: 1 }} />}
               <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
