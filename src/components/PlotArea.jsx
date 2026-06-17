@@ -7,6 +7,8 @@ import {
 import DownloadIcon from "@mui/icons-material/Download";
 import SettingsIcon from "@mui/icons-material/Settings";
 import * as d3 from "d3";
+import { jsPDF } from "jspdf";
+import UTIF from "utif2";
 import { controlCohortColor, histologyColor } from "../histologyColors";
 
 const MARGIN = { top: 20, right: 20, bottom: 180, left: 100 };
@@ -860,7 +862,6 @@ export default function PlotArea({
   }
 
   async function downloadAsPdf() {
-    const { jsPDF } = await import("jspdf");
     const { clone, svgWidth, svgHeight } = cloneSvgWithBackground(buildExportSvgEl(), title);
     const canvas = await svgToCanvas(clone, svgWidth, svgHeight, EXPORT_SCALE);
 
@@ -881,8 +882,6 @@ export default function PlotArea({
   }
 
   async function downloadAsTiff() {
-    const UTIFModule = await import("utif2");
-    const UTIF = UTIFModule.default ?? UTIFModule;
     const { clone, svgWidth, svgHeight } = cloneSvgWithBackground(buildExportSvgEl(), title);
     const canvas = await svgToCanvas(clone, svgWidth, svgHeight, EXPORT_SCALE);
     const ctx = canvas.getContext("2d");
