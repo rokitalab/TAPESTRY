@@ -391,183 +391,193 @@ export default function Explore() {
     <>
       <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "280px 1fr" }, gap: 3 }}>
         {/* Filters */}
-        <Paper variant="outlined" sx={{ p: 3, borderRadius: 2, height: "fit-content" }}>
-          <Stack spacing={1}>
-            <Box>
-              <Typography variant="h5" sx={{ fontWeight: 800 }}>
-                Explore
-              </Typography>
-            </Box>
+        <Stack spacing={3}>
+          <Paper variant="outlined" sx={{ p: 3, borderRadius: 2, height: "fit-content" }}>
+            <Stack spacing={1}>
+              <Box>
+                <Typography variant="h5" sx={{ fontWeight: 800 }}>
+                  Explore
+                </Typography>
+              </Box>
 
-            <Divider />
+              <Divider />
 
-            <FormControl fullWidth size="small">
-              <InputLabel id="histology-label">Histology</InputLabel>
-              <Select
-                labelId="histology-label"
-                label="Histology"
-                value={histology}
-                onChange={(e) => setHistology(e.target.value)}
+              <FormControl fullWidth size="small">
+                <InputLabel id="histology-label">Histology</InputLabel>
+                <Select
+                  labelId="histology-label"
+                  label="Histology"
+                  value={histology}
+                  onChange={(e) => setHistology(e.target.value)}
+                >
+                  <MenuItem value="">All histologies</MenuItem>
+                  {HISTOLOGIES.map((h) => (
+                    <MenuItem key={h} value={h}>{h}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              <TextField
+                label="Gene"
+                placeholder='e.g. "NRCAM"'
+                value={geneFilter}
+                size="small"
+                onChange={(e) => setGeneFilter(e.target.value)}
+                fullWidth
+              />
+
+              <FormControl fullWidth size="small">
+                <InputLabel id="status-label">Junction status</InputLabel>
+                <Select
+                  labelId="status-label"
+                  label="Junction status"
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                >
+                  <MenuItem value="">All statuses</MenuItem>
+                  {statusOptions.map((s) => (
+                    <MenuItem key={s} value={s}>{s}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              <FormControl fullWidth size="small">
+                <InputLabel id="event-type-label">Event type</InputLabel>
+                <Select
+                  labelId="event-type-label"
+                  label="Event type"
+                  value={eventTypeFilter}
+                  onChange={(e) => setEventTypeFilter(e.target.value)}
+                >
+                  <MenuItem value="">All event types</MenuItem>
+                  {eventTypeOptions.map((e) => (
+                    <MenuItem key={e} value={e}>{e}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              <FormControl fullWidth size="small">
+                <InputLabel id="specificity-label">Specificity</InputLabel>
+                <Select
+                  labelId="specificity-label"
+                  label="Specificity"
+                  value={specificityFilter}
+                  onChange={(e) => setSpecificityFilter(e.target.value)}
+                >
+                  <MenuItem value="">All specificities</MenuItem>
+                  {specificityOptions.map((s) => (
+                    <MenuItem key={s} value={s}>{s}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Stack>
+          </Paper>
+
+          <Paper variant="outlined" sx={{ p: 3, borderRadius: 2, height: "fit-content" }}>
+            <Stack spacing={1}>
+              <Box>
+                <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                  Reference filter
+                </Typography>
+              </Box>
+
+              <Divider />
+
+              <Box>
+                <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                  Reference cohorts
+                </Typography>
+                <ToggleButtonGroup
+                  value={cohortScope}
+                  exclusive
+                  onChange={(_, v) => v && setCohortScope(v)}
+                  size="small"
+                  fullWidth
+                >
+                  <ToggleButton value="all">All</ToggleButton>
+                  <ToggleButton value="postnatal">Postnatal</ToggleButton>
+                </ToggleButtonGroup>
+              </Box>
+
+              <Box>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                  Min CPM fold-change ≥ {fmtNum(fcMin)}
+                </Typography>
+                <Slider
+                  value={fcMin}
+                  onChange={(_, v) => setFcMin(v)}
+                  min={FC_BOUNDS[0]}
+                  max={FC_BOUNDS[1]}
+                  step={0.5}
+                  marks={[{ value: 5 }]}
+                  valueLabelDisplay="auto"
+                  size="small"
+                />
+              </Box>
+
+              <Box>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                  Min CPM signal-to-noise ratio ≥ {fmtNum(snrMin)}
+                </Typography>
+                <Slider
+                  value={snrMin}
+                  onChange={(_, v) => setSnrMin(v)}
+                  min={SNR_BOUNDS[0]}
+                  max={SNR_BOUNDS[1]}
+                  step={0.5}
+                  marks={[{ value: 5 }]}
+                  valueLabelDisplay="auto"
+                  size="small"
+                />
+              </Box>
+
+              <Box>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                  Max mean CPM ≤ {fmtNum(maxMeanCpmMax)}
+                </Typography>
+                <Slider
+                  value={maxMeanCpmMax}
+                  onChange={(_, v) => setMaxMeanCpmMax(v)}
+                  min={MAX_MEAN_CPM_BOUNDS[0]}
+                  max={MAX_MEAN_CPM_BOUNDS[1]}
+                  step={0.1}
+                  marks={[{ value: 10 }]}
+                  valueLabelDisplay="auto"
+                  size="small"
+                />
+              </Box>
+
+              <Divider />
+
+              <Button
+                variant="text"
+                onClick={() => {
+                  setHistology("");
+                  setGeneFilter("");
+                  setStatusFilter("");
+                  setEventTypeFilter("");
+                  setSpecificityFilter("");
+                  setCohortScope("all");
+                  setFcMin(FC_BOUNDS[0]);
+                  setSnrMin(SNR_BOUNDS[0]);
+                  setMaxMeanCpmMax(MAX_MEAN_CPM_BOUNDS[1]);
+                }}
+                disabled={
+                  !histology &&
+                  !geneFilter.trim() &&
+                  !statusFilter &&
+                  !eventTypeFilter &&
+                  !specificityFilter &&
+                  !isMinActive(fcMin, FC_BOUNDS) &&
+                  !isMinActive(snrMin, SNR_BOUNDS) &&
+                  !isMaxActive(maxMeanCpmMax, MAX_MEAN_CPM_BOUNDS)
+                }
               >
-                <MenuItem value="">All histologies</MenuItem>
-                {HISTOLOGIES.map((h) => (
-                  <MenuItem key={h} value={h}>{h}</MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-
-            <TextField
-              label="Gene"
-              placeholder='e.g. "NRCAM"'
-              value={geneFilter}
-              size="small"
-              onChange={(e) => setGeneFilter(e.target.value)}
-              fullWidth
-            />
-
-            <FormControl fullWidth size="small">
-              <InputLabel id="status-label">Junction status</InputLabel>
-              <Select
-                labelId="status-label"
-                label="Junction status"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-              >
-                <MenuItem value="">All statuses</MenuItem>
-                {statusOptions.map((s) => (
-                  <MenuItem key={s} value={s}>{s}</MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-
-            <FormControl fullWidth size="small">
-              <InputLabel id="event-type-label">Event type</InputLabel>
-              <Select
-                labelId="event-type-label"
-                label="Event type"
-                value={eventTypeFilter}
-                onChange={(e) => setEventTypeFilter(e.target.value)}
-              >
-                <MenuItem value="">All event types</MenuItem>
-                {eventTypeOptions.map((e) => (
-                  <MenuItem key={e} value={e}>{e}</MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-
-            <FormControl fullWidth size="small">
-              <InputLabel id="specificity-label">Specificity</InputLabel>
-              <Select
-                labelId="specificity-label"
-                label="Specificity"
-                value={specificityFilter}
-                onChange={(e) => setSpecificityFilter(e.target.value)}
-              >
-                <MenuItem value="">All specificities</MenuItem>
-                {specificityOptions.map((s) => (
-                  <MenuItem key={s} value={s}>{s}</MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-
-            <Divider />
-
-            <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
-              <Stack spacing={1}>
-                <Box>
-                  <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
-                    Reference cohorts
-                  </Typography>
-                  <ToggleButtonGroup
-                    value={cohortScope}
-                    exclusive
-                    onChange={(_, v) => v && setCohortScope(v)}
-                    size="small"
-                    fullWidth
-                  >
-                    <ToggleButton value="all">All</ToggleButton>
-                    <ToggleButton value="postnatal">Postnatal</ToggleButton>
-                  </ToggleButtonGroup>
-                </Box>
-
-                <Box>
-                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                    Min CPM fold-change ≥ {fmtNum(fcMin)}
-                  </Typography>
-                  <Slider
-                    value={fcMin}
-                    onChange={(_, v) => setFcMin(v)}
-                    min={FC_BOUNDS[0]}
-                    max={FC_BOUNDS[1]}
-                    step={0.5}
-                    marks={[{ value: 5 }]}
-                    valueLabelDisplay="auto"
-                    size="small"
-                  />
-                </Box>
-
-                <Box>
-                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                    Min CPM signal-to-noise ratio ≥ {fmtNum(snrMin)}
-                  </Typography>
-                  <Slider
-                    value={snrMin}
-                    onChange={(_, v) => setSnrMin(v)}
-                    min={SNR_BOUNDS[0]}
-                    max={SNR_BOUNDS[1]}
-                    step={0.5}
-                    marks={[{ value: 5 }]}
-                    valueLabelDisplay="auto"
-                    size="small"
-                  />
-                </Box>
-
-                <Box>
-                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                    Max mean CPM ≤ {fmtNum(maxMeanCpmMax)}
-                  </Typography>
-                  <Slider
-                    value={maxMeanCpmMax}
-                    onChange={(_, v) => setMaxMeanCpmMax(v)}
-                    min={MAX_MEAN_CPM_BOUNDS[0]}
-                    max={MAX_MEAN_CPM_BOUNDS[1]}
-                    step={0.1}
-                    marks={[{ value: 10 }]}
-                    valueLabelDisplay="auto"
-                    size="small"
-                  />
-                </Box>
-              </Stack>
-            </Paper>
-
-            <Button
-              variant="text"
-              onClick={() => {
-                setHistology("");
-                setGeneFilter("");
-                setStatusFilter("");
-                setEventTypeFilter("");
-                setSpecificityFilter("");
-                setCohortScope("all");
-                setFcMin(FC_BOUNDS[0]);
-                setSnrMin(SNR_BOUNDS[0]);
-                setMaxMeanCpmMax(MAX_MEAN_CPM_BOUNDS[1]);
-              }}
-              disabled={
-                !histology &&
-                !geneFilter.trim() &&
-                !statusFilter &&
-                !eventTypeFilter &&
-                !specificityFilter &&
-                !isMinActive(fcMin, FC_BOUNDS) &&
-                !isMinActive(snrMin, SNR_BOUNDS) &&
-                !isMaxActive(maxMeanCpmMax, MAX_MEAN_CPM_BOUNDS)
-              }
-            >
-              Clear
-            </Button>
-          </Stack>
-        </Paper>
+                Clear
+              </Button>
+            </Stack>
+          </Paper>
+        </Stack>
 
         {/* Results */}
         <Box>
@@ -639,7 +649,7 @@ export default function Explore() {
                           Event Type
                         </TableSortLabel>
                       </TableCell>
-                      <TableCell sx={{ fontWeight: 700 }} align="right">
+                      <TableCell sx={{ fontWeight: 700, minWidth: 150, whiteSpace: "nowrap" }} align="right">
                         <TableSortLabel
                           active={sortKey === "fc"}
                           direction={sortKey === "fc" ? sortDir : "asc"}
@@ -648,7 +658,7 @@ export default function Explore() {
                           Fold-change ({scopeLabel})
                         </TableSortLabel>
                       </TableCell>
-                      <TableCell sx={{ fontWeight: 700 }} align="right">
+                      <TableCell sx={{ fontWeight: 700, minWidth: 150, whiteSpace: "nowrap" }} align="right">
                         <TableSortLabel
                           active={sortKey === "snr"}
                           direction={sortKey === "snr" ? sortDir : "asc"}
@@ -657,7 +667,7 @@ export default function Explore() {
                           SNR ({scopeLabel})
                         </TableSortLabel>
                       </TableCell>
-                      <TableCell sx={{ fontWeight: 700 }} align="right">
+                      <TableCell sx={{ fontWeight: 700, minWidth: 170, whiteSpace: "nowrap" }} align="right">
                         <TableSortLabel
                           active={sortKey === "maxMeanCpm"}
                           direction={sortKey === "maxMeanCpm" ? sortDir : "asc"}
