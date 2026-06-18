@@ -64,7 +64,7 @@ export default function NavBar({ mode, setMode }) {
           href="/tapestry-api/doc/"
           target="_blank"
           rel="noopener noreferrer"
-          style={linkStyle}
+          style={linkStyle()}
           color="inherit"
           sx={{ opacity: 0.9 }}
         >
