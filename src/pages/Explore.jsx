@@ -31,6 +31,7 @@ import {
   TableSortLabel,
 } from "@mui/material";
 import DownloadIcon from "@mui/icons-material/Download";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import writeXlsxFile from "write-excel-file/universal";
 import { HISTOLOGY_COLORS } from "../histologyColors";
 import PlotArea from "../components/PlotArea";
@@ -391,7 +392,7 @@ export default function Explore() {
     <>
       <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "280px 1fr" }, gap: 3 }}>
         {/* Filters */}
-        <Stack spacing={3}>
+        <Stack spacing={2}>
           <Paper variant="outlined" sx={{ p: 3, borderRadius: 2, height: "fit-content" }}>
             <Stack spacing={1}>
               <Box>
@@ -475,10 +476,37 @@ export default function Explore() {
 
           <Paper variant="outlined" sx={{ p: 3, borderRadius: 2, height: "fit-content" }}>
             <Stack spacing={1}>
-              <Box>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
                 <Typography variant="h6" sx={{ fontWeight: 700 }}>
                   Reference filter
                 </Typography>
+                <Tooltip
+                  title={
+                    <Box sx={{ p: 0.5 }}>
+                      <Typography variant="body2" sx={{ mb: 1 }}>
+                        <strong>Reference cohorts (All vs. Postnatal):</strong> &ldquo;All&rdquo; compares tumor
+                        signal against every control cohort, including fetal/developmental tissue. &ldquo;Postnatal&rdquo;
+                        excludes fetal tissue, comparing only against adult GTEx, postnatal evo-devo timepoints, and
+                        pediatric normal brain.
+                      </Typography>
+                      <Typography variant="body2" sx={{ mb: 1 }}>
+                        <strong>Oncofetal vs. Tumor-specific:</strong> a junction is called <strong>Oncofetal</strong>{" "}
+                        if it shows enrichment against the Postnatal reference but weaker/absent enrichment against
+                        All controls (i.e., it looks fetal-like — present in normal fetal development but not after
+                        birth). It's called <strong>Tumor-specific</strong> only if it shows strong enrichment under
+                        both scopes, meaning no control cohort, fetal or postnatal, expresses it.
+                      </Typography>
+                      <Typography variant="body2">
+                        The rollup is asymmetric: a junction is called Oncofetal if even a single sample carrying it
+                        shows the fetal-like pattern, and Tumor-specific only if every sample independently avoided
+                        it. See the Docs page for full details.
+                      </Typography>
+                    </Box>
+                  }
+                  arrow
+                >
+                  <InfoOutlinedIcon fontSize="small" sx={{ color: "text.secondary", cursor: "help" }} />
+                </Tooltip>
               </Box>
 
               <Divider />
@@ -573,7 +601,7 @@ export default function Explore() {
                   !isMaxActive(maxMeanCpmMax, MAX_MEAN_CPM_BOUNDS)
                 }
               >
-                Clear
+                Clear all filters
               </Button>
             </Stack>
           </Paper>
@@ -649,7 +677,7 @@ export default function Explore() {
                           Event Type
                         </TableSortLabel>
                       </TableCell>
-                      <TableCell sx={{ fontWeight: 700, minWidth: 150, whiteSpace: "nowrap" }} align="right">
+                      <TableCell sx={{ fontWeight: 700, minWidth: 90 }} align="right">
                         <TableSortLabel
                           active={sortKey === "fc"}
                           direction={sortKey === "fc" ? sortDir : "asc"}
@@ -658,7 +686,7 @@ export default function Explore() {
                           Fold-change ({scopeLabel})
                         </TableSortLabel>
                       </TableCell>
-                      <TableCell sx={{ fontWeight: 700, minWidth: 150, whiteSpace: "nowrap" }} align="right">
+                      <TableCell sx={{ fontWeight: 700, minWidth: 90 }} align="right">
                         <TableSortLabel
                           active={sortKey === "snr"}
                           direction={sortKey === "snr" ? sortDir : "asc"}
@@ -667,7 +695,7 @@ export default function Explore() {
                           SNR ({scopeLabel})
                         </TableSortLabel>
                       </TableCell>
-                      <TableCell sx={{ fontWeight: 700, minWidth: 170, whiteSpace: "nowrap" }} align="right">
+                      <TableCell sx={{ fontWeight: 700, minWidth: 100 }} align="right">
                         <TableSortLabel
                           active={sortKey === "maxMeanCpm"}
                           direction={sortKey === "maxMeanCpm" ? sortDir : "asc"}
