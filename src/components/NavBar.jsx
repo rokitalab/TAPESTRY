@@ -3,7 +3,7 @@ import { NavLink } from "react-router-dom";
 import { LightMode, DarkMode } from '@mui/icons-material';
 
 
-const linkStyle = ({ isActive }) => ({
+const linkStyle = () => ({
   textDecoration: "none",
 });
 
@@ -40,15 +40,6 @@ export default function NavBar({ mode, setMode }) {
           sx={{ opacity: 0.9, "&.active": { opacity: 1, fontWeight: 700 } }}
         >
           Explore
-        </Button>
-	<Button
-          component={NavLink}
-          to="/tejs"
-          style={linkStyle}
-          color="inherit"
-          sx={{ opacity: 0.9, "&.active": { opacity: 1, fontWeight: 700 } }}
-        >
-          All
         </Button>
         <Button
           component={NavLink}
