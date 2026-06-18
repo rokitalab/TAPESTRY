@@ -11,6 +11,7 @@ import {
   AccordionDetails,
   List,
   ListItem,
+  Link,
 } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 
@@ -101,7 +102,7 @@ function Walkthrough({ title, goal, steps }) {
 
 export default function Docs() {
   return (
-    <Box sx={{ maxWidth: 900 }}>
+    <Box sx={{ maxWidth: 900, textAlign: "justify" }}>
       <Typography variant="h3" color="primary" sx={{ fontWeight: 800, mb: 1 }}>
         Documentation
       </Typography>
@@ -387,6 +388,117 @@ export default function Docs() {
             "Use Configure Samples to narrow the view to just the cell lines you're considering, and export the plot for inclusion in a validation proposal or grant figure.",
           ]}
         />
+      </Section>
+
+      <Section title="Raw data availability">
+        <Typography sx={{ mb: 2 }}>
+          The underlying sequencing data behind TAPESTRY is deposited across
+          the following studies/projects:
+        </Typography>
+        <List sx={{ listStyleType: "disc", pl: 4, py: 0 }}>
+          <ListItem sx={{ display: "list-item", py: 0.5, pl: 0 }}>
+            <Typography variant="body2">
+              <Link
+                href="https://www.ncbi.nlm.nih.gov/projects/gap/cgi-bin/study.cgi?study_id=phs002517.v5.p3"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                PBTA
+              </Link>{" "}
+              (Pediatric Brain Tumor Atlas tumor cohort)
+            </Typography>
+          </ListItem>
+          <ListItem sx={{ display: "list-item", py: 0.5, pl: 0 }}>
+            <Typography variant="body2">
+              <Link
+                href="https://www.ncbi.nlm.nih.gov/projects/gap/cgi-bin/study.cgi?study_id=phs000424.v11.p2"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                GTEx
+              </Link>{" "}
+              (adult brain control cohort)
+            </Typography>
+          </ListItem>
+          <ListItem sx={{ display: "list-item", py: 0.5, pl: 0 }}>
+            <Typography variant="body2">
+              <Link
+                href="https://www.ebi.ac.uk/biostudies/arrayexpress/studies/E-MTAB-6814"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Evo-devo
+              </Link>{" "}
+              (developmental brain control cohort)
+            </Typography>
+          </ListItem>
+          <ListItem sx={{ display: "list-item", py: 0.5, pl: 0 }}>
+            <Typography variant="body2">
+              <Link
+                href="https://www.ncbi.nlm.nih.gov/bioproject/PRJNA1019377"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Pediatric brain
+              </Link>{" "}
+              (normal pediatric brain control cohort)
+            </Typography>
+          </ListItem>
+          <ListItem sx={{ display: "list-item", py: 0.5, pl: 0 }}>
+            <Typography variant="body2">
+              <Link
+                href="https://www.ncbi.nlm.nih.gov/bioproject/PRJNA297760"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Cell of origin
+              </Link>{" "}
+              (pediatric brain cell types control cohort)
+            </Typography>
+          </ListItem>
+        </List>
+      </Section>
+
+      <Section title="Resources">
+        <List sx={{ listStyleType: "disc", pl: 4, py: 0 }}>
+          <ListItem sx={{ display: "list-item", py: 0.5, pl: 0 }}>
+            <Typography variant="body2">
+              <Link
+                href="/tapestry-api/doc/"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                API documentation
+              </Link>{" "}
+              for programmatic access to TAPESTRY&apos;s data.
+            </Typography>
+          </ListItem>
+          <ListItem sx={{ display: "list-item", py: 0.5, pl: 0 }}>
+            <Typography variant="body2">
+              <Link
+                href="https://github.com/rokitalab/TAPESTRY/"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Source code on GitHub
+              </Link>
+              .
+            </Typography>
+          </ListItem>
+          <ListItem sx={{ display: "list-item", py: 0.5, pl: 0 }}>
+            <Typography variant="body2">
+              Found a bug or have a feature request?{" "}
+              <Link
+                href="https://github.com/rokitalab/TAPESTRY/issues"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Submit an issue
+              </Link>
+              .
+            </Typography>
+          </ListItem>
+        </List>
       </Section>
     </Box>
   );

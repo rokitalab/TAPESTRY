@@ -21,7 +21,7 @@ function Stat({ children }) {
 
 export default function About() {
   return (
-    <Box sx={{ maxWidth: 900 }}>
+    <Box sx={{ maxWidth: 900, textAlign: "justify" }}>
       <Typography variant="h3" color="primary" sx={{ fontWeight: 800, mb: 1 }}>
         About
       </Typography>
@@ -36,7 +36,15 @@ export default function About() {
         <Typography sx={{ mb: 2 }}>
           TAPESTRY is built on RNA-seq from the Kids First Pediatric Brain
           Tumor Atlas (PBTA), with clinical annotations and expression
-          context pulled in through the OpenPedCan harmonization project.
+          context pulled in through the{" "}
+          <Link
+            href="https://github.com/rokitalab/OpenPedCan-Project-CNH"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            OpenPedCan
+          </Link>{" "}
+          harmonization project.
           Splice junctions are called from that RNA-seq with rMATS, then
           compared against several normal-tissue reference cohorts to work
           out which junctions are tumor-enriched and which of those look
@@ -83,8 +91,23 @@ export default function About() {
           The lab studies the genetic and molecular drivers of pediatric
           brain tumors — with a particular focus on how alternative
           splicing generates tumor-specific targets — and builds
-          open-source tools and data resources, including OpenPBTA and
-          OpenPedCan, which TAPESTRY&apos;s own data pipeline draws on, to
+          open-source tools and data resources, including{" "}
+          <Link
+            href="https://www.cell.com/cell-genomics/fulltext/S2666-979X(23)00115-5?_returnURL=https%3A%2F%2Flinkinghub.elsevier.com%2Fretrieve%2Fpii%2FS2666979X23001155%3Fshowall%3Dtrue"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            OpenPBTA
+          </Link>{" "}
+          and{" "}
+          <Link
+            href="https://academic.oup.com/gigascience/article/doi/10.1093/gigascience/giaf093/8245684"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            OpenPedCan
+          </Link>
+          , which TAPESTRY&apos;s own data pipeline draws on, to
           make that work reusable across the field.
         </Typography>
         <Typography sx={{ mb: 2 }}>
@@ -114,6 +137,42 @@ export default function About() {
           </Link>
           .
         </Typography>
+      </Section>
+
+      <Section title="Resources">
+        <List sx={{ listStyleType: "disc", pl: 4, py: 0 }}>
+          <Stat>
+            <Link
+              href="/tapestry-api/doc/"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              API documentation
+            </Link>{" "}
+            for programmatic access to TAPESTRY&apos;s data.
+          </Stat>
+          <Stat>
+            <Link
+              href="https://github.com/rokitalab/TAPESTRY/"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Source code on GitHub
+            </Link>
+            .
+          </Stat>
+          <Stat>
+            Found a bug or have a feature request?{" "}
+            <Link
+              href="https://github.com/rokitalab/TAPESTRY/issues"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Submit an issue
+            </Link>
+            .
+          </Stat>
+        </List>
       </Section>
     </Box>
   );
