@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Box, Grid, Paper, Typography, Stack, useTheme } from "@mui/material";
-import { histologyColor } from "../histologyColors";
+import { useEffect, useMemo, useState } from "react";
+import { Box, Grid, Paper, Typography, Stack } from "@mui/material";
 
 const API_BASE = (import.meta.env.VITE_API_BASE || "/tapestry-api").replace(/\/$/, "");
 
@@ -24,34 +23,40 @@ function StatCard({ label, value }) {
 }
 
 export default function HistologySummary() {
-  const theme = useTheme();
-  const [data, setData] = useState([]);
+  const [histologyData, setHistologyData] = useState([]);
+  const [geneData, setGeneData] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  const fetchJson = (path) =>
+    fetch(`${API_BASE}${path}`).then((r) => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    });
+
   useEffect(() => {
-    fetch(`${API_BASE}/summary-histology-view/`)
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
+    Promise.all([fetchJson("/summary-histology-view/"), fetchJson("/summary-gene-view/")])
+      .then(([histologyRows, geneRows]) => {
+        setHistologyData(histologyRows);
+        setGeneData(geneRows);
       })
-      .then(setData)
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 
-  const sorted = useMemo(
-    () => [...data].sort((a, b) => b.num_junctions - a.num_junctions),
-    [data]
-  );
-
   const totals = useMemo(() => ({
-    histologies: data.length,
-    junctions: data.reduce((s, r) => s + r.num_junctions, 0),
-    genes:      data.reduce((s, r) => s + r.num_genes, 0),
-    samples:    data.reduce((s, r) => s + r.num_samples, 0),
-  }), [data]);
+    histologies: histologyData.length,
+    // A junction can recur across multiple histologies, so summing
+    // num_junctions from the per-histology view double-counts it. Each
+    // junction belongs to exactly one gene, so summing from the per-gene
+    // view instead gives the correct distinct total. Same reasoning for
+    // genes: count distinct genes directly (one row per gene) rather than
+    // summing num_genes per histology.
+    junctions: geneData.reduce((s, r) => s + r.num_junctions, 0),
+    genes: geneData.length,
+    samples: histologyData.reduce((s, r) => s + r.num_samples, 0),
+  }), [histologyData, geneData]);
 
-  if (loading || data.length === 0) return null;
+  if (loading || histologyData.length === 0) return null;
 
   return (
     <Box sx={{ mt: 5 }}>

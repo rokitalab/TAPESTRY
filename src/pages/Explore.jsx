@@ -65,8 +65,12 @@ export default function Explore() {
     () => new URLSearchParams(location.search).get("gene") || "",
     [location.search]
   );
+  const initialHistology = useMemo(
+    () => new URLSearchParams(location.search).get("histology") || "",
+    [location.search]
+  );
 
-  const [histology, setHistology] = useState("");
+  const [histology, setHistology] = useState(initialHistology);
   const [geneFilter, setGeneFilter] = useState(initialGene);
   const [statusFilter, setStatusFilter] = useState("");
   const [eventTypeFilter, setEventTypeFilter] = useState("");
