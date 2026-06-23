@@ -59,6 +59,17 @@ export default function NavBar({ mode, setMode }) {
         >
           About
         </Button>
+        <Button
+          component="a"
+          href="/tapestry-api/doc/"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={linkStyle()}
+          color="inherit"
+          sx={{ opacity: 0.9 }}
+        >
+          API
+        </Button>
         <IconButton
           onClick={() => setMode((prev) => (prev === 'light' ? 'dark' : 'light'))}
           color="inherit"
