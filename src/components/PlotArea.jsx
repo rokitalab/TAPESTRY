@@ -92,12 +92,14 @@ const PX_PER_INCH = 96;
 
 // Extra space (CSS px) reserved at the top of exported images for the plot
 // title, which is normally rendered outside the <svg> as a page heading.
+// The subtitle variant reserves more room for the second (junction id) line.
 const TITLE_HEIGHT = 36;
+const TITLE_HEIGHT_WITH_SUBTITLE = 54;
 
-function cloneSvgWithBackground(svgEl, title) {
+function cloneSvgWithBackground(svgEl, title, subtitle) {
   const svgWidth = Number(svgEl.getAttribute("width"));
   const contentHeight = Number(svgEl.getAttribute("height"));
-  const titleHeight = title ? TITLE_HEIGHT : 0;
+  const titleHeight = title ? (subtitle ? TITLE_HEIGHT_WITH_SUBTITLE : TITLE_HEIGHT) : 0;
   const svgHeight = contentHeight + titleHeight;
 
   const clone = svgEl.cloneNode(true);
@@ -120,7 +122,7 @@ function cloneSvgWithBackground(svgEl, title) {
 
     const titleEl = document.createElementNS("http://www.w3.org/2000/svg", "text");
     titleEl.setAttribute("x", svgWidth / 2);
-    titleEl.setAttribute("y", titleHeight / 2);
+    titleEl.setAttribute("y", subtitle ? titleHeight / 2 - 9 : titleHeight / 2);
     titleEl.setAttribute("text-anchor", "middle");
     titleEl.setAttribute("dominant-baseline", "central");
     titleEl.setAttribute("font-size", 16);
@@ -129,6 +131,19 @@ function cloneSvgWithBackground(svgEl, title) {
     titleEl.setAttribute("fill", "#333");
     titleEl.textContent = title;
     clone.appendChild(titleEl);
+
+    if (subtitle) {
+      const subtitleEl = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      subtitleEl.setAttribute("x", svgWidth / 2);
+      subtitleEl.setAttribute("y", titleHeight / 2 + 11);
+      subtitleEl.setAttribute("text-anchor", "middle");
+      subtitleEl.setAttribute("dominant-baseline", "central");
+      subtitleEl.setAttribute("font-size", 12);
+      subtitleEl.setAttribute("font-family", "monospace");
+      subtitleEl.setAttribute("fill", "#666");
+      subtitleEl.textContent = subtitle;
+      clone.appendChild(subtitleEl);
+    }
   }
 
   return { clone, svgWidth, svgHeight };
@@ -440,7 +455,7 @@ function drawEvoDevoPlot(svg, { width, height, evodevoPoints, log2Scale, textCol
         .attr("cy", y(d.value))
         .attr("r", 5)
         .attr("fill", color)
-        .attr("stroke", "white")
+        .attr("stroke", textColor)
         .attr("stroke-width", 1.5)
         .style("cursor", "pointer")
         .on("mouseover", (e) =>
@@ -639,7 +654,7 @@ function drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleG
     meanPoints.forEach((d) => {
       root.append("circle")
         .attr("cx", xEvo(d.timepoint)).attr("cy", y(d.value)).attr("r", 5)
-        .attr("fill", color).attr("stroke", "white").attr("stroke-width", 1.5)
+        .attr("fill", color).attr("stroke", textColor).attr("stroke-width", 1.5)
         .style("cursor", "pointer")
         .on("mouseover", (e) =>
           onHover(e, `<strong>${region}</strong><br/>${timepointDisplay(d.timepoint)}<br/>Mean: ${d.value.toFixed(3)}`)
@@ -685,14 +700,17 @@ function buildExportSvg({ width, height, activeTab, visibleGroups, evodevoPoints
 export default function PlotArea({
   junction = null,
   gene = null,
+  junctionName = null,
   rows = EMPTY_ROWS,
   height = 460,
   highlightIds = EMPTY_SET,
 }) {
   const theme = useTheme();
-  const title = gene && junction
-    ? `${gene} — ${junction}`
-    : junction ?? "Junction CPM by histology";
+  // The junction name is the headline label; the junction id (genomic
+  // coordinates) is only shown as a subheading when a name is available,
+  // since otherwise it's already the headline and would be redundant.
+  const mainTitle = junctionName ?? junction ?? "Junction CPM by histology";
+  const subTitle = junctionName && junction ? junction : null;
   const svgRef = useRef(null);
   const containerRef = useRef(null);
   const [containerWidth, setContainerWidth] = useState(900);
@@ -905,7 +923,7 @@ export default function PlotArea({
   }
 
   async function downloadAsPdf() {
-    const { clone, svgWidth, svgHeight } = cloneSvgWithBackground(buildExportSvgEl(), title);
+    const { clone, svgWidth, svgHeight } = cloneSvgWithBackground(buildExportSvgEl(), mainTitle, subTitle);
     const canvas = await svgToCanvas(clone, svgWidth, svgHeight, EXPORT_SCALE);
 
     const pdf = new jsPDF({
@@ -919,13 +937,13 @@ export default function PlotArea({
   }
 
   async function downloadAsPng() {
-    const { clone, svgWidth, svgHeight } = cloneSvgWithBackground(buildExportSvgEl(), title);
+    const { clone, svgWidth, svgHeight } = cloneSvgWithBackground(buildExportSvgEl(), mainTitle, subTitle);
     const canvas = await svgToCanvas(clone, svgWidth, svgHeight, EXPORT_SCALE);
     triggerDownload(canvas.toDataURL("image/png"), exportFilename("png"));
   }
 
   async function downloadAsTiff() {
-    const { clone, svgWidth, svgHeight } = cloneSvgWithBackground(buildExportSvgEl(), title);
+    const { clone, svgWidth, svgHeight } = cloneSvgWithBackground(buildExportSvgEl(), mainTitle, subTitle);
     const canvas = await svgToCanvas(clone, svgWidth, svgHeight, EXPORT_SCALE);
     const ctx = canvas.getContext("2d");
     const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -936,7 +954,7 @@ export default function PlotArea({
   }
 
   function downloadAsSvg() {
-    const { clone } = cloneSvgWithBackground(buildExportSvgEl(), title);
+    const { clone } = cloneSvgWithBackground(buildExportSvgEl(), mainTitle, subTitle);
     const svgStr = new XMLSerializer().serializeToString(clone);
     const url = URL.createObjectURL(new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" }));
     triggerDownload(url, exportFilename("svg"));
@@ -986,7 +1004,14 @@ export default function PlotArea({
   return (
     <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, width: "100%" }}>
       <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", mb: 1 }}>
-        <Typography sx={{ fontWeight: 800 }}>{title}</Typography>
+        <Box>
+          <Typography sx={{ fontWeight: 800 }}>{mainTitle}</Typography>
+          {subTitle && (
+            <Typography variant="caption" color="text.secondary" sx={{ fontFamily: "monospace", display: "block" }}>
+              {subTitle}
+            </Typography>
+          )}
+        </Box>
         <Stack direction="row" spacing={1.5} alignItems="center">
           <FormControlLabel
             control={

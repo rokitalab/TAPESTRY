@@ -47,6 +47,10 @@ const FC_BOUNDS = [0, 50];
 const SNR_BOUNDS = [0, 50];
 const MAX_MEAN_CPM_BOUNDS = [0, 10];
 
+// Shrinks the TableSortLabel arrow so it doesn't crowd out header text on
+// the narrower numeric columns.
+const sortLabelSx = { "& .MuiTableSortLabel-icon": { fontSize: "0.85rem" } };
+
 const isMinActive = (v, bounds) => v !== bounds[0];
 const isMaxActive = (v, bounds) => v !== bounds[1];
 const fmtNum = (n) => (Number.isInteger(n) ? n : n.toFixed(1));
@@ -652,6 +656,7 @@ export default function Explore() {
                       <TableCell sx={{ fontWeight: 700 }}>Junction</TableCell>
                       <TableCell sx={{ fontWeight: 700 }}>
                         <TableSortLabel
+                          sx={sortLabelSx}
                           active={sortKey === "gene_symbol"}
                           direction={sortKey === "gene_symbol" ? sortDir : "asc"}
                           onClick={() => handleSort("gene_symbol")}
@@ -661,6 +666,7 @@ export default function Explore() {
                       </TableCell>
                       <TableCell sx={{ fontWeight: 700 }}>
                         <TableSortLabel
+                          sx={sortLabelSx}
                           active={sortKey === "consensus_specificity"}
                           direction={sortKey === "consensus_specificity" ? sortDir : "asc"}
                           onClick={() => handleSort("consensus_specificity")}
@@ -670,6 +676,7 @@ export default function Explore() {
                       </TableCell>
                       <TableCell sx={{ fontWeight: 700 }}>
                         <TableSortLabel
+                          sx={sortLabelSx}
                           active={sortKey === "event_type"}
                           direction={sortKey === "event_type" ? sortDir : "asc"}
                           onClick={() => handleSort("event_type")}
@@ -679,6 +686,7 @@ export default function Explore() {
                       </TableCell>
                       <TableCell sx={{ fontWeight: 700, minWidth: 90 }} align="right">
                         <TableSortLabel
+                          sx={sortLabelSx}
                           active={sortKey === "fc"}
                           direction={sortKey === "fc" ? sortDir : "asc"}
                           onClick={() => handleSort("fc")}
@@ -688,6 +696,7 @@ export default function Explore() {
                       </TableCell>
                       <TableCell sx={{ fontWeight: 700, minWidth: 90 }} align="right">
                         <TableSortLabel
+                          sx={sortLabelSx}
                           active={sortKey === "snr"}
                           direction={sortKey === "snr" ? sortDir : "asc"}
                           onClick={() => handleSort("snr")}
@@ -695,8 +704,9 @@ export default function Explore() {
                           SNR ({scopeLabel})
                         </TableSortLabel>
                       </TableCell>
-                      <TableCell sx={{ fontWeight: 700, minWidth: 100 }} align="right">
+                      <TableCell sx={{ fontWeight: 700, minWidth: 116 }} align="right">
                         <TableSortLabel
+                          sx={sortLabelSx}
                           active={sortKey === "maxMeanCpm"}
                           direction={sortKey === "maxMeanCpm" ? sortDir : "asc"}
                           onClick={() => handleSort("maxMeanCpm")}
@@ -706,6 +716,7 @@ export default function Explore() {
                       </TableCell>
                       <TableCell sx={{ fontWeight: 700 }} align="right">
                         <TableSortLabel
+                          sx={sortLabelSx}
                           active={sortKey === "num_samples"}
                           direction={sortKey === "num_samples" ? sortDir : "asc"}
                           onClick={() => handleSort("num_samples")}
@@ -782,6 +793,7 @@ export default function Explore() {
           <PlotArea
             junction={selectedRow.junction}
             gene={selectedRow.gene_symbol}
+            junctionName={selectedRow.junction_name}
             highlightIds={tumorSampleIds}
           />
         </Box>
