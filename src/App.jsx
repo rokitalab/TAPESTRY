@@ -4,6 +4,7 @@ import NavBar from "./components/NavBar";
 
 import Home from "./pages/Home";
 import Explore from "./pages/Explore";
+import JunctionExpression from "./pages/JunctionExpression";
 import Docs from "./pages/Docs";
 import About from "./pages/About";
 
@@ -15,6 +16,7 @@ export default function App({ mode, setMode }) {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/explore" element={<Explore />} />
+          <Route path="/junction-expression" element={<JunctionExpression />} />
           <Route path="/docs" element={<Docs />} />
           <Route path="/about" element={<About />} />
         </Routes>

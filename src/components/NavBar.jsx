@@ -43,6 +43,15 @@ export default function NavBar({ mode, setMode }) {
         </Button>
         <Button
           component={NavLink}
+          to="/junction-expression"
+          style={linkStyle}
+          color="inherit"
+          sx={{ opacity: 0.9, "&.active": { opacity: 1, fontWeight: 700 } }}
+        >
+          Junction Expression
+        </Button>
+        <Button
+          component={NavLink}
           to="/docs"
           style={linkStyle}
           color="inherit"
