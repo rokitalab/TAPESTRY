@@ -6,8 +6,7 @@ import { HISTOLOGY_COLORS, controlCohortColor } from "../histologyColors";
 import { MIN_TOTAL_READS, selectExpressedJunctionIds } from "./lib/junctionExpressionFilter";
 
 const MARGIN = { top: 10, right: 20, bottom: 140, left: 220 };
-const ROW_HEIGHT = 18;
-const MAX_PLOT_HEIGHT = 600;
+const ROW_HEIGHT = 14;
 
 // Mirrors PlotArea.jsx's evo-devo timepoint progression, so heatmap rows
 // follow the same developmental ordering as the rest of the app.
@@ -445,7 +444,7 @@ export default function JunctionExpressionHeatmap({ gene, data, hoveredJunctionI
           <ToggleButton value="mean">Mean</ToggleButton>
         </ToggleButtonGroup>
       </Stack>
-      <Box ref={containerRef} sx={{ width: "100%", maxHeight: MAX_PLOT_HEIGHT, overflowY: "auto" }}>
+      <Box ref={containerRef} sx={{ width: "100%" }}>
         <svg ref={svgRef} width={containerWidth} height={svgHeight} style={{ display: "block" }} />
       </Box>
       {tooltip.visible && (

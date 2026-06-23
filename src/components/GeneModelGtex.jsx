@@ -6,7 +6,10 @@ import GtexGeneModel from "./lib/GtexGeneModel";
 import { selectExpressedJunctionIds } from "./lib/junctionExpressionFilter";
 
 const SVG_HEIGHT = 200;
-const PADDING = { top: 10, right: 60, bottom: 10, left: 60 };
+// left/right mirror JunctionExpressionHeatmap.jsx's MARGIN so both SVGs'
+// plot areas span the same width, plus another 20px on the left so the
+// gene model sits clear of the heatmap's row labels above it.
+const PADDING = { top: 10, right: 20, bottom: 10, left: 240 };
 
 // GtexGeneModel.js's defaults for junction arcs/dots (see its render()) --
 // duplicated here so hover highlighting can fall back to them.
