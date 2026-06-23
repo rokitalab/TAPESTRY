@@ -116,7 +116,7 @@ export default function Docs() {
       <Section title="What is TAPESTRY?" mt={0}>
         <Typography sx={{ mb: 2 }}>
           <strong>TAPESTRY</strong> (Tumor Alternative PEdiatric Splicing
-          visualizaTion and queRY) is a web application for exploring
+          visualizaTion and queRYing) is a web application for exploring
           alternative splicing events that are turned on specifically in
           pediatric CNS (central nervous system) tumors.
         </Typography>
@@ -174,6 +174,11 @@ export default function Docs() {
           </ListItem>
           <ListItem sx={{ display: "list-item", py: 0.5, pl: 0 }}>
             <Typography variant="body2">
+            To retain only junctions that are tumor-enriched due to __alternative splicing__ (and not just overall increases in gene expression), tumor and normal rMATS data is __re-queried__ to determine whether each junction identified above is part of a tumor-associated differential splicing event. This also allows for annotation of junctions to splice events (e.g., exon skipping or inclusion, alternative splice site usage, etc.)
+            </Typography>
+          </ListItem>
+          <ListItem sx={{ display: "list-item", py: 0.5, pl: 0 }}>
+            <Typography variant="body2">
               Junctions are annotated against the reference genome (annotated
               vs. novel), against protein domains (Pfam/UniProt), and
               filtered down to those recurring across multiple samples within
@@ -220,7 +225,7 @@ export default function Docs() {
             ],
             [
               "Recurrence",
-              "The fraction of samples within a histology that carry a given junction. Used to focus on junctions that are reproducible within a tumor type rather than one-off events.",
+              "The fraction of samples within a histology that exhibit enrichment of a given junction. Used to focus on junctions that are reproducible within a tumor type rather than one-off events.",
             ],
           ]}
         />
@@ -234,7 +239,7 @@ export default function Docs() {
             ],
             [
               "Status: Novel junction",
-              "Neither boundary matches a known exon boundary — an entirely new splice junction.",
+              "The exon-exon junction is not supported by any annotated transcripts (GENCODE v39)",
             ],
             [
               "Status: Novel splice site",
@@ -317,7 +322,7 @@ export default function Docs() {
             [
               <Code>composition</Code>,
               <>
-                Sample type flag; <Code>Derived Cell Line</Code> marks an immortalized cell line rather than a primary patient tumor or normal-tissue sample — relevant to the wet-lab validation walkthrough below.
+                Sample type flag; <Code>Derived Cell Line</Code> marks an immortalized cell line rather than a patient solid tumor or normal-tissue sample — relevant to the wet-lab validation walkthrough below.
               </>,
             ],
             [
@@ -336,7 +341,7 @@ export default function Docs() {
             <>
               From the Home page, use the &ldquo;Search by gene&rdquo; box and enter the gene symbol (e.g. <Code>NRCAM</Code>). This takes you to Explore pre-filtered to that gene.
             </>,
-            "The results table lists every TEJ found in that gene: junction coordinates, specificity (Oncofetal/Tumor-specific), status (Annotated/Novel/Novel splice site), event type, fold-change, SNR, max mean CPM, and number of samples carrying it.",
+            "The results table lists every TEJ found in that gene: junction name, specificity (Oncofetal/Tumor-specific), status (Annotated/Novel/Novel splice site), event type, fold-change, SNR, max mean CPM, and number of samples carrying it.",
             "Sort by fold-change, SNR, or # samples to find the most enriched or most recurrent junction in the gene.",
             "Click a row to load it into the plot panel below: the Primary Tumors tab shows CPM for that junction across every histology, so you can see whether the signal is broad or confined to one tumor type. The exon diagram underneath shows where in the gene's structure the junction sits, and highlights the specific splicing event (e.g., a skipped exon) on the canonical transcript.",
             "Download the filtered table (TSV/Excel) or the plot (PNG/PDF/TIFF/SVG) for further analysis or a figure.",
@@ -348,7 +353,7 @@ export default function Docs() {
           goal="survey all tumor-enriched splicing in a given tumor type to find candidate genes/junctions worth pursuing."
           steps={[
             <>
-              From Home, use &ldquo;Search by histology&rdquo; (e.g. <Code>HGG</Code>, <Code>LGG</Code>, <Code>Medulloblastoma</Code>) — or set the Histology dropdown directly on the Explore page.
+              From Home or the Explore page, set the Histology dropdown to your histology of interest (e.g., <Code>Medulloblastoma</Code>, <Code>Low-grade glioma</Code>.
             </>,
             "The table now lists every TEJ recurrent in that histology. Use the Reference cohorts toggle (All vs. Postnatal) plus the min fold-change, min SNR, and max mean CPM sliders to tighten or loosen what counts as \"enriched.\"",
             "Sort by # samples to prioritize junctions that recur across many patients within the histology (more likely to generalize as a target), or by fold-change/SNR to prioritize the cleanest signal.",
@@ -367,7 +372,7 @@ export default function Docs() {
             <>
               To see why a junction was called one way or the other, toggle Reference cohorts between All and Postnatal: a junction called Oncofetal will show enrichment against the Postnatal reference (low/no signal in postnatal controls) but a weaker or absent fold-change/SNR against All controls, because fetal tissue does express it. A junction called Tumor-specific will show strong enrichment under both scopes — there's no control cohort, fetal or postnatal, where it shows up.
             </>,
-            "Select the junction and open the Evo-devo tab in the plot panel. This is the most direct visual confirmation: an oncofetal junction's CPM trace will be elevated in the earliest (fetal) timepoints and drop to near-zero through postnatal development, while a tumor-specific junction's trace will stay flat/near-zero across all developmental timepoints.",
+            "Select the junction and open the Evo-devo tab in the plot panel. This is the most direct visual confirmation: an oncofetal junction's CPM trace will be elevated in one or more fetal timepoints and drop to near-zero through postnatal development, while a tumor-specific junction's trace will stay flat/near-zero across all developmental timepoints.",
             "The Controls tab (faceted by cohort: GTEx, Evo-devo, Pediatric brain, etc.) gives a side-by-side view across all normal reference cohorts at once, useful for a final sanity check before treating a junction as a clean tumor-specific candidate.",
             <>
               <strong>Interpretation caveat:</strong> <Code>consensus_specificity</Code> is rolled up across every sample carrying the junction, and the rollup favors Oncofetal — a junction is only ever called Tumor-specific if every sample carrying it independently avoided the fetal-like pattern; it's called Oncofetal if even a single sample showed it. So a junction labeled Oncofetal isn't necessarily fetal-like in most of the patients who have it — it just needs one. If you need a junction that's consistently tumor-specific patient-to-patient (e.g., for a therapy where fetal off-target risk in even a subset of patients is unacceptable), don't stop at the table label — open the Primary Tumors tab and check sample-to-sample consistency directly.
