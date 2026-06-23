@@ -4,6 +4,7 @@ import { useTheme } from "@mui/material/styles";
 import * as d3 from "d3";
 import { HISTOLOGY_COLORS, controlCohortColor } from "../histologyColors";
 import { MIN_TOTAL_READS, selectExpressedJunctionIds } from "./lib/junctionExpressionFilter";
+import PlotDownloadMenu from "./PlotDownloadMenu";
 
 const MARGIN = { top: 10, right: 20, bottom: 140, left: 220 };
 const ROW_HEIGHT = 14;
@@ -417,6 +418,31 @@ export default function JunctionExpressionHeatmap({ gene, data, hoveredJunctionI
 
   const svgHeight = plotGroups.length * ROW_HEIGHT + MARGIN.top + MARGIN.bottom;
 
+  // Renders a detached, export-sized copy of the heatmap for PlotDownloadMenu
+  // -- height tracks the row count (see svgHeight above) rather than the
+  // user-chosen export height, since rows have a fixed height.
+  function buildExportSvg({ width }) {
+    const svgEl = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svgEl.setAttribute("width", width);
+    svgEl.setAttribute("height", svgHeight);
+    drawHeatmap(d3.select(svgEl), {
+      width,
+      junctions,
+      plotGroups,
+      groupMeta,
+      valueFor,
+      metric,
+      textColor: theme.palette.text.primary,
+      hoveredJunctionId: null,
+      onHover: () => {},
+      onMove: () => {},
+      onLeave: () => {},
+      onToggleEvoDevo: () => {},
+      onHoverJunction: () => {},
+    });
+    return svgEl;
+  }
+
   useEffect(() => {
     if (!svgRef.current || junctions.length === 0) return;
     drawHeatmap(d3.select(svgRef.current), {
@@ -469,6 +495,12 @@ export default function JunctionExpressionHeatmap({ gene, data, hoveredJunctionI
             <ToggleButton value="median">Median</ToggleButton>
             <ToggleButton value="mean">Mean</ToggleButton>
           </ToggleButtonGroup>
+          <PlotDownloadMenu
+            buildExportSvg={buildExportSvg}
+            title={`Junction Expression of ${gene}`}
+            filename={(ext) => `junction-expression-${gene}.${ext}`}
+            showHeightField={false}
+          />
         </Stack>
       </Stack>
       <Box ref={containerRef} sx={{ width: "100%" }}>
