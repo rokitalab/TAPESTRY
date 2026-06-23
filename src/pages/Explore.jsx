@@ -427,7 +427,7 @@ export default function Explore() {
                 placeholder='e.g. "NRCAM"'
                 value={geneFilter}
                 size="small"
-                onChange={(e) => setGeneFilter(e.target.value)}
+                onChange={(e) => setGeneFilter(e.target.value.toUpperCase())}
                 fullWidth
               />
 

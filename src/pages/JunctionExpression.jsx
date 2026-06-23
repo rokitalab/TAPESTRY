@@ -74,7 +74,7 @@ export default function JunctionExpression() {
           placeholder='e.g. "EGFR"'
           value={geneInput}
           size="small"
-          onChange={(e) => setGeneInput(e.target.value)}
+          onChange={(e) => setGeneInput(e.target.value.toUpperCase())}
           onKeyDown={(e) => { if (e.key === "Enter") submitGene(); }}
           sx={{ maxWidth: 320 }}
         />
