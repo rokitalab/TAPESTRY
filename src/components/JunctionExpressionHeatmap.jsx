@@ -244,12 +244,16 @@ function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, m
     .attr("y", (g) => y(g) + y.bandwidth() / 2)
     .attr("text-anchor", "middle")
     .attr("dominant-baseline", "central")
-    .attr("font-size", 12)
+    .attr("font-size", 16)
     .attr("fill", textColor)
     .style("cursor", "pointer")
     .style("user-select", "none")
-    .text((g) => (groupMeta.get(g).chevron === "expand" ? "▾" : "▴"))
-    .on("click", (e, g) => onToggleEvoDevo(groupMeta.get(g).expandKey));
+    .on("click", (e, g) => onToggleEvoDevo(groupMeta.get(g).expandKey))
+    .each(function (g) {
+      const sel = d3.select(this);
+      sel.text(groupMeta.get(g).chevron === "expand" ? "▾" : "▴");
+      sel.append("title").text("Click to expand/collapse timepoints");
+    });
 
   root.append("g")
     .attr("transform", `translate(0,${innerHeight})`)
