@@ -201,7 +201,7 @@ function parseJunctionId(junctionId) {
 // plot_group names ordered alphabetically (as returned by the API) rather
 // than dendrogram-clustered tissues, so there's no clustering step here.
 // Junctions run along x, plot_groups run along y (rows).
-function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, metric, textColor, hoveredJunctionId, onHover, onMove, onLeave, onToggleEvoDevo, onHoverJunction }) {
+function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, metric, textColor, hoveredJunctionId, onHover, onMove, onLeave, onToggleEvoDevo, onHoverJunction, showEvoDevoToggles = true }) {
   svg.selectAll("*").remove();
 
   const { get: metricValue } = METRICS[metric];
@@ -247,24 +247,28 @@ function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, m
 
   // Expand/collapse chevron for evo-devo rollup rows: "▾" reveals the
   // per-timepoint rows that make up the bucket, "▴" hides them again.
-  root.append("g")
-    .selectAll("text")
-    .data(plotGroups.filter((g) => groupMeta.get(g)?.chevron))
-    .join("text")
-    .attr("x", CHEVRON_X)
-    .attr("y", (g) => y(g) + y.bandwidth() / 2)
-    .attr("text-anchor", "middle")
-    .attr("dominant-baseline", "central")
-    .attr("font-size", 16)
-    .attr("fill", textColor)
-    .style("cursor", "pointer")
-    .style("user-select", "none")
-    .on("click", (e, g) => onToggleEvoDevo(groupMeta.get(g).expandKey))
-    .each(function (g) {
-      const sel = d3.select(this);
-      sel.text(groupMeta.get(g).chevron === "expand" ? "▾" : "▴");
-      sel.append("title").text("Click to expand/collapse timepoints");
-    });
+  // Omitted from the SVG download since the export is static -- a click
+  // toggle has no purpose there.
+  if (showEvoDevoToggles) {
+    root.append("g")
+      .selectAll("text")
+      .data(plotGroups.filter((g) => groupMeta.get(g)?.chevron))
+      .join("text")
+      .attr("x", CHEVRON_X)
+      .attr("y", (g) => y(g) + y.bandwidth() / 2)
+      .attr("text-anchor", "middle")
+      .attr("dominant-baseline", "central")
+      .attr("font-size", 16)
+      .attr("fill", textColor)
+      .style("cursor", "pointer")
+      .style("user-select", "none")
+      .on("click", (e, g) => onToggleEvoDevo(groupMeta.get(g).expandKey))
+      .each(function (g) {
+        const sel = d3.select(this);
+        sel.text(groupMeta.get(g).chevron === "expand" ? "▾" : "▴");
+        sel.append("title").text("Click to expand/collapse timepoints");
+      });
+  }
 
   root.append("g")
     .attr("transform", `translate(0,${innerHeight})`)
@@ -444,6 +448,7 @@ export default function JunctionExpressionHeatmap({
       onLeave: () => {},
       onToggleEvoDevo: () => {},
       onHoverJunction: () => {},
+      showEvoDevoToggles: false,
     });
     const geneModelSvg = geneModelRef?.current?.buildExportSvg?.({ width });
     return geneModelSvg ? stackSvgsVertically([svgEl, geneModelSvg]) : svgEl;

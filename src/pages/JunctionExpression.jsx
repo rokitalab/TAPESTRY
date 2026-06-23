@@ -24,19 +24,22 @@ export default function JunctionExpression() {
   const [hoveredJunctionId, setHoveredJunctionId] = useState(null);
 
   // Shared between the heatmap and the gene model so both SVGs measure off
-  // the same container and always agree on width.
-  const plotContainerRef = useRef(null);
+  // the same container and always agree on width. Tracked as state (rather
+  // than a plain ref read in a mount-only effect) because the Box unmounts
+  // and remounts across the loading/error/gene ternary below -- a ref
+  // wouldn't reattach the observer to the new node.
+  const [plotContainerEl, setPlotContainerEl] = useState(null);
   // Lets the heatmap's download button pull in a matching export of the
   // gene model and stack both on one canvas (see JunctionExpressionHeatmap's
   // buildExportSvg).
   const geneModelRef = useRef(null);
   const [plotWidth, setPlotWidth] = useState(900);
   useEffect(() => {
-    if (!plotContainerRef.current) return;
+    if (!plotContainerEl) return;
     const ro = new ResizeObserver(([entry]) => setPlotWidth(entry.contentRect.width));
-    ro.observe(plotContainerRef.current);
+    ro.observe(plotContainerEl);
     return () => ro.disconnect();
-  }, []);
+  }, [plotContainerEl]);
 
   // Clears stale data when the gene is cleared, mirroring TranscriptVis's
   // geneID-cleared handling: done during render (comparing against the gene
@@ -108,7 +111,7 @@ export default function JunctionExpression() {
       ) : gene ? (
         <>
           <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, width: "100%" }}>
-            <Box ref={plotContainerRef} sx={{ width: "100%" }}>
+            <Box ref={setPlotContainerEl} sx={{ width: "100%" }}>
               <JunctionExpressionHeatmap
                 gene={gene}
                 data={data}
@@ -117,7 +120,6 @@ export default function JunctionExpression() {
                 hoveredJunctionId={hoveredJunctionId}
                 onHoverJunction={setHoveredJunctionId}
               />
-              <Divider sx={{ my: 2 }} />
               <GeneModelGtex
                 ref={geneModelRef}
                 gene={gene}
