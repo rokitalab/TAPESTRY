@@ -2,12 +2,83 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Box, Paper, Stack, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import * as d3 from "d3";
-import { histologyColor } from "../histologyColors";
+import { HISTOLOGY_COLORS, histologyColor, controlCohortColor } from "../histologyColors";
 
 const MARGIN = { top: 10, right: 20, bottom: 140, left: 220 };
 const ROW_HEIGHT = 18;
 const MAX_PLOT_HEIGHT = 600;
 const MIN_TOTAL_READS = 10;
+
+// Mirrors PlotArea.jsx's evo-devo timepoint progression, so heatmap rows
+// follow the same developmental ordering as the rest of the app.
+const EVODEVO_TIMEPOINTS = [
+  "4 Week Post Conception", "5 Week Post Conception", "6 Week Post Conception",
+  "7 Week Post Conception", "8 Week Post Conception", "9 Week Post Conception",
+  "10 Week Post Conception", "11 Week Post Conception", "12 Week Post Conception",
+  "13 Week Post Conception", "16 Week Post Conception", "18 Week Post Conception",
+  "19 Week Post Conception",
+  "Neonate", "Infant", "Toddler", "School Age Child", "Adolescent", "Young Adult",
+];
+
+// Mirrors PlotArea.jsx's control-cohort facet order, minus Primary Tumors and
+// Evo-devo, which are ordered separately in classifyGroup below.
+const CONTROL_FACET_ORDER = ["Cell of Origin", "Pediatric Brain", "GTEx <40"];
+
+// Maps a control facet's display name (the parenthetical suffix on
+// tissueSiteDetailId, e.g. "Amygdala (GTEx <40)") back to the cohort name
+// controlCohortColor expects.
+const FACET_TO_COHORT = {
+  "Cell of Origin": "Pediatric brain cell type",
+  "Pediatric Brain": "Pediatric brain",
+  "GTEx <40": "GTEx",
+};
+
+// Classifies a tissueSiteDetailId into the same tumor / evo-devo / control
+// ordering PlotArea.jsx uses for its groups, working off the string alone
+// since the heatmap API has no separate cohort field. Evo-devo's broad
+// (Prenatal)/(Postnatal) rollups are dropped (return null) -- the
+// per-timepoint rows already cover that ground.
+function classifyGroup(id) {
+  if (id in HISTOLOGY_COLORS) {
+    return { rank: 0, sortA: 0, sortB: 0, label: id, swatchColor: null };
+  }
+
+  const evoMatch = id.match(/^(Forebrain|Hindbrain)-(.+)$/);
+  if (evoMatch) {
+    const [, region, timepoint] = evoMatch;
+    const tIdx = EVODEVO_TIMEPOINTS.indexOf(timepoint);
+    return {
+      rank: 1,
+      sortA: tIdx === -1 ? EVODEVO_TIMEPOINTS.length : tIdx,
+      sortB: region === "Forebrain" ? 0 : 1,
+      label: id,
+      swatchColor: null,
+    };
+  }
+
+  const facetMatch = id.match(/^(.*)\s\(([^()]+)\)$/);
+  if (facetMatch) {
+    const [, label, facet] = facetMatch;
+    if (facet === "Evo-devo") return null;
+    const facetIdx = CONTROL_FACET_ORDER.indexOf(facet);
+    return {
+      rank: 2,
+      sortA: facetIdx === -1 ? CONTROL_FACET_ORDER.length : facetIdx,
+      sortB: 0,
+      label,
+      swatchColor: controlCohortColor(FACET_TO_COHORT[facet]),
+    };
+  }
+
+  return { rank: 3, sortA: 0, sortB: 0, label: id, swatchColor: null };
+}
+
+// Row labels sit flush against the left edge of the SVG; the color swatch
+// (replacing the "(facet)" suffix for control rows) sits flush against the
+// plot's left edge.
+const LABEL_X = -MARGIN.left + 8;
+const SWATCH_SIZE = 10;
+const SWATCH_X = -(SWATCH_SIZE + 10);
 
 // Metrics available for cell coloring/tooltip emphasis, keyed the same as
 // the toggle value. `get` reads the field off a gene_junction_summary row
@@ -31,7 +102,7 @@ function parseJunctionId(junctionId) {
 // plot_group names ordered alphabetically (as returned by the API) rather
 // than dendrogram-clustered tissues, so there's no clustering step here.
 // Junctions run along x, plot_groups run along y (rows).
-function drawHeatmap(svg, { width, junctions, plotGroups, valueFor, metric, textColor, onHover, onMove, onLeave }) {
+function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, metric, textColor, onHover, onMove, onLeave }) {
   svg.selectAll("*").remove();
 
   const { get: metricValue } = METRICS[metric];
@@ -53,13 +124,26 @@ function drawHeatmap(svg, { width, junctions, plotGroups, valueFor, metric, text
     .selectAll("text")
     .data(plotGroups)
     .join("text")
-    .attr("x", -6)
+    .attr("x", LABEL_X)
     .attr("y", (g) => y(g) + y.bandwidth() / 2)
-    .attr("text-anchor", "end")
+    .attr("text-anchor", "start")
     .attr("dominant-baseline", "central")
     .attr("font-size", 11)
     .attr("fill", (g) => histologyColor(g, textColor))
-    .text((g) => g);
+    .text((g) => groupMeta.get(g)?.label ?? g);
+
+  // Color swatch replacing the "(facet)" suffix for control rows, placed
+  // flush against the plot's left edge.
+  root.append("g")
+    .selectAll("rect")
+    .data(plotGroups.filter((g) => groupMeta.get(g)?.swatchColor))
+    .join("rect")
+    .attr("x", SWATCH_X)
+    .attr("y", (g) => y(g) + y.bandwidth() / 2 - SWATCH_SIZE / 2)
+    .attr("width", SWATCH_SIZE)
+    .attr("height", SWATCH_SIZE)
+    .attr("rx", 2)
+    .attr("fill", (g) => groupMeta.get(g).swatchColor);
 
   root.append("g")
     .attr("transform", `translate(0,${innerHeight})`)
@@ -149,19 +233,37 @@ export default function JunctionExpressionHeatmap({ gene, data }) {
     return Array.from(seen.values()).sort((a, b) => a.start - b.start);
   }, [filteredData]);
 
-  // plot_group order is preserved from the API response (ordered by name),
-  // not re-derived/sorted here, since "order by plot_group" -- not cluster
-  // order -- is the whole point of this view.
-  const plotGroups = useMemo(() => {
+  // Rows are ordered the same way PlotArea.jsx orders its groups: tumors
+  // first, then evo-devo by developmental timepoint, then the remaining
+  // control cohorts in the same order as the Controls tab's facets. The
+  // broad evo-devo (Prenatal)/(Postnatal) rollups are dropped entirely --
+  // the per-timepoint rows already cover that ground.
+  const { plotGroups, groupMeta } = useMemo(() => {
     const seen = new Set();
-    const order = [];
+    const ids = [];
     filteredData.forEach((d) => {
       if (!seen.has(d.tissueSiteDetailId)) {
         seen.add(d.tissueSiteDetailId);
-        order.push(d.tissueSiteDetailId);
+        ids.push(d.tissueSiteDetailId);
       }
     });
-    return order;
+
+    const meta = new Map();
+    ids.forEach((id) => {
+      const m = classifyGroup(id);
+      if (m) meta.set(id, m);
+    });
+
+    const order = Array.from(meta.keys()).sort((a, b) => {
+      const ma = meta.get(a);
+      const mb = meta.get(b);
+      if (ma.rank !== mb.rank) return ma.rank - mb.rank;
+      if (ma.sortA !== mb.sortA) return ma.sortA - mb.sortA;
+      if (ma.sortB !== mb.sortB) return ma.sortB - mb.sortB;
+      return ma.label.localeCompare(mb.label);
+    });
+
+    return { plotGroups: order, groupMeta: meta };
   }, [filteredData]);
 
   const valueIndex = useMemo(() => {
@@ -180,6 +282,7 @@ export default function JunctionExpressionHeatmap({ gene, data }) {
       width: containerWidth,
       junctions,
       plotGroups,
+      groupMeta,
       valueFor,
       metric,
       textColor: theme.palette.text.primary,
@@ -187,7 +290,7 @@ export default function JunctionExpressionHeatmap({ gene, data }) {
       onMove: (e) => setTooltip((prev) => ({ ...prev, x: e.clientX + 14, y: e.clientY - 32 })),
       onLeave: () => setTooltip((prev) => ({ ...prev, visible: false })),
     });
-  }, [junctions, plotGroups, containerWidth, metric, theme.palette.text.primary]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [junctions, plotGroups, groupMeta, containerWidth, metric, theme.palette.text.primary]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (junctions.length === 0) {
     return (
