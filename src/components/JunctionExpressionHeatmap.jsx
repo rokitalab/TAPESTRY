@@ -335,12 +335,19 @@ export default function JunctionExpressionHeatmap({ gene, data }) {
     return data.filter((d) => d.annotated && totalReadsByJunction.get(d.junctionId) > MIN_TOTAL_READS);
   }, [data]);
 
+  // Drops junctions with zero median CPM in every group -- a flat, all-zero
+  // row carries no signal and just clutters the heatmap.
   const junctions = useMemo(() => {
     const seen = new Map();
+    const maxMedianByJunction = new Map();
     filteredData.forEach((d) => {
       if (!seen.has(d.junctionId)) seen.set(d.junctionId, { junctionId: d.junctionId, ...parseJunctionId(d.junctionId) });
+      const prevMax = maxMedianByJunction.get(d.junctionId) ?? 0;
+      maxMedianByJunction.set(d.junctionId, Math.max(prevMax, d.median ?? 0));
     });
-    return Array.from(seen.values()).sort((a, b) => a.start - b.start);
+    return Array.from(seen.values())
+      .filter((j) => maxMedianByJunction.get(j.junctionId) > 0)
+      .sort((a, b) => a.start - b.start);
   }, [filteredData]);
 
   // Rows are ordered the same way PlotArea.jsx orders its groups: tumors
@@ -412,7 +419,6 @@ export default function JunctionExpressionHeatmap({ gene, data }) {
         >
           <ToggleButton value="median">Median</ToggleButton>
           <ToggleButton value="mean">Mean</ToggleButton>
-          <ToggleButton value="total">Total</ToggleButton>
         </ToggleButtonGroup>
       </Stack>
       <Box ref={containerRef} sx={{ width: "100%", maxHeight: MAX_PLOT_HEIGHT, overflowY: "auto" }}>

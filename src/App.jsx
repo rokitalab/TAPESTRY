@@ -1,4 +1,4 @@
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, useLocation } from "react-router-dom";
 import { Container } from "@mui/material";
 import NavBar from "./components/NavBar";
 
@@ -9,10 +9,16 @@ import Docs from "./pages/Docs";
 import About from "./pages/About";
 
 export default function App({ mode, setMode }) {
+  const location = useLocation();
+  // The Junction Expression page's heatmap/gene model benefit from extra
+  // horizontal room on large screens, so it gets a wider container cap than
+  // the rest of the app.
+  const maxWidth = location.pathname === "/junction-expression" ? "xl" : "lg";
+
   return (
     <>
       <NavBar mode={mode} setMode={setMode} />
-      <Container maxWidth="lg" sx={{ position: "relative", top: 50, py: 4 }}>
+      <Container maxWidth={maxWidth} sx={{ position: "relative", top: 50, py: 4 }}>
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/explore" element={<Explore />} />
