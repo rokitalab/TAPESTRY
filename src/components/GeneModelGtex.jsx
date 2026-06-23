@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Box, CircularProgress, Paper, Typography } from "@mui/material";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { Alert, Box, CircularProgress, Typography } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import * as d3 from "d3";
 import GtexGeneModel from "./lib/GtexGeneModel";
@@ -43,22 +43,67 @@ function toGeneModelExons(canonExons) {
     }));
 }
 
-export default function GeneModelGtex({ gene, junctionData, hoveredJunctionId = null, onHoverJunction }) {
+// Renders exons/junction arcs into `dom` (a d3 selection of an <svg>) --
+// shared by the live render effect and buildExportSvg below so the download
+// produces exactly what's on screen.
+function drawGeneModel(dom, { width, exons, junctions, strand, gene, textColor, primaryColor, hoveredJunctionId, onHoverJunction }) {
+  dom.selectAll("*").remove();
+  const g = dom.append("g").attr("transform", `translate(${PADDING.left},${PADDING.top})`);
+
+  const model = new GtexGeneModel(
+    { strand, geneSymbol: gene },
+    exons.map((e) => ({ ...e })),
+    exons.map((e) => ({ ...e })),
+    junctions.map((j) => ({ ...j }))
+  );
+
+  model.render(g, {
+    w: Math.max(width - PADDING.left - PADDING.right, 0),
+    h: SVG_HEIGHT - PADDING.top - PADDING.bottom,
+    labelOn: "left",
+  });
+
+  g.selectAll(".exon").style("fill", textColor);
+  g.selectAll(".exon-curated").style("fill", primaryColor);
+  g.selectAll("#modelInfo, #modelLabel").attr("fill", textColor);
+  // gtex-viz's own stylesheet sets junc-curve's fill to none; without it the
+  // browser fills the area the arc implicitly closes over with black.
+  g.selectAll(".junc-curve").style("fill", "none");
+
+  // Hovering a junction's arc/dot here, or a column in the heatmap (via
+  // hoveredJunctionId), highlights the same junction in both places.
+  g.selectAll(".junc-curve").each(function () {
+    const junctionId = junctionIdOf(this, "junc-curve");
+    const isHovered = junctionId !== null && junctionId === hoveredJunctionId;
+    d3.select(this)
+      .style("stroke", isHovered ? primaryColor : JUNC_CURVE_COLOR)
+      .style("stroke-width", isHovered ? 3 : 1)
+      .style("cursor", junctionId ? "pointer" : null)
+      .on("mouseover", () => onHoverJunction?.(junctionId))
+      .on("mouseout", () => onHoverJunction?.(null));
+  });
+  g.selectAll(".junc").each(function () {
+    const junctionId = junctionIdOf(this, "junc");
+    const isHovered = junctionId !== null && junctionId === hoveredJunctionId;
+    d3.select(this)
+      .attr("r", isHovered ? 6 : 4)
+      .style("fill", isHovered ? primaryColor : JUNC_DOT_COLOR)
+      .style("cursor", junctionId ? "pointer" : null)
+      .on("mouseover", () => onHoverJunction?.(junctionId))
+      .on("mouseout", () => onHoverJunction?.(null));
+  });
+}
+
+const GeneModelGtex = forwardRef(function GeneModelGtex(
+  { gene, junctionData, width, hoveredJunctionId = null, onHoverJunction },
+  ref
+) {
   const theme = useTheme();
-  const containerRef = useRef(null);
   const svgRef = useRef(null);
-  const [containerWidth, setContainerWidth] = useState(900);
   const [exons, setExons] = useState(null);
   const [strand, setStrand] = useState("+");
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState(null);
-
-  useEffect(() => {
-    if (!containerRef.current) return;
-    const ro = new ResizeObserver(([entry]) => setContainerWidth(entry.contentRect.width));
-    ro.observe(containerRef.current);
-    return () => ro.disconnect();
-  }, []);
 
   // Same Ensembl lookup ExonVis.jsx uses for canonical-transcript exon
   // coordinates -- this app has no internal exon-coordinate endpoint.
@@ -130,60 +175,48 @@ export default function GeneModelGtex({ gene, junctionData, hoveredJunctionId = 
 
   useEffect(() => {
     if (!svgRef.current || !exons || exons.length === 0) return;
-
-    const svg = d3.select(svgRef.current);
-    svg.selectAll("*").remove();
-    const dom = svg.append("g").attr("transform", `translate(${PADDING.left},${PADDING.top})`);
-
-    const model = new GtexGeneModel(
-      { strand, geneSymbol: gene },
-      exons.map((e) => ({ ...e })),
-      exons.map((e) => ({ ...e })),
-      junctions.map((j) => ({ ...j }))
-    );
-
-    model.render(dom, {
-      w: Math.max(containerWidth - PADDING.left - PADDING.right, 0),
-      h: SVG_HEIGHT - PADDING.top - PADDING.bottom,
-      labelOn: "left",
+    drawGeneModel(d3.select(svgRef.current), {
+      width,
+      exons,
+      junctions,
+      strand,
+      gene,
+      textColor: theme.palette.text.primary,
+      primaryColor: theme.palette.primary.main,
+      hoveredJunctionId,
+      onHoverJunction,
     });
-
-    dom.selectAll(".exon").style("fill", theme.palette.text.primary);
-    dom.selectAll(".exon-curated").style("fill", theme.palette.primary.main);
-    dom.selectAll("#modelInfo, #modelLabel").attr("fill", theme.palette.text.primary);
-    // gtex-viz's own stylesheet sets junc-curve's fill to none; without it the
-    // browser fills the area the arc implicitly closes over with black.
-    dom.selectAll(".junc-curve").style("fill", "none");
-
-    // Hovering a junction's arc/dot here, or a column in the heatmap (via
-    // hoveredJunctionId), highlights the same junction in both places.
-    dom.selectAll(".junc-curve").each(function () {
-      const junctionId = junctionIdOf(this, "junc-curve");
-      const isHovered = junctionId !== null && junctionId === hoveredJunctionId;
-      d3.select(this)
-        .style("stroke", isHovered ? theme.palette.primary.main : JUNC_CURVE_COLOR)
-        .style("stroke-width", isHovered ? 3 : 1)
-        .style("cursor", junctionId ? "pointer" : null)
-        .on("mouseover", () => onHoverJunction?.(junctionId))
-        .on("mouseout", () => onHoverJunction?.(null));
-    });
-    dom.selectAll(".junc").each(function () {
-      const junctionId = junctionIdOf(this, "junc");
-      const isHovered = junctionId !== null && junctionId === hoveredJunctionId;
-      d3.select(this)
-        .attr("r", isHovered ? 6 : 4)
-        .style("fill", isHovered ? theme.palette.primary.main : JUNC_DOT_COLOR)
-        .style("cursor", junctionId ? "pointer" : null)
-        .on("mouseover", () => onHoverJunction?.(junctionId))
-        .on("mouseout", () => onHoverJunction?.(null));
-    });
-  }, [exons, junctions, strand, gene, containerWidth, hoveredJunctionId, onHoverJunction,
+  }, [exons, junctions, strand, gene, width, hoveredJunctionId, onHoverJunction,
       theme.palette.text.primary, theme.palette.primary.main]);
+
+  // Lets JunctionExpressionHeatmap.jsx's download button pull in a
+  // matching, export-sized copy of the gene model to stack under the
+  // heatmap on the same canvas.
+  useImperativeHandle(ref, () => ({
+    buildExportSvg({ width: exportWidth }) {
+      if (!exons || exons.length === 0) return null;
+      const svgEl = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svgEl.setAttribute("width", exportWidth);
+      svgEl.setAttribute("height", SVG_HEIGHT);
+      drawGeneModel(d3.select(svgEl), {
+        width: exportWidth,
+        exons,
+        junctions,
+        strand,
+        gene,
+        textColor: theme.palette.text.primary,
+        primaryColor: theme.palette.primary.main,
+        hoveredJunctionId: null,
+        onHoverJunction: () => {},
+      });
+      return svgEl;
+    },
+  }), [exons, junctions, strand, gene, theme.palette.text.primary, theme.palette.primary.main]);
 
   if (!gene) return null;
 
   return (
-    <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, width: "100%" }}>
+    <Box>
       <Typography sx={{ fontWeight: 800, mb: 1 }}>
         Gene Model of {gene} (GTEx style)
       </Typography>
@@ -194,10 +227,10 @@ export default function GeneModelGtex({ gene, junctionData, hoveredJunctionId = 
       ) : fetchError ? (
         <Alert severity="error">Failed to load gene model: {fetchError}</Alert>
       ) : !exons ? null : (
-        <Box ref={containerRef} sx={{ width: "100%", overflowX: "auto" }}>
-          <svg ref={svgRef} width={containerWidth} height={SVG_HEIGHT} style={{ display: "block" }} />
-        </Box>
+        <svg ref={svgRef} width={width} height={SVG_HEIGHT} style={{ display: "block" }} />
       )}
-    </Paper>
+    </Box>
   );
-}
+});
+
+export default GeneModelGtex;

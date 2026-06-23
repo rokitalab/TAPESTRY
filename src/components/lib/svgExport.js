@@ -87,6 +87,28 @@ export function svgToCanvas(clone, svgWidth, svgHeight, scale) {
   });
 }
 
+// Combines several detached, already-sized (width/height attrs) <svg>
+// elements into one, stacked top to bottom with `gap` CSS px between them --
+// used by PlotDownloadMenu when one download should capture more than one
+// plot (e.g. JunctionExpressionHeatmap.jsx + GeneModelGtex.jsx together).
+export function stackSvgsVertically(svgEls, gap = 16) {
+  const svgs = svgEls.filter(Boolean);
+  const width = Math.max(...svgs.map((svgEl) => Number(svgEl.getAttribute("width"))));
+  const combined = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  let y = 0;
+  svgs.forEach((svgEl) => {
+    const height = Number(svgEl.getAttribute("height"));
+    const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    g.setAttribute("transform", `translate(0, ${y})`);
+    Array.from(svgEl.childNodes).forEach((child) => g.appendChild(child));
+    combined.appendChild(g);
+    y += height + gap;
+  });
+  combined.setAttribute("width", width);
+  combined.setAttribute("height", svgs.length ? y - gap : 0);
+  return combined;
+}
+
 export function triggerDownload(href, filename) {
   const link = document.createElement("a");
   link.href = href;

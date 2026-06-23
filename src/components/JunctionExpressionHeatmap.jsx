@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Box, Paper, Stack, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
+import { Box, Stack, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import * as d3 from "d3";
 import { HISTOLOGY_COLORS, controlCohortColor } from "../histologyColors";
 import { MIN_TOTAL_READS, selectExpressedJunctionIds } from "./lib/junctionExpressionFilter";
 import PlotDownloadMenu from "./PlotDownloadMenu";
+import { stackSvgsVertically } from "./lib/svgExport";
 
 const MARGIN = { top: 10, right: 20, bottom: 140, left: 220 };
 const ROW_HEIGHT = 14;
@@ -331,11 +332,11 @@ function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, m
     .attr("pointer-events", "none");
 }
 
-export default function JunctionExpressionHeatmap({ gene, data, hoveredJunctionId = null, onHoverJunction }) {
+export default function JunctionExpressionHeatmap({
+  gene, data, width, geneModelRef = null, hoveredJunctionId = null, onHoverJunction,
+}) {
   const theme = useTheme();
-  const containerRef = useRef(null);
   const svgRef = useRef(null);
-  const [containerWidth, setContainerWidth] = useState(900);
   const [tooltip, setTooltip] = useState({ visible: false, x: 0, y: 0, html: "" });
   const [metric, setMetric] = useState("median");
   const [expandedEvoDevo, setExpandedEvoDevo] = useState(new Set());
@@ -347,13 +348,6 @@ export default function JunctionExpressionHeatmap({ gene, data, hoveredJunctionI
       return next;
     });
   }
-
-  useEffect(() => {
-    if (!containerRef.current) return;
-    const ro = new ResizeObserver(([entry]) => setContainerWidth(entry.contentRect.width));
-    ro.observe(containerRef.current);
-    return () => ro.disconnect();
-  }, []);
 
   // Keeps the heatmap focused on junctions that are part of the reference
   // annotation and have meaningful read support across the gene's
@@ -420,7 +414,9 @@ export default function JunctionExpressionHeatmap({ gene, data, hoveredJunctionI
 
   // Renders a detached, export-sized copy of the heatmap for PlotDownloadMenu
   // -- height tracks the row count (see svgHeight above) rather than the
-  // user-chosen export height, since rows have a fixed height.
+  // user-chosen export height, since rows have a fixed height. Also pulls in
+  // a matching copy of the gene model (if mounted and loaded) and stacks it
+  // underneath, so the download captures both plots on one canvas.
   function buildExportSvg({ width }) {
     const svgEl = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svgEl.setAttribute("width", width);
@@ -440,13 +436,14 @@ export default function JunctionExpressionHeatmap({ gene, data, hoveredJunctionI
       onToggleEvoDevo: () => {},
       onHoverJunction: () => {},
     });
-    return svgEl;
+    const geneModelSvg = geneModelRef?.current?.buildExportSvg?.({ width });
+    return geneModelSvg ? stackSvgsVertically([svgEl, geneModelSvg]) : svgEl;
   }
 
   useEffect(() => {
     if (!svgRef.current || junctions.length === 0) return;
     drawHeatmap(d3.select(svgRef.current), {
-      width: containerWidth,
+      width,
       junctions,
       plotGroups,
       groupMeta,
@@ -460,20 +457,18 @@ export default function JunctionExpressionHeatmap({ gene, data, hoveredJunctionI
       onToggleEvoDevo: toggleEvoDevoExpand,
       onHoverJunction: (id) => onHoverJunction?.(id),
     });
-  }, [junctions, plotGroups, groupMeta, containerWidth, metric, hoveredJunctionId, onHoverJunction, theme.palette.text.primary]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [junctions, plotGroups, groupMeta, width, metric, hoveredJunctionId, onHoverJunction, theme.palette.text.primary]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (junctions.length === 0) {
     return (
-      <Paper variant="outlined" sx={{ p: 3, borderRadius: 2 }}>
-        <Typography color="text.secondary">
-          No annotated junctions with more than {MIN_TOTAL_READS} total reads found for {gene || "this gene"}.
-        </Typography>
-      </Paper>
+      <Typography color="text.secondary">
+        No annotated junctions with more than {MIN_TOTAL_READS} total reads found for {gene || "this gene"}.
+      </Typography>
     );
   }
 
   return (
-    <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, width: "100%" }}>
+    <Box>
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
         <Typography sx={{ fontWeight: 800 }}>
           Junction Expression of {gene}
@@ -497,15 +492,13 @@ export default function JunctionExpressionHeatmap({ gene, data, hoveredJunctionI
           </ToggleButtonGroup>
           <PlotDownloadMenu
             buildExportSvg={buildExportSvg}
-            title={`Junction Expression of ${gene}`}
+            title={`Junction Expression & Gene Model of ${gene}`}
             filename={(ext) => `junction-expression-${gene}.${ext}`}
             showHeightField={false}
           />
         </Stack>
       </Stack>
-      <Box ref={containerRef} sx={{ width: "100%" }}>
-        <svg ref={svgRef} width={containerWidth} height={svgHeight} style={{ display: "block" }} />
-      </Box>
+      <svg ref={svgRef} width={width} height={svgHeight} style={{ display: "block" }} />
       {tooltip.visible && (
         <div
           dangerouslySetInnerHTML={{ __html: tooltip.html }}
@@ -525,6 +518,6 @@ export default function JunctionExpressionHeatmap({ gene, data, hoveredJunctionI
           }}
         />
       )}
-    </Paper>
+    </Box>
   );
 }

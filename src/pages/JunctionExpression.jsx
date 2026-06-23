@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { Alert, Box, CircularProgress, Divider, Paper, Stack, TextField, Typography } from "@mui/material";
 import JunctionExpressionHeatmap from "../components/JunctionExpressionHeatmap";
@@ -22,6 +22,21 @@ export default function JunctionExpression() {
   // Shared between the heatmap and the gene model so hovering a junction in
   // either one highlights the matching column/arc in the other.
   const [hoveredJunctionId, setHoveredJunctionId] = useState(null);
+
+  // Shared between the heatmap and the gene model so both SVGs measure off
+  // the same container and always agree on width.
+  const plotContainerRef = useRef(null);
+  // Lets the heatmap's download button pull in a matching export of the
+  // gene model and stack both on one canvas (see JunctionExpressionHeatmap's
+  // buildExportSvg).
+  const geneModelRef = useRef(null);
+  const [plotWidth, setPlotWidth] = useState(900);
+  useEffect(() => {
+    if (!plotContainerRef.current) return;
+    const ro = new ResizeObserver(([entry]) => setPlotWidth(entry.contentRect.width));
+    ro.observe(plotContainerRef.current);
+    return () => ro.disconnect();
+  }, []);
 
   // Clears stale data when the gene is cleared, mirroring TranscriptVis's
   // geneID-cleared handling: done during render (comparing against the gene
@@ -92,18 +107,27 @@ export default function JunctionExpression() {
         <Alert severity="error">Failed to load junction expression: {fetchError}</Alert>
       ) : gene ? (
         <>
-          <JunctionExpressionHeatmap
-            gene={gene}
-            data={data}
-            hoveredJunctionId={hoveredJunctionId}
-            onHoverJunction={setHoveredJunctionId}
-          />
-          <GeneModelGtex
-            gene={gene}
-            junctionData={data}
-            hoveredJunctionId={hoveredJunctionId}
-            onHoverJunction={setHoveredJunctionId}
-          />
+          <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, width: "100%" }}>
+            <Box ref={plotContainerRef} sx={{ width: "100%" }}>
+              <JunctionExpressionHeatmap
+                gene={gene}
+                data={data}
+                width={plotWidth}
+                geneModelRef={geneModelRef}
+                hoveredJunctionId={hoveredJunctionId}
+                onHoverJunction={setHoveredJunctionId}
+              />
+              <Divider sx={{ my: 2 }} />
+              <GeneModelGtex
+                ref={geneModelRef}
+                gene={gene}
+                junctionData={data}
+                width={plotWidth}
+                hoveredJunctionId={hoveredJunctionId}
+                onHoverJunction={setHoveredJunctionId}
+              />
+            </Box>
+          </Paper>
           <ExonVis gene={gene} exonID={null} eventType="" strand="+" />
         </>
       ) : (
