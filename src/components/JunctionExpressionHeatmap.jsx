@@ -175,6 +175,15 @@ const METRICS = {
   total: { label: "Total Reads", get: (rec) => rec?.total_reads ?? 0, fmt: (v) => v.toLocaleString() },
 };
 
+// Rounds the legend's upper-bound label to 2 significant figures -- exact
+// CPM values (e.g. 12.345) are noise at the scale of a color-legend bound.
+function roundToSigFigs(value, sigFigs) {
+  if (value === 0) return 0;
+  const magnitude = Math.floor(Math.log10(Math.abs(value)));
+  const factor = Math.pow(10, sigFigs - 1 - magnitude);
+  return Math.round(value * factor) / factor;
+}
+
 // Cell color legend gradient -- cells map linearly onto d3.interpolateReds
 // across the color scale's domain (see drawHeatmap), so sampling the same
 // interpolator at even steps reproduces that gradient exactly as CSS.
@@ -478,7 +487,7 @@ export default function JunctionExpressionHeatmap({
             <Typography variant="caption" color="text.secondary">0</Typography>
             <Box sx={{ width: 100, height: 10, borderRadius: 1, background: LEGEND_GRADIENT }} />
             <Typography variant="caption" color="text.secondary">
-              {METRICS[metric].fmt(legendMax)} {METRICS[metric].label}
+              {roundToSigFigs(legendMax, 2)} {METRICS[metric].label}
             </Typography>
           </Stack>
           <ToggleButtonGroup
