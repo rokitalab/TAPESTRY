@@ -173,6 +173,11 @@ const METRICS = {
   total: { label: "Total Reads", get: (rec) => rec?.total_reads ?? 0, fmt: (v) => v.toLocaleString() },
 };
 
+// Cell color legend gradient -- cells map linearly onto d3.interpolateReds
+// across the color scale's domain (see drawHeatmap), so sampling the same
+// interpolator at even steps reproduces that gradient exactly as CSS.
+const LEGEND_GRADIENT = `linear-gradient(to right, ${d3.range(0, 1.001, 0.1).map((t) => d3.interpolateReds(t)).join(", ")})`;
+
 // Splits a 'chr_start_end' junctionId (the format gtex-viz's parseJunctions
 // expects) back into its parts for sorting/display.
 function parseJunctionId(junctionId) {
@@ -397,6 +402,15 @@ export default function JunctionExpressionHeatmap({ gene, data, hoveredJunctionI
 
   const valueFor = (junctionId, group) => valueIndex.get(`${junctionId}|${group}`);
 
+  // Drives the legend's upper bound -- matches the value drawHeatmap uses
+  // to build the cell color scale's domain.
+  const legendMax = useMemo(() => {
+    const { get: metricValue } = METRICS[metric];
+    return d3.max(junctions, (j) =>
+      d3.max(plotGroups, (g) => metricValue(valueIndex.get(`${j.junctionId}|${g}`)))
+    ) || 0;
+  }, [junctions, plotGroups, valueIndex, metric]);
+
   const svgHeight = plotGroups.length * ROW_HEIGHT + MARGIN.top + MARGIN.bottom;
 
   useEffect(() => {
@@ -434,15 +448,24 @@ export default function JunctionExpressionHeatmap({ gene, data, hoveredJunctionI
         <Typography sx={{ fontWeight: 800 }}>
           Junction Expression of {gene}
         </Typography>
-        <ToggleButtonGroup
-          size="small"
-          exclusive
-          value={metric}
-          onChange={(_, v) => { if (v !== null) setMetric(v); }}
-        >
-          <ToggleButton value="median">Median</ToggleButton>
-          <ToggleButton value="mean">Mean</ToggleButton>
-        </ToggleButtonGroup>
+        <Stack direction="row" spacing={2} alignItems="center">
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography variant="caption" color="text.secondary">0</Typography>
+            <Box sx={{ width: 100, height: 10, borderRadius: 1, background: LEGEND_GRADIENT }} />
+            <Typography variant="caption" color="text.secondary">
+              {METRICS[metric].fmt(legendMax)} {METRICS[metric].label}
+            </Typography>
+          </Stack>
+          <ToggleButtonGroup
+            size="small"
+            exclusive
+            value={metric}
+            onChange={(_, v) => { if (v !== null) setMetric(v); }}
+          >
+            <ToggleButton value="median">Median</ToggleButton>
+            <ToggleButton value="mean">Mean</ToggleButton>
+          </ToggleButtonGroup>
+        </Stack>
       </Stack>
       <Box ref={containerRef} sx={{ width: "100%" }}>
         <svg ref={svgRef} width={containerWidth} height={svgHeight} style={{ display: "block" }} />
