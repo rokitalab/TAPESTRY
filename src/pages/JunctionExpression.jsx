@@ -19,6 +19,9 @@ export default function JunctionExpression() {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState(null);
+  // Shared between the heatmap and the gene model so hovering a junction in
+  // either one highlights the matching column/arc in the other.
+  const [hoveredJunctionId, setHoveredJunctionId] = useState(null);
 
   // Clears stale data when the gene is cleared, mirroring TranscriptVis's
   // geneID-cleared handling: done during render (comparing against the gene
@@ -28,6 +31,7 @@ export default function JunctionExpression() {
   if (gene !== prevGene) {
     setPrevGene(gene);
     if (!gene) setData([]);
+    setHoveredJunctionId(null);
   }
 
   useEffect(() => {
@@ -88,8 +92,18 @@ export default function JunctionExpression() {
         <Alert severity="error">Failed to load junction expression: {fetchError}</Alert>
       ) : gene ? (
         <>
-          <JunctionExpressionHeatmap gene={gene} data={data} />
-          <GeneModelGtex gene={gene} junctionData={data} />
+          <JunctionExpressionHeatmap
+            gene={gene}
+            data={data}
+            hoveredJunctionId={hoveredJunctionId}
+            onHoverJunction={setHoveredJunctionId}
+          />
+          <GeneModelGtex
+            gene={gene}
+            junctionData={data}
+            hoveredJunctionId={hoveredJunctionId}
+            onHoverJunction={setHoveredJunctionId}
+          />
           <ExonVis gene={gene} exonID={null} eventType="" strand="+" />
         </>
       ) : (

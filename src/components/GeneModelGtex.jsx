@@ -7,6 +7,22 @@ import GtexGeneModel from "./lib/GtexGeneModel";
 const SVG_HEIGHT = 200;
 const PADDING = { top: 10, right: 60, bottom: 10, left: 60 };
 
+// GtexGeneModel.js's defaults for junction arcs/dots (see its render()) --
+// duplicated here so hover highlighting can fall back to them.
+const JUNC_CURVE_COLOR = "#92bcc9";
+const JUNC_DOT_COLOR = "rgb(86, 98, 107)";
+
+// GtexGeneModel.js bakes the junctionId into each junction element's class
+// as `junc-curve junc${junctionId}` (path) / `junc junc${junctionId}`
+// (dot) -- pulls it back out so hover handlers know which junction an
+// element represents without modifying the vendored lib.
+function junctionIdOf(node, ownClass) {
+  const token = (node.getAttribute("class") || "")
+    .split(/\s+/)
+    .find((c) => c !== ownClass && c.startsWith("junc"));
+  return token ? token.slice(4) : null;
+}
+
 // Ensembl's canonical-transcript exons don't come with an exonNumber, and
 // GtexGeneModel only uses exonNumber to measure exon-to-exon distance for
 // junction arc height -- genomic order (regardless of strand, per the
@@ -23,7 +39,7 @@ function toGeneModelExons(canonExons) {
     }));
 }
 
-export default function GeneModelGtex({ gene, junctionData }) {
+export default function GeneModelGtex({ gene, junctionData, hoveredJunctionId = null, onHoverJunction }) {
   const theme = useTheme();
   const containerRef = useRef(null);
   const svgRef = useRef(null);
@@ -129,7 +145,34 @@ export default function GeneModelGtex({ gene, junctionData }) {
     dom.selectAll(".exon").style("fill", theme.palette.text.primary);
     dom.selectAll(".exon-curated").style("fill", theme.palette.primary.main);
     dom.selectAll("#modelInfo, #modelLabel").attr("fill", theme.palette.text.primary);
-  }, [exons, junctions, strand, gene, containerWidth, theme.palette.text.primary, theme.palette.primary.main]);
+    // gtex-viz's own stylesheet sets junc-curve's fill to none; without it the
+    // browser fills the area the arc implicitly closes over with black.
+    dom.selectAll(".junc-curve").style("fill", "none");
+
+    // Hovering a junction's arc/dot here, or a column in the heatmap (via
+    // hoveredJunctionId), highlights the same junction in both places.
+    dom.selectAll(".junc-curve").each(function () {
+      const junctionId = junctionIdOf(this, "junc-curve");
+      const isHovered = junctionId !== null && junctionId === hoveredJunctionId;
+      d3.select(this)
+        .style("stroke", isHovered ? theme.palette.primary.main : JUNC_CURVE_COLOR)
+        .style("stroke-width", isHovered ? 3 : 1)
+        .style("cursor", junctionId ? "pointer" : null)
+        .on("mouseover", () => onHoverJunction?.(junctionId))
+        .on("mouseout", () => onHoverJunction?.(null));
+    });
+    dom.selectAll(".junc").each(function () {
+      const junctionId = junctionIdOf(this, "junc");
+      const isHovered = junctionId !== null && junctionId === hoveredJunctionId;
+      d3.select(this)
+        .attr("r", isHovered ? 6 : 4)
+        .style("fill", isHovered ? theme.palette.primary.main : JUNC_DOT_COLOR)
+        .style("cursor", junctionId ? "pointer" : null)
+        .on("mouseover", () => onHoverJunction?.(junctionId))
+        .on("mouseout", () => onHoverJunction?.(null));
+    });
+  }, [exons, junctions, strand, gene, containerWidth, hoveredJunctionId, onHoverJunction,
+      theme.palette.text.primary, theme.palette.primary.main]);
 
   if (!gene) return null;
 

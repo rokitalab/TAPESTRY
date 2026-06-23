@@ -186,7 +186,7 @@ function parseJunctionId(junctionId) {
 // plot_group names ordered alphabetically (as returned by the API) rather
 // than dendrogram-clustered tissues, so there's no clustering step here.
 // Junctions run along x, plot_groups run along y (rows).
-function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, metric, textColor, onHover, onMove, onLeave, onToggleEvoDevo }) {
+function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, metric, textColor, hoveredJunctionId, onHover, onMove, onLeave, onToggleEvoDevo, onHoverJunction }) {
   svg.selectAll("*").remove();
 
   const { get: metricValue } = METRICS[metric];
@@ -255,8 +255,12 @@ function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, m
     .attr("text-anchor", "start")
     .attr("font-size", 11)
     .attr("font-family", "monospace")
+    .attr("font-weight", (j) => (j.junctionId === hoveredJunctionId ? 700 : 400))
     .attr("fill", textColor)
-    .text((j) => `${j.start.toLocaleString()}-${j.end.toLocaleString()}`);
+    .style("cursor", "pointer")
+    .text((j) => `${j.start.toLocaleString()}-${j.end.toLocaleString()}`)
+    .on("mouseover", (e, j) => onHoverJunction(j.junctionId))
+    .on("mouseout", () => onHoverJunction(null));
 
   const cells = root.append("g")
     .selectAll("g")
@@ -277,6 +281,7 @@ function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, m
     .style("cursor", "pointer")
     .on("mouseover", function (e, d) {
       d3.select(this).attr("stroke", textColor).attr("stroke-width", 1.5);
+      onHoverJunction(d.junction.junctionId);
       const rec = d.rec;
       const metricLine = (key) => {
         const m = METRICS[key];
@@ -295,11 +300,28 @@ function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, m
     .on("mousemove", onMove)
     .on("mouseout", function () {
       d3.select(this).attr("stroke", "#fff").attr("stroke-width", 0.5);
+      onHoverJunction(null);
       onLeave();
     });
+
+  // Column outline for whichever junction is hovered here or in the gene
+  // model -- drawn last (and pointer-events: none) so it overlays the cells
+  // without intercepting their hover/tooltip handlers.
+  root.append("g")
+    .selectAll("rect")
+    .data(junctions.filter((j) => j.junctionId === hoveredJunctionId))
+    .join("rect")
+    .attr("x", (j) => x(j.junctionId) - 2)
+    .attr("y", -2)
+    .attr("width", x.bandwidth() + 4)
+    .attr("height", innerHeight + 4)
+    .attr("fill", "none")
+    .attr("stroke", textColor)
+    .attr("stroke-width", 2)
+    .attr("pointer-events", "none");
 }
 
-export default function JunctionExpressionHeatmap({ gene, data }) {
+export default function JunctionExpressionHeatmap({ gene, data, hoveredJunctionId = null, onHoverJunction }) {
   const theme = useTheme();
   const containerRef = useRef(null);
   const svgRef = useRef(null);
@@ -388,12 +410,14 @@ export default function JunctionExpressionHeatmap({ gene, data }) {
       valueFor,
       metric,
       textColor: theme.palette.text.primary,
+      hoveredJunctionId,
       onHover: (e, html) => setTooltip({ visible: true, x: e.clientX + 14, y: e.clientY - 32, html }),
       onMove: (e) => setTooltip((prev) => ({ ...prev, x: e.clientX + 14, y: e.clientY - 32 })),
       onLeave: () => setTooltip((prev) => ({ ...prev, visible: false })),
       onToggleEvoDevo: toggleEvoDevoExpand,
+      onHoverJunction: (id) => onHoverJunction?.(id),
     });
-  }, [junctions, plotGroups, groupMeta, containerWidth, metric, theme.palette.text.primary]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [junctions, plotGroups, groupMeta, containerWidth, metric, hoveredJunctionId, onHoverJunction, theme.palette.text.primary]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (junctions.length === 0) {
     return (
