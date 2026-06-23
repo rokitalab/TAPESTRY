@@ -3,6 +3,7 @@ import { Alert, Box, CircularProgress, Paper, Typography } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import * as d3 from "d3";
 import GtexGeneModel from "./lib/GtexGeneModel";
+import { selectExpressedJunctionIds } from "./lib/junctionExpressionFilter";
 
 const SVG_HEIGHT = 200;
 const PADDING = { top: 10, right: 60, bottom: 10, left: 60 };
@@ -111,11 +112,13 @@ export default function GeneModelGtex({ gene, junctionData, hoveredJunctionId = 
 
   // GtexGeneModel only needs chromStart/chromEnd/junctionId per junction --
   // reuses the same gene-junction-expression rows the heatmap renders,
-  // deduped down to one entry per junction.
+  // filtered down to the same expressed junctions the heatmap shows (see
+  // selectExpressedJunctionIds) and deduped to one entry per junction.
   const junctions = useMemo(() => {
+    const expressedIds = selectExpressedJunctionIds(junctionData);
     const seen = new Map();
     junctionData.forEach((d) => {
-      if (seen.has(d.junctionId)) return;
+      if (!expressedIds.has(d.junctionId) || seen.has(d.junctionId)) return;
       const [, start, end] = d.junctionId.split("_");
       seen.set(d.junctionId, { junctionId: d.junctionId, chromStart: Number(start), chromEnd: Number(end) });
     });

@@ -2,12 +2,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Box, Paper, Stack, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import * as d3 from "d3";
-import { HISTOLOGY_COLORS, histologyColor, controlCohortColor } from "../histologyColors";
+import { HISTOLOGY_COLORS, controlCohortColor } from "../histologyColors";
+import { MIN_TOTAL_READS, selectExpressedJunctionIds } from "./lib/junctionExpressionFilter";
 
 const MARGIN = { top: 10, right: 20, bottom: 140, left: 220 };
 const ROW_HEIGHT = 18;
 const MAX_PLOT_HEIGHT = 600;
-const MIN_TOTAL_READS = 10;
 
 // Mirrors PlotArea.jsx's evo-devo timepoint progression, so heatmap rows
 // follow the same developmental ordering as the rest of the app.
@@ -98,7 +98,7 @@ function buildGroupOrder(ids, expandedEvoDevo) {
 
   tumors.forEach((id) => {
     order.push(id);
-    meta.set(id, { label: id, swatchColor: null, chevron: null });
+    meta.set(id, { label: id, swatchColor: HISTOLOGY_COLORS[id], chevron: null });
   });
 
   ["Forebrain", "Hindbrain"].forEach((region) => {
@@ -119,7 +119,7 @@ function buildGroupOrder(ids, expandedEvoDevo) {
         if (expanded) {
           children.forEach(({ id }) => {
             order.push(id);
-            meta.set(id, { label: id, swatchColor: null, chevron: null });
+            meta.set(id, { label: id, swatchColor: EVODEVO_REGION_COLORS[region], chevron: null });
           });
         }
       } else {
@@ -127,7 +127,7 @@ function buildGroupOrder(ids, expandedEvoDevo) {
         // into, so just show the individual timepoint rows directly.
         children.forEach(({ id }) => {
           order.push(id);
-          meta.set(id, { label: id, swatchColor: null, chevron: null });
+          meta.set(id, { label: id, swatchColor: EVODEVO_REGION_COLORS[region], chevron: null });
         });
       }
     });
@@ -155,14 +155,14 @@ function buildGroupOrder(ids, expandedEvoDevo) {
   return { order, meta };
 }
 
-// Row labels sit flush against the left edge of the SVG; the expand/collapse
-// chevron (for evo-devo rollup rows) and the color swatch (replacing the
-// "(facet)" suffix for control/rollup rows) sit flush against the plot's
-// left edge, in that order.
-const LABEL_X = -MARGIN.left + 8;
+// The expand/collapse chevron (for evo-devo rollup rows) sits flush against
+// the left edge of the SVG, row labels (theme-colored, not per-row tinted)
+// sit next to it, and the per-row histology/cohort color swatch sits
+// between the label and the plot, flush against the cells.
+const CHEVRON_X = -MARGIN.left + 8;
 const SWATCH_SIZE = 10;
 const SWATCH_X = -(SWATCH_SIZE + 10);
-const CHEVRON_X = SWATCH_X - 18;
+const LABEL_X = SWATCH_X - 8;
 
 // Metrics available for cell coloring/tooltip emphasis, keyed the same as
 // the toggle value. `get` reads the field off a gene_junction_summary row
@@ -210,14 +210,15 @@ function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, m
     .join("text")
     .attr("x", LABEL_X)
     .attr("y", (g) => y(g) + y.bandwidth() / 2)
-    .attr("text-anchor", "start")
+    .attr("text-anchor", "end")
     .attr("dominant-baseline", "central")
     .attr("font-size", 11)
-    .attr("fill", (g) => histologyColor(g, textColor))
+    .attr("fill", textColor)
     .text((g) => groupMeta.get(g)?.label ?? g);
 
-  // Color swatch replacing the "(facet)" suffix for control/rollup rows,
-  // placed flush against the plot's left edge.
+  // Color swatch indicating each row's histology/cohort, placed flush
+  // against the plot's left edge (between the row label and the cells).
+  // Row label text itself stays theme-colored rather than per-row tinted.
   root.append("g")
     .selectAll("rect")
     .data(plotGroups.filter((g) => groupMeta.get(g)?.swatchColor))
@@ -357,20 +358,19 @@ export default function JunctionExpressionHeatmap({ gene, data, hoveredJunctionI
     return data.filter((d) => d.annotated && totalReadsByJunction.get(d.junctionId) > MIN_TOTAL_READS);
   }, [data]);
 
-  // Drops junctions with zero median CPM in every group -- a flat, all-zero
-  // row carries no signal and just clutters the heatmap.
+  // Drops junctions that never reach a median CPM of MIN_MEDIAN_CPM in any
+  // group -- a flat, lowly-expressed row carries no signal and just clutters
+  // the heatmap. Shared with GeneModelGtex so both show the same junctions.
   const junctions = useMemo(() => {
+    const expressedIds = selectExpressedJunctionIds(data);
     const seen = new Map();
-    const maxMedianByJunction = new Map();
     filteredData.forEach((d) => {
-      if (!seen.has(d.junctionId)) seen.set(d.junctionId, { junctionId: d.junctionId, ...parseJunctionId(d.junctionId) });
-      const prevMax = maxMedianByJunction.get(d.junctionId) ?? 0;
-      maxMedianByJunction.set(d.junctionId, Math.max(prevMax, d.median ?? 0));
+      if (expressedIds.has(d.junctionId) && !seen.has(d.junctionId)) {
+        seen.set(d.junctionId, { junctionId: d.junctionId, ...parseJunctionId(d.junctionId) });
+      }
     });
-    return Array.from(seen.values())
-      .filter((j) => maxMedianByJunction.get(j.junctionId) > 0)
-      .sort((a, b) => a.start - b.start);
-  }, [filteredData]);
+    return Array.from(seen.values()).sort((a, b) => a.start - b.start);
+  }, [data, filteredData]);
 
   // Rows are ordered the same way PlotArea.jsx orders its groups: tumors
   // first, then evo-devo bucketed by region/phase (collapsed behind a
