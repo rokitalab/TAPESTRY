@@ -261,14 +261,14 @@ function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, m
     .selectAll("text")
     .data(junctions)
     .join("text")
-    .attr("transform", (j) => `translate(${x(j.junctionId) + x.bandwidth() / 2}, 10) rotate(55)`)
-    .attr("text-anchor", "start")
+    .attr("transform", (j) => `translate(${x(j.junctionId) + x.bandwidth() / 2}, 10) rotate(-55)`)
+    .attr("text-anchor", "end")
     .attr("font-size", 11)
     .attr("font-family", "monospace")
     .attr("font-weight", (j) => (j.junctionId === hoveredJunctionId ? 700 : 400))
     .attr("fill", textColor)
     .style("cursor", "pointer")
-    .text((j) => `${j.start.toLocaleString()}-${j.end.toLocaleString()}`)
+    .text((j) => `${j.start}-${j.end}`)
     .on("mouseover", (e, j) => onHoverJunction(j.junctionId))
     .on("mouseout", () => onHoverJunction(null));
 
