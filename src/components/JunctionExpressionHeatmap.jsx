@@ -99,8 +99,8 @@ function classifyGroupIds(ids) {
 }
 
 // Builds the ordered row list and per-row display metadata: tumors first
-// (alphabetical), then evo-devo bucketed by region/phase -- Forebrain
-// Prenatal, Forebrain Postnatal, Hindbrain Prenatal, Hindbrain Postnatal --
+// (alphabetical), then evo-devo bucketed by phase/region -- Forebrain
+// Prenatal, Hindbrain Prenatal, Forebrain Postnatal, Hindbrain Postnatal --
 // each collapsed behind its rollup row by default, then the remaining
 // control cohorts in the same order as PlotArea.jsx's Controls tab facets.
 // Working off the tissueSiteDetailId string alone since the heatmap API has
@@ -118,8 +118,8 @@ function buildGroupOrder(ids, expandedEvoDevo) {
     meta.set(id, { label: id, swatchColor: HISTOLOGY_COLORS[id], chevron: null, cohort: "Primary tumor" });
   });
 
-  ["Forebrain", "Hindbrain"].forEach((region) => {
-    ["Prenatal", "Postnatal"].forEach((phase) => {
+  ["Prenatal", "Postnatal"].forEach((phase) => {
+    ["Forebrain", "Hindbrain"].forEach((region) => {
       const key = `${region}:${phase}`;
       const rollupId = evoRollups.get(key);
       const children = (evoChildren.get(key) ?? []).sort((a, b) => a.tIdx - b.tIdx);

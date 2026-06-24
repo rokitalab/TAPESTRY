@@ -719,7 +719,7 @@ export default function PlotArea({
       if (rankDiff !== 0) return rankDiff;
       if (sortMode === "asc") return a.stats.median - b.stats.median;
       if (sortMode === "desc") return b.stats.median - a.stats.median;
-      return a.label.localeCompare(b.label);
+      return evoDevoLabelSort(a.label, b.label);
     });
   }, [junction, fetchedRows, rows, sortMode]);
 
@@ -1153,6 +1153,19 @@ export default function PlotArea({
       )}
     </Paper>
   );
+}
+
+// Plain alphabetical order would put "Forebrain (Postnatal)" before
+// "Forebrain (Prenatal)" ('o' < 'r') -- this keeps Prenatal first within a
+// region instead, matching JunctionExpressionHeatmap.jsx's row order.
+function evoDevoLabelSort(a, b) {
+  const phaseRank = (label) => (label.endsWith("(Prenatal)") ? 0 : label.endsWith("(Postnatal)") ? 1 : null);
+  const aPhase = phaseRank(a);
+  const bPhase = phaseRank(b);
+  if (aPhase !== null && bPhase !== null && a.slice(0, a.lastIndexOf("(")) === b.slice(0, b.lastIndexOf("("))) {
+    return aPhase - bPhase;
+  }
+  return a.localeCompare(b);
 }
 
 function collapseControlGroup(plotGroup) {
