@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { Alert, Box, CircularProgress, Divider, Paper, Stack, TextField, Typography } from "@mui/material";
 import JunctionExpressionHeatmap from "../components/JunctionExpressionHeatmap";
-import ExonVis from "../components/ExonVis";
 import GeneModelGtex from "../components/GeneModelGtex";
 import { MIN_MEDIAN_CPM } from "../components/lib/junctionExpressionFilter";
 
@@ -155,7 +154,6 @@ export default function JunctionExpression() {
               </Box>
             </Box>
           </Paper>
-          <ExonVis gene={gene} exonID={null} eventType="" strand="+" />
         </>
       ) : (
         <Alert severity="info">Enter a gene symbol to view its junction expression heatmap.</Alert>
