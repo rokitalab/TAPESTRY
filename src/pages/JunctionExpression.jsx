@@ -135,17 +135,24 @@ export default function JunctionExpression() {
                 hiddenGroups={hiddenGroups}
                 onHiddenGroupsChange={setHiddenGroups}
               />
-              <GeneModelGtex
-                ref={geneModelRef}
-                gene={gene}
-                junctionData={data}
-                width={plotWidth}
-                hoveredJunctionId={hoveredJunctionId}
-                onHoverJunction={setHoveredJunctionId}
-                metric={metric}
-                minExpressionValue={minExpressionValue}
-                hiddenGroups={hiddenGroups}
-              />
+              {/* Pulls the gene model up into the heatmap's bottom margin,
+                  which is sized for its rotated junction-coordinate labels
+                  and has slack below them -- closes the visual gap between
+                  the two plots without touching that margin (and risking
+                  clipping the labels). */}
+              <Box sx={{ mt: "-20px" }}>
+                <GeneModelGtex
+                  ref={geneModelRef}
+                  gene={gene}
+                  junctionData={data}
+                  width={plotWidth}
+                  hoveredJunctionId={hoveredJunctionId}
+                  onHoverJunction={setHoveredJunctionId}
+                  metric={metric}
+                  minExpressionValue={minExpressionValue}
+                  hiddenGroups={hiddenGroups}
+                />
+              </Box>
             </Box>
           </Paper>
           <ExonVis gene={gene} exonID={null} eventType="" strand="+" />

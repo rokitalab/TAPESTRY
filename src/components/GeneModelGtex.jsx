@@ -6,7 +6,7 @@ import GtexGeneModel from "./lib/GtexGeneModel";
 import { selectExpressedJunctionIds, metricValueGetter, filterHiddenGroups } from "./lib/junctionExpressionFilter";
 
 const SVG_HEIGHT = 200;
-const PADDING = { top: 10, right: 20, bottom: 10, left: 100 };
+const PADDING = { top: 10, right: 20, bottom: 10, left: 120 };
 
 // GtexGeneModel.js's defaults for junction arcs/dots (see its render()) --
 // duplicated here so hover highlighting can fall back to them.

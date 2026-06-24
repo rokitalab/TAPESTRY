@@ -535,7 +535,11 @@ export default function JunctionExpressionHeatmap({
       showEvoDevoToggles: false,
     });
     const geneModelSvg = geneModelRef?.current?.buildExportSvg?.({ width });
-    return geneModelSvg ? stackSvgsVertically([svgEl, geneModelSvg]) : svgEl;
+    // -20px overlaps the gene model into the heatmap's bottom margin, which
+    // is sized for its rotated junction-coordinate labels and has slack
+    // below them -- mirrors the same gap closed on the live page in
+    // JunctionExpression.jsx.
+    return geneModelSvg ? stackSvgsVertically([svgEl, geneModelSvg], -20) : svgEl;
   }
 
   useEffect(() => {
