@@ -1,50 +1,21 @@
 <!--Hi there, thanks for your contribution! Please take a moment to fill out this template to facilitate the review of your pull request.-->
 
-### Purpose/implementation Section
+### What GitHub issue does your pull request address?
 
-#### What scientific question is this PR addressing?
+Closes # 
 
-
-
-#### What was your approach?
+### Describe changes proposed in this pull request
 
 
-
-#### What GitHub issue does your pull request address?
-
-
-
-### Directions for reviewers. Tell potential reviewers what kind of feedback you are soliciting.
-
-#### Which areas should receive a particularly close look?
+### Visual change
+If this is a new visual change or feature, please add a before and after screenshot of the change.
 
 
-
-#### Is there anything that you want to discuss further?
-
-
-
-#### Is the analysis in a mature enough form that the resulting figure(s) and/or table(s) are ready for review?
+### API change
+If this is a new API change or feature, has the API documentation has been updated in the [API repository](https://github.com/rokitalab/TAPESTRY-API)?
 
 
+### Documentation Checklist
+- [ ] The commit log is comprehensible and follows [The seven rules of a great Git commit message](http://chris.beams.io/posts/git-commit/). 
+- [ ] The Docs tab has been updated to reflect the change.
 
-### Results
-
-#### What types of results are included (e.g., table, figure)?
-
-
-
-#### What is your summary of the results?
-
-
-
-#### Reproducibility Checklist
-
-<!-- Check all those that apply or remove this section if it is not applicable.-->
-
-- [ ] The dependencies required to run the code in this pull request have been added to the project Dockerfile.
-
-#### Documentation Checklist
-
-- [ ] This analysis module has a `README` and it is up to date.
-- [ ] The analytical code is documented and contains comments.
