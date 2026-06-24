@@ -115,7 +115,7 @@ function buildGroupOrder(ids, expandedEvoDevo) {
 
   tumors.forEach((id) => {
     order.push(id);
-    meta.set(id, { label: id, swatchColor: HISTOLOGY_COLORS[id], chevron: null });
+    meta.set(id, { label: id, swatchColor: HISTOLOGY_COLORS[id], chevron: null, cohort: "Primary tumor" });
   });
 
   ["Forebrain", "Hindbrain"].forEach((region) => {
@@ -132,11 +132,12 @@ function buildGroupOrder(ids, expandedEvoDevo) {
           swatchColor: EVODEVO_REGION_COLORS[region],
           chevron: children.length > 0 ? (expanded ? "collapse" : "expand") : null,
           expandKey: key,
+          cohort: "Evo-devo",
         });
         if (expanded) {
           children.forEach(({ id }) => {
             order.push(id);
-            meta.set(id, { label: id, swatchColor: EVODEVO_REGION_COLORS[region], chevron: null });
+            meta.set(id, { label: id, swatchColor: EVODEVO_REGION_COLORS[region], chevron: null, cohort: "Evo-devo" });
           });
         }
       } else {
@@ -144,7 +145,7 @@ function buildGroupOrder(ids, expandedEvoDevo) {
         // into, so just show the individual timepoint rows directly.
         children.forEach(({ id }) => {
           order.push(id);
-          meta.set(id, { label: id, swatchColor: EVODEVO_REGION_COLORS[region], chevron: null });
+          meta.set(id, { label: id, swatchColor: EVODEVO_REGION_COLORS[region], chevron: null, cohort: "Evo-devo" });
         });
       }
     });
@@ -160,7 +161,7 @@ function buildGroupOrder(ids, expandedEvoDevo) {
   });
   controls.forEach(({ id, label, facet }) => {
     order.push(id);
-    meta.set(id, { label, swatchColor: controlCohortColor(FACET_TO_COHORT[facet]), chevron: null });
+    meta.set(id, { label, swatchColor: controlCohortColor(FACET_TO_COHORT[facet]), chevron: null, cohort: facet });
   });
 
   others.sort((a, b) => a.localeCompare(b));
@@ -295,6 +296,8 @@ function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, m
   // Color swatch indicating each row's histology/cohort, placed flush
   // against the plot's left edge (between the row label and the cells).
   // Row label text itself stays theme-colored rather than per-row tinted.
+  // Hovering it shows which cohort the row belongs to (tumor histologies
+  // all collapse to "Primary tumor" rather than naming the histology).
   root.append("g")
     .selectAll("rect")
     .data(plotGroups.filter((g) => groupMeta.get(g)?.swatchColor))
@@ -304,7 +307,10 @@ function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, m
     .attr("width", SWATCH_SIZE)
     .attr("height", SWATCH_SIZE)
     .attr("rx", 2)
-    .attr("fill", (g) => groupMeta.get(g).swatchColor);
+    .attr("fill", (g) => groupMeta.get(g).swatchColor)
+    .on("mouseover", (e, g) => onHover(e, `<strong>${groupMeta.get(g).cohort}</strong>`))
+    .on("mousemove", onMove)
+    .on("mouseout", onLeave);
 
   // Expand/collapse chevron for evo-devo rollup rows: "▾" reveals the
   // per-timepoint rows that make up the bucket, "▴" hides them again.
