@@ -1,9 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Box, Stack, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
+import {
+  Box, Button, Checkbox, FormControlLabel, IconButton, Popover, Slider,
+  Stack, ToggleButton, ToggleButtonGroup, Typography,
+} from "@mui/material";
 import { useTheme } from "@mui/material/styles";
+import SettingsIcon from "@mui/icons-material/Settings";
 import * as d3 from "d3";
 import { HISTOLOGY_COLORS, controlCohortColor } from "../histologyColors";
-import { MIN_TOTAL_READS, selectExpressedJunctionIds } from "./lib/junctionExpressionFilter";
+import {
+  MIN_TOTAL_READS, MIN_MEDIAN_CPM, selectExpressedJunctionIds, metricValueGetter, filterHiddenGroups,
+} from "./lib/junctionExpressionFilter";
 import PlotDownloadMenu from "./PlotDownloadMenu";
 import { stackSvgsVertically } from "./lib/svgExport";
 
@@ -44,14 +50,11 @@ function evoDevoPhase(timepoint) {
   return timepoint.includes("Week Post Conception") ? "Prenatal" : "Postnatal";
 }
 
-// Builds the ordered row list and per-row display metadata: tumors first
-// (alphabetical), then evo-devo bucketed by region/phase -- Forebrain
-// Prenatal, Forebrain Postnatal, Hindbrain Prenatal, Hindbrain Postnatal --
-// each collapsed behind its rollup row by default, then the remaining
-// control cohorts in the same order as PlotArea.jsx's Controls tab facets.
-// Working off the tissueSiteDetailId string alone since the heatmap API has
-// no separate cohort field.
-function buildGroupOrder(ids, expandedEvoDevo) {
+// Buckets raw tissueSiteDetailId strings into tumors/evo-devo
+// rollups+children/controls/others -- shared by buildGroupOrder (which
+// turns this into the heatmap's ordered rows) and buildSampleFacets (which
+// turns it into the Configure Samples popover's checkbox lists).
+function classifyGroupIds(ids) {
   const tumors = [];
   const evoRollups = new Map(); // "Region:Phase" -> id
   const evoChildren = new Map(); // "Region:Phase" -> [{ id, tIdx }]
@@ -91,6 +94,19 @@ function buildGroupOrder(ids, expandedEvoDevo) {
 
     others.push(id);
   });
+
+  return { tumors, evoRollups, evoChildren, controls, others };
+}
+
+// Builds the ordered row list and per-row display metadata: tumors first
+// (alphabetical), then evo-devo bucketed by region/phase -- Forebrain
+// Prenatal, Forebrain Postnatal, Hindbrain Prenatal, Hindbrain Postnatal --
+// each collapsed behind its rollup row by default, then the remaining
+// control cohorts in the same order as PlotArea.jsx's Controls tab facets.
+// Working off the tissueSiteDetailId string alone since the heatmap API has
+// no separate cohort field.
+function buildGroupOrder(ids, expandedEvoDevo) {
+  const { tumors, evoRollups, evoChildren, controls, others } = classifyGroupIds(ids);
 
   tumors.sort((a, b) => a.localeCompare(b));
 
@@ -156,6 +172,51 @@ function buildGroupOrder(ids, expandedEvoDevo) {
   return { order, meta };
 }
 
+// Builds the Configure Samples popover's facet sections from the raw,
+// unfiltered data -- so a currently-hidden item still shows up (unchecked)
+// as a re-enableable option, regardless of what filterHiddenGroups has
+// dropped from the plot itself. Evo-devo rollup+children collapse onto one
+// per-bucket item (hideKey `evo:<region>:<phase>`), matching how
+// junctionExpressionFilter.js's hideKeyFor groups them for filtering.
+function buildSampleFacets(data) {
+  const seen = new Set();
+  const ids = [];
+  data.forEach((d) => {
+    if (!seen.has(d.tissueSiteDetailId)) {
+      seen.add(d.tissueSiteDetailId);
+      ids.push(d.tissueSiteDetailId);
+    }
+  });
+
+  const { tumors, evoRollups, evoChildren, controls } = classifyGroupIds(ids);
+  const sections = [];
+
+  if (tumors.length > 0) {
+    sections.push({
+      key: "Primary Tumors",
+      items: tumors.slice().sort((a, b) => a.localeCompare(b)).map((id) => ({ hideKey: id, label: id })),
+    });
+  }
+
+  CONTROL_FACET_ORDER.forEach((facet) => {
+    const items = controls
+      .filter((c) => c.facet === facet)
+      .sort((a, b) => a.label.localeCompare(b.label))
+      .map((c) => ({ hideKey: c.id, label: c.label }));
+    if (items.length > 0) sections.push({ key: facet, items });
+  });
+
+  const evoBucketKeys = new Set([...evoRollups.keys(), ...evoChildren.keys()]);
+  const evoItems = ["Forebrain", "Hindbrain"].flatMap((region) =>
+    ["Prenatal", "Postnatal"]
+      .filter((phase) => evoBucketKeys.has(`${region}:${phase}`))
+      .map((phase) => ({ hideKey: `evo:${region}:${phase}`, label: `${region} (${phase})` }))
+  );
+  if (evoItems.length > 0) sections.push({ key: "Evo-devo", items: evoItems });
+
+  return sections;
+}
+
 // The expand/collapse chevron (for evo-devo rollup rows) sits flush against
 // the left edge of the SVG, row labels (theme-colored, not per-row tinted)
 // sit next to it, and the per-row histology/cohort color swatch sits
@@ -170,8 +231,8 @@ const LABEL_X = SWATCH_X - 8;
 // (median_cpm/mean_cpm/total_reads), defaulting to 0 for group/junction
 // combos absent from the API response (never detected in any sample).
 const METRICS = {
-  median: { label: "Median CPM", get: (rec) => rec?.median ?? 0, fmt: (v) => v.toFixed(3) },
-  mean: { label: "Mean CPM", get: (rec) => rec?.mean_cpm ?? 0, fmt: (v) => v.toFixed(3) },
+  median: { label: "Median CPM", get: metricValueGetter("median"), fmt: (v) => v.toFixed(3) },
+  mean: { label: "Mean CPM", get: metricValueGetter("mean"), fmt: (v) => v.toFixed(3) },
   total: { label: "Total Reads", get: (rec) => rec?.total_reads ?? 0, fmt: (v) => v.toLocaleString() },
 };
 
@@ -347,12 +408,15 @@ function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, m
 
 export default function JunctionExpressionHeatmap({
   gene, data, width, geneModelRef = null, hoveredJunctionId = null, onHoverJunction,
+  metric, onMetricChange, minExpressionValue, onMinExpressionValueChange,
+  hiddenGroups, onHiddenGroupsChange,
 }) {
   const theme = useTheme();
   const svgRef = useRef(null);
   const [tooltip, setTooltip] = useState({ visible: false, x: 0, y: 0, html: "" });
-  const [metric, setMetric] = useState("median");
   const [expandedEvoDevo, setExpandedEvoDevo] = useState(new Set());
+  const [samplesAnchor, setSamplesAnchor] = useState(null);
+  const [expandedFacets, setExpandedFacets] = useState(new Set());
 
   function toggleEvoDevoExpand(key) {
     setExpandedEvoDevo((prev) => {
@@ -362,23 +426,32 @@ export default function JunctionExpressionHeatmap({
     });
   }
 
+  // Drops rows the user has hidden via Configure Samples before any other
+  // filtering, so a hidden sample group counts toward neither the heatmap
+  // rows nor the expressed-junction calculation below.
+  const visibleData = useMemo(() => filterHiddenGroups(data, hiddenGroups), [data, hiddenGroups]);
+
   // Keeps the heatmap focused on junctions that are part of the reference
   // annotation and have meaningful read support across the gene's
   // plot_groups, rather than letting lowly-expressed/novel junctions
   // crowd out the signal.
   const filteredData = useMemo(() => {
     const totalReadsByJunction = new Map();
-    data.forEach((d) => {
+    visibleData.forEach((d) => {
       totalReadsByJunction.set(d.junctionId, (totalReadsByJunction.get(d.junctionId) ?? 0) + (d.total_reads ?? 0));
     });
-    return data.filter((d) => d.annotated && totalReadsByJunction.get(d.junctionId) > MIN_TOTAL_READS);
-  }, [data]);
+    return visibleData.filter((d) => d.annotated && totalReadsByJunction.get(d.junctionId) > MIN_TOTAL_READS);
+  }, [visibleData]);
 
-  // Drops junctions that never reach a median CPM of MIN_MEDIAN_CPM in any
-  // group -- a flat, lowly-expressed row carries no signal and just clutters
-  // the heatmap. Shared with GeneModelGtex so both show the same junctions.
+  // Drops junctions that never reach the slider's min CPM (for whichever
+  // metric is toggled) in any visible group -- a flat, lowly-expressed row
+  // carries no signal and just clutters the heatmap. Shared with
+  // GeneModelGtex so both show the same junctions.
   const junctions = useMemo(() => {
-    const expressedIds = selectExpressedJunctionIds(data);
+    const expressedIds = selectExpressedJunctionIds(visibleData, {
+      getValue: metricValueGetter(metric),
+      minValue: minExpressionValue,
+    });
     const seen = new Map();
     filteredData.forEach((d) => {
       if (expressedIds.has(d.junctionId) && !seen.has(d.junctionId)) {
@@ -386,7 +459,9 @@ export default function JunctionExpressionHeatmap({
       }
     });
     return Array.from(seen.values()).sort((a, b) => a.start - b.start);
-  }, [data, filteredData]);
+  }, [visibleData, filteredData, metric, minExpressionValue]);
+
+  const sampleFacets = useMemo(() => buildSampleFacets(data), [data]);
 
   // Rows are ordered the same way PlotArea.jsx orders its groups: tumors
   // first, then evo-devo bucketed by region/phase (collapsed behind a
@@ -473,14 +548,6 @@ export default function JunctionExpressionHeatmap({
     });
   }, [junctions, plotGroups, groupMeta, width, metric, hoveredJunctionId, onHoverJunction, theme.palette.text.primary]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (junctions.length === 0) {
-    return (
-      <Typography color="text.secondary">
-        No annotated junctions with more than {MIN_TOTAL_READS} total reads found for {gene || "this gene"}.
-      </Typography>
-    );
-  }
-
   return (
     <Box>
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
@@ -488,22 +555,47 @@ export default function JunctionExpressionHeatmap({
           Junction Expression of {gene}
         </Typography>
         <Stack direction="row" spacing={2} alignItems="center">
-          <Stack direction="row" spacing={1} alignItems="center">
-            <Typography variant="caption" color="text.secondary">0</Typography>
-            <Box sx={{ width: 100, height: 10, borderRadius: 1, background: LEGEND_GRADIENT }} />
-            <Typography variant="caption" color="text.secondary">
-              {roundToSigFigs(legendMax, 2)} {METRICS[metric].label}
+          {junctions.length > 0 && (
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Typography variant="caption" color="text.secondary">0</Typography>
+              <Box sx={{ width: 100, height: 10, borderRadius: 1, background: LEGEND_GRADIENT }} />
+              <Typography variant="caption" color="text.secondary">
+                {roundToSigFigs(legendMax, 2)} {METRICS[metric].label}
+              </Typography>
+            </Stack>
+          )}
+          <Box sx={{ width: 160 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>
+              Min {METRICS[metric].label} ≥ {minExpressionValue.toFixed(1)}
             </Typography>
-          </Stack>
+            <Slider
+              value={minExpressionValue}
+              onChange={(_, v) => onMinExpressionValueChange(v)}
+              min={0}
+              max={10}
+              step={0.1}
+              marks={[{ value: MIN_MEDIAN_CPM }]}
+              valueLabelDisplay="auto"
+              size="small"
+            />
+          </Box>
           <ToggleButtonGroup
             size="small"
             exclusive
             value={metric}
-            onChange={(_, v) => { if (v !== null) setMetric(v); }}
+            onChange={(_, v) => { if (v !== null) onMetricChange(v); }}
           >
             <ToggleButton value="median">Median</ToggleButton>
             <ToggleButton value="mean">Mean</ToggleButton>
           </ToggleButtonGroup>
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<SettingsIcon fontSize="small" />}
+            onClick={(e) => setSamplesAnchor(e.currentTarget)}
+          >
+            Configure Samples
+          </Button>
           <PlotDownloadMenu
             buildExportSvg={buildExportSvg}
             title={`Junction Expression & Gene Model of ${gene}`}
@@ -512,26 +604,97 @@ export default function JunctionExpressionHeatmap({
           />
         </Stack>
       </Stack>
-      <svg ref={svgRef} width={width} height={svgHeight} style={{ display: "block" }} />
-      {tooltip.visible && (
-        <div
-          dangerouslySetInnerHTML={{ __html: tooltip.html }}
-          style={{
-            position: "fixed",
-            left: tooltip.x,
-            top: tooltip.y,
-            background: "rgba(30,30,30,0.9)",
-            color: "#fff",
-            padding: "6px 10px",
-            borderRadius: 4,
-            fontSize: 12,
-            lineHeight: 1.6,
-            pointerEvents: "none",
-            zIndex: 9999,
-            whiteSpace: "nowrap",
-          }}
-        />
+
+      {junctions.length === 0 ? (
+        <Typography color="text.secondary">
+          No annotated junctions with more than {MIN_TOTAL_READS} total reads found for {gene || "this gene"}.
+        </Typography>
+      ) : (
+        <>
+          <svg ref={svgRef} width={width} height={svgHeight} style={{ display: "block" }} />
+          {tooltip.visible && (
+            <div
+              dangerouslySetInnerHTML={{ __html: tooltip.html }}
+              style={{
+                position: "fixed",
+                left: tooltip.x,
+                top: tooltip.y,
+                background: "rgba(30,30,30,0.9)",
+                color: "#fff",
+                padding: "6px 10px",
+                borderRadius: 4,
+                fontSize: 12,
+                lineHeight: 1.6,
+                pointerEvents: "none",
+                zIndex: 9999,
+                whiteSpace: "nowrap",
+              }}
+            />
+          )}
+        </>
       )}
+
+      <Popover
+        open={Boolean(samplesAnchor)}
+        anchorEl={samplesAnchor}
+        onClose={() => setSamplesAnchor(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+        transformOrigin={{ vertical: "top", horizontal: "right" }}
+      >
+        <Box sx={{ p: 2, minWidth: 260, maxHeight: 420, overflowY: "auto" }}>
+          {sampleFacets.map((section) => {
+            const allOn = section.items.every((it) => !hiddenGroups.has(it.hideKey));
+            const someOn = section.items.some((it) => !hiddenGroups.has(it.hideKey));
+            const isExpanded = expandedFacets.has(section.key);
+            return (
+              <Box key={section.key} sx={{ mb: 1 }}>
+                <Stack direction="row" alignItems="center">
+                  <Checkbox
+                    size="small"
+                    checked={allOn}
+                    indeterminate={!allOn && someOn}
+                    onChange={() => onHiddenGroupsChange((prev) => {
+                      const next = new Set(prev);
+                      if (allOn) section.items.forEach((it) => next.add(it.hideKey));
+                      else section.items.forEach((it) => next.delete(it.hideKey));
+                      return next;
+                    })}
+                  />
+                  <Typography variant="body2" sx={{ flex: 1, fontWeight: 600 }}>{section.key}</Typography>
+                  <IconButton
+                    size="small"
+                    onClick={() => setExpandedFacets((prev) => {
+                      const next = new Set(prev);
+                      next.has(section.key) ? next.delete(section.key) : next.add(section.key);
+                      return next;
+                    })}
+                  >
+                    <Typography variant="caption" sx={{ lineHeight: 1 }}>{isExpanded ? "▴" : "▾"}</Typography>
+                  </IconButton>
+                </Stack>
+                {isExpanded && section.items.map((it) => (
+                  <Box key={it.hideKey} sx={{ pl: 2.5, display: "block" }}>
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          size="small"
+                          checked={!hiddenGroups.has(it.hideKey)}
+                          onChange={() => onHiddenGroupsChange((prev) => {
+                            const next = new Set(prev);
+                            next.has(it.hideKey) ? next.delete(it.hideKey) : next.add(it.hideKey);
+                            return next;
+                          })}
+                        />
+                      }
+                      label={<Typography variant="body2">{it.label}</Typography>}
+                    />
+                  </Box>
+                ))}
+              </Box>
+            );
+          })}
+        </Box>
+      </Popover>
     </Box>
   );
 }

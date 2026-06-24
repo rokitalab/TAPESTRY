@@ -4,6 +4,7 @@ import { Alert, Box, CircularProgress, Divider, Paper, Stack, TextField, Typogra
 import JunctionExpressionHeatmap from "../components/JunctionExpressionHeatmap";
 import ExonVis from "../components/ExonVis";
 import GeneModelGtex from "../components/GeneModelGtex";
+import { MIN_MEDIAN_CPM } from "../components/lib/junctionExpressionFilter";
 
 const API_BASE = (import.meta.env.VITE_API_BASE || "/tapestry-api").replace(/\/$/, "");
 
@@ -22,6 +23,14 @@ export default function JunctionExpression() {
   // Shared between the heatmap and the gene model so hovering a junction in
   // either one highlights the matching column/arc in the other.
   const [hoveredJunctionId, setHoveredJunctionId] = useState(null);
+
+  // Shared between the heatmap and the gene model so toggling the metric,
+  // the min-CPM slider, or a sample group in Configure Samples changes which
+  // junctions count as "expressed" identically in both -- otherwise the
+  // heatmap's columns and the gene model's arcs could disagree.
+  const [metric, setMetric] = useState("median");
+  const [minExpressionValue, setMinExpressionValue] = useState(MIN_MEDIAN_CPM);
+  const [hiddenGroups, setHiddenGroups] = useState(new Set());
 
   // Shared between the heatmap and the gene model so both SVGs measure off
   // the same container and always agree on width. Tracked as state (rather
@@ -119,6 +128,12 @@ export default function JunctionExpression() {
                 geneModelRef={geneModelRef}
                 hoveredJunctionId={hoveredJunctionId}
                 onHoverJunction={setHoveredJunctionId}
+                metric={metric}
+                onMetricChange={setMetric}
+                minExpressionValue={minExpressionValue}
+                onMinExpressionValueChange={setMinExpressionValue}
+                hiddenGroups={hiddenGroups}
+                onHiddenGroupsChange={setHiddenGroups}
               />
               <GeneModelGtex
                 ref={geneModelRef}
@@ -127,6 +142,9 @@ export default function JunctionExpression() {
                 width={plotWidth}
                 hoveredJunctionId={hoveredJunctionId}
                 onHoverJunction={setHoveredJunctionId}
+                metric={metric}
+                minExpressionValue={minExpressionValue}
+                hiddenGroups={hiddenGroups}
               />
             </Box>
           </Paper>

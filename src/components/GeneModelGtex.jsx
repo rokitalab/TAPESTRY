@@ -3,7 +3,7 @@ import { Alert, Box, CircularProgress, Typography } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import * as d3 from "d3";
 import GtexGeneModel from "./lib/GtexGeneModel";
-import { selectExpressedJunctionIds } from "./lib/junctionExpressionFilter";
+import { selectExpressedJunctionIds, metricValueGetter, filterHiddenGroups } from "./lib/junctionExpressionFilter";
 
 const SVG_HEIGHT = 200;
 const PADDING = { top: 10, right: 20, bottom: 10, left: 100 };
@@ -92,7 +92,7 @@ function drawGeneModel(dom, { width, exons, junctions, strand, gene, textColor, 
 }
 
 const GeneModelGtex = forwardRef(function GeneModelGtex(
-  { gene, junctionData, width, hoveredJunctionId = null, onHoverJunction },
+  { gene, junctionData, width, hoveredJunctionId = null, onHoverJunction, metric, minExpressionValue, hiddenGroups },
   ref
 ) {
   const theme = useTheme();
@@ -158,17 +158,22 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
   // GtexGeneModel only needs chromStart/chromEnd/junctionId per junction --
   // reuses the same gene-junction-expression rows the heatmap renders,
   // filtered down to the same expressed junctions the heatmap shows (see
-  // selectExpressedJunctionIds) and deduped to one entry per junction.
+  // selectExpressedJunctionIds, given the same metric/threshold/hidden-group
+  // state) and deduped to one entry per junction.
   const junctions = useMemo(() => {
-    const expressedIds = selectExpressedJunctionIds(junctionData);
+    const visibleData = filterHiddenGroups(junctionData, hiddenGroups);
+    const expressedIds = selectExpressedJunctionIds(visibleData, {
+      getValue: metricValueGetter(metric),
+      minValue: minExpressionValue,
+    });
     const seen = new Map();
-    junctionData.forEach((d) => {
+    visibleData.forEach((d) => {
       if (!expressedIds.has(d.junctionId) || seen.has(d.junctionId)) return;
       const [, start, end] = d.junctionId.split("_");
       seen.set(d.junctionId, { junctionId: d.junctionId, chromStart: Number(start), chromEnd: Number(end) });
     });
     return Array.from(seen.values());
-  }, [junctionData]);
+  }, [junctionData, metric, minExpressionValue, hiddenGroups]);
 
   useEffect(() => {
     if (!svgRef.current || !exons || exons.length === 0) return;
