@@ -8,6 +8,14 @@ import { selectExpressedJunctionIds, metricValueGetter, filterHiddenGroups } fro
 const SVG_HEIGHT = 200;
 const PADDING = { top: 10, right: 20, bottom: 10, left: 120 };
 
+// GENCODE/Ensembl's "degraded transcript" quality flags -- these transcripts
+// are predicted to be non-functional (retained intron, nonsense-mediated
+// decay, missing stop codon), so their exon structure would distort the
+// gene model's exon footprint away from real biology. Excluded from the
+// exon union below, but not from the canonical-transcript lookup used for
+// the gene ID label.
+const EXCLUDED_TRANSCRIPT_BIOTYPES = new Set(["retained_intron", "nonsense_mediated_decay", "non_stop_decay"]);
+
 // GtexGeneModel.js's defaults for junction arcs/dots (see its render()) --
 // duplicated here so hover highlighting can fall back to them.
 const JUNC_CURVE_COLOR = "#92bcc9";
@@ -216,7 +224,11 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
         const strandVal = geneData?.strand === -1 ? "-" : "+";
         const transcripts = Array.isArray(geneData.Transcript) ? geneData.Transcript : [];
 
-        const rawExons = transcripts
+        // Falls back to every transcript if the exclusion would leave none
+        // (e.g. a gene whose only annotated transcripts are all flagged) --
+        // showing a degraded-transcript exon footprint beats showing none.
+        const exonTranscripts = transcripts.filter((t) => !EXCLUDED_TRANSCRIPT_BIOTYPES.has(t?.biotype));
+        const rawExons = (exonTranscripts.length > 0 ? exonTranscripts : transcripts)
           .flatMap((t) => (Array.isArray(t?.Exon) ? t.Exon : []))
           .map((e) => ({ start: Number(e.start), end: Number(e.end), id: e.id }))
           .filter((e) => Number.isFinite(e.start) && Number.isFinite(e.end));
