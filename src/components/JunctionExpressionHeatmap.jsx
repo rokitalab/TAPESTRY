@@ -291,6 +291,7 @@ function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, m
     .attr("text-anchor", "end")
     .attr("dominant-baseline", "central")
     .attr("font-size", 11)
+    .attr("font-family", "sans-serif")
     .attr("fill", textColor)
     .text((g) => groupMeta.get(g)?.label ?? g);
 
@@ -327,6 +328,7 @@ function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, m
       .attr("text-anchor", "middle")
       .attr("dominant-baseline", "central")
       .attr("font-size", 16)
+      .attr("font-family", "sans-serif")
       .attr("fill", textColor)
       .style("cursor", "pointer")
       .style("user-select", "none")
