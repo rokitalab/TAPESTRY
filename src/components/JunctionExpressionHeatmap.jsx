@@ -28,8 +28,9 @@ const EVODEVO_TIMEPOINTS = [
 ];
 
 // Mirrors PlotArea.jsx's EVODEVO_COLORS, reused for the Forebrain/Hindbrain
-// rollup row swatches.
-const EVODEVO_REGION_COLORS = { Forebrain: "#e67e22", Hindbrain: "#2980b9" };
+// rollup row swatches. Both regions share the same orange -- there's no
+// region-color distinction in this view, only Forebrain/Hindbrain labels.
+const EVODEVO_REGION_COLORS = { Forebrain: "#e67e22", Hindbrain: "#e67e22" };
 
 // Mirrors PlotArea.jsx's control-cohort facet order, minus Primary Tumors and
 // Evo-devo, which are bucketed separately in buildGroupOrder below.

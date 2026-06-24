@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { Alert, Box, CircularProgress, Typography } from "@mui/material";
+import { Alert, Box, CircularProgress } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import * as d3 from "d3";
 import GtexGeneModel from "./lib/GtexGeneModel";
@@ -24,12 +24,12 @@ function junctionIdOf(node, ownClass) {
   return token ? token.slice(4) : null;
 }
 
-// Ensembl's canonical-transcript exons don't come with an exonNumber, and
+// Ensembl's transcript exons don't come with an exonNumber, and
 // GtexGeneModel only uses exonNumber to measure exon-to-exon distance for
 // junction arc height -- genomic order (regardless of strand, per the
 // class's own header comment) is sufficient for that.
-function toGeneModelExons(canonExons) {
-  return canonExons
+function toGeneModelExons(mergedExons) {
+  return mergedExons
     .slice()
     .sort((a, b) => a.start - b.start)
     .map((e, i) => ({
@@ -40,10 +40,27 @@ function toGeneModelExons(canonExons) {
     }));
 }
 
+// Collapses every transcript's exons into one non-overlapping set so the
+// gene model shows the full exon footprint of the gene, not just whichever
+// exons happen to belong to the canonical transcript.
+function mergeExonIntervals(rawExons) {
+  const sorted = rawExons.slice().sort((a, b) => a.start - b.start);
+  const merged = [];
+  sorted.forEach((e) => {
+    const last = merged[merged.length - 1];
+    if (last && e.start <= last.end + 1) {
+      last.end = Math.max(last.end, e.end);
+    } else {
+      merged.push({ start: e.start, end: e.end });
+    }
+  });
+  return merged;
+}
+
 // Renders exons/junction arcs into `dom` (a d3 selection of an <svg>) --
 // shared by the live render effect and buildExportSvg below so the download
 // produces exactly what's on screen.
-function drawGeneModel(dom, { width, exons, junctions, strand, gene, textColor, primaryColor, hoveredJunctionId, onHoverJunction }) {
+function drawGeneModel(dom, { width, exons, junctions, strand, gene, geneId, textColor, primaryColor, hoveredJunctionId, onHoverJunction }) {
   dom.selectAll("*").remove();
   const g = dom.append("g").attr("transform", `translate(${PADDING.left},${PADDING.top})`);
 
@@ -62,7 +79,32 @@ function drawGeneModel(dom, { width, exons, junctions, strand, gene, textColor, 
 
   g.selectAll(".exon").style("fill", textColor);
   g.selectAll(".exon-curated").style("fill", primaryColor);
-  g.selectAll("#modelInfo, #modelLabel").attr("fill", textColor);
+  // GtexGeneModel.js's render() places "Gene Model" (#modelInfo) just above
+  // the exon row and the gene name (#modelLabel) beside it -- moved up and
+  // enlarged here, with a third line for the gene ID, so all three stack
+  // above the exon row instead of crowding it.
+  const exonY = (SVG_HEIGHT - PADDING.top - PADDING.bottom) / 2;
+  const stackX = g.select("#modelLabel").attr("x");
+  g.select("#modelInfo")
+    .attr("x", stackX)
+    .attr("y", exonY - 38)
+    .style("font-size", "15px")
+    .attr("fill", textColor);
+  g.select("#modelLabel")
+    .attr("y", exonY - 22)
+    .style("font-size", "13px")
+    .attr("fill", textColor)
+    .text(`${gene} (${strand})`);
+  if (geneId) {
+    g.append("text")
+      .attr("id", "modelGeneId")
+      .attr("text-anchor", "end")
+      .attr("x", stackX)
+      .attr("y", exonY - 8)
+      .style("font-size", "11px")
+      .attr("fill", textColor)
+      .text(geneId);
+  }
   // gtex-viz's own stylesheet sets junc-curve's fill to none; without it the
   // browser fills the area the arc implicitly closes over with black.
   g.selectAll(".junc-curve").style("fill", "none");
@@ -99,14 +141,19 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
   const svgRef = useRef(null);
   const [exons, setExons] = useState(null);
   const [strand, setStrand] = useState("+");
+  const [geneId, setGeneId] = useState(null);
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState(null);
 
-  // Same Ensembl lookup ExonVis.jsx uses for canonical-transcript exon
-  // coordinates -- this app has no internal exon-coordinate endpoint.
+  // Same Ensembl lookup ExonVis.jsx uses for transcript exon coordinates --
+  // this app has no internal exon-coordinate endpoint. Unlike ExonVis,
+  // exons come from every transcript (merged into one non-overlapping set
+  // below) so the model shows the gene's full exon footprint rather than
+  // just the canonical transcript's.
   useEffect(() => {
     if (!gene) {
       setExons(null);
+      setGeneId(null);
       return;
     }
     const controller = new AbortController();
@@ -129,24 +176,21 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
 
         const strandVal = geneData?.strand === -1 ? "-" : "+";
         const transcripts = Array.isArray(geneData.Transcript) ? geneData.Transcript : [];
-        const canonicalId = geneData?.canonical_transcript ?? null;
-        const canon =
-          transcripts.find((t) => (t?.id || t?.stable_id) === canonicalId) ||
-          transcripts.find((t) => t?.is_canonical) ||
-          transcripts[0];
-        const rawExons = Array.isArray(canon?.Exon) ? canon.Exon : [];
 
-        const canonExons = rawExons
+        const rawExons = transcripts
+          .flatMap((t) => (Array.isArray(t?.Exon) ? t.Exon : []))
           .map((e) => ({ start: Number(e.start), end: Number(e.end) }))
           .filter((e) => Number.isFinite(e.start) && Number.isFinite(e.end));
-        if (canonExons.length === 0) throw new Error("No exon coordinates returned for canonical transcript");
+        if (rawExons.length === 0) throw new Error("No exon coordinates returned for transcripts");
 
         setStrand(strandVal);
-        setExons(toGeneModelExons(canonExons));
+        setExons(toGeneModelExons(mergeExonIntervals(rawExons)));
+        setGeneId(ensg);
       } catch (e) {
         if (e.name !== "AbortError") {
           setFetchError(e.message);
           setExons(null);
+          setGeneId(null);
         }
       } finally {
         setLoading(false);
@@ -183,12 +227,13 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
       junctions,
       strand,
       gene,
+      geneId,
       textColor: theme.palette.text.primary,
       primaryColor: theme.palette.primary.main,
       hoveredJunctionId,
       onHoverJunction,
     });
-  }, [exons, junctions, strand, gene, width, hoveredJunctionId, onHoverJunction,
+  }, [exons, junctions, strand, gene, geneId, width, hoveredJunctionId, onHoverJunction,
       theme.palette.text.primary, theme.palette.primary.main]);
 
   // Lets JunctionExpressionHeatmap.jsx's download button pull in a
@@ -206,6 +251,7 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
         junctions,
         strand,
         gene,
+        geneId,
         textColor: theme.palette.text.primary,
         primaryColor: theme.palette.primary.main,
         hoveredJunctionId: null,
@@ -213,15 +259,12 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
       });
       return svgEl;
     },
-  }), [exons, junctions, strand, gene, theme.palette.text.primary, theme.palette.primary.main]);
+  }), [exons, junctions, strand, gene, geneId, theme.palette.text.primary, theme.palette.primary.main]);
 
   if (!gene) return null;
 
   return (
     <Box>
-      <Typography sx={{ fontWeight: 800, mb: 1 }}>
-        Gene Model of {gene} (GTEx style)
-      </Typography>
       {loading ? (
         <Box sx={{ display: "flex", justifyContent: "center", p: 3 }}>
           <CircularProgress size={24} />
