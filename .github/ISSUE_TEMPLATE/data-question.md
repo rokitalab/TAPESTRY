@@ -7,13 +7,7 @@ assignees: ''
 
 ---
 
-#### What data file(s) does this issue pertain to?
-
-
-
-#### What release are you using?
-<!--You may want to check if the issue has been resolved in an updated release-->
-
+#### What data does this issue pertain to?
 
 
 #### Put your question or report your issue here.
