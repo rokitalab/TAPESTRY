@@ -224,7 +224,7 @@ export default function HistologySummary() {
   const totals = useMemo(
     () => ({
       histologies: histologyData.length,
-      junctions: geneData.reduce((s, r) => s + r.num_junctions, 0),
+      junctions: tejData.length,
       genes: geneData.length,
       samples: histologyData.reduce((s, r) => s + r.num_samples, 0),
     }),
