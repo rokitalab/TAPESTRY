@@ -501,72 +501,78 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
   return (
     <Box ref={containerRef} sx={{ mt: 2, position: "relative" }}>
 
-      {/* Junction info — main header */}
+      {/* Junction info header — zoom button floats right inline with the title */}
       {(junctionName || junctionCoords?.eventType) && (
-        <Box sx={{ mb: 1.5 }}>
-          <Stack direction="row" alignItems="baseline" spacing={1.5} sx={{ flexWrap: "wrap" }}>
-            {junctionName && (
-              <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
-                {junctionName}
+        <Stack direction="row" alignItems="flex-start" sx={{ mb: 1.5 }}>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Stack direction="row" alignItems="baseline" spacing={1.5} sx={{ flexWrap: "wrap" }}>
+              {junctionName && (
+                <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
+                  {junctionName}
+                </Typography>
+              )}
+              {junctionCoords?.eventType && (
+                <Typography variant="body2" color="text.secondary">
+                  {junctionCoords.eventType}
+                </Typography>
+              )}
+            </Stack>
+            {junctionString && (
+              <Typography variant="caption" color="text.secondary" sx={{ fontFamily: "monospace", display: "block", mt: 0.25 }}>
+                {junctionString}
               </Typography>
             )}
-            {junctionCoords?.eventType && (
-              <Typography variant="body2" color="text.secondary">
-                {junctionCoords.eventType}
-              </Typography>
-            )}
-          </Stack>
-          {junctionString && (
-            <Typography variant="caption" color="text.secondary" sx={{ fontFamily: "monospace", display: "block", mt: 0.25 }}>
-              {junctionString}
-            </Typography>
-          )}
-        </Box>
-      )}
-
-      <Divider sx={{ mb: 1.5 }} />
-
-      {/* Transcript section header */}
-      <Box sx={{ mb: 1 }}>
-        <Stack direction="row" alignItems="center" spacing={2}>
-          <Typography sx={{ fontWeight: 700 }}>
-            {geneName ? <><em>{geneName}</em> Transcripts</> : "Transcripts"}
-          </Typography>
+          </Box>
           {!loading && zoomDomain && (
-            <Button size="small" variant="outlined" onClick={() => setZoomed(z => !z)} sx={{ flexShrink: 0 }}>
+            <Button size="small" variant="outlined" onClick={() => setZoomed(z => !z)} sx={{ ml: 2, flexShrink: 0, alignSelf: "center" }}>
               {zoomed ? "View full transcript" : "Zoom to area of interest"}
             </Button>
           )}
         </Stack>
-        {geneID && (
-          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.25 }}>
-            {geneID} (strand: {strandLabel})
-          </Typography>
-        )}
-        {!loading && legendItems.length > 0 && (
-          <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", alignItems: "center", mt: 0.75 }}>
-            {legendItems.map(([bio, colour]) => {
-              const selected = activeBiotypes.has(bio);
-              const bg = selected ? colour : hexToRgba(colour, 0.5);
-              return (
-                <Chip key={bio} label={bio} size="small" onClick={() => toggleBio(bio)} sx={{ bgcolor: bg, color: "common.white", fontWeight: selected ? 700 : 400, border: "1px solid", borderColor: selected ? "transparent" : "divider", cursor: "pointer" }} />
-              );
-            })}
-          </Stack>
-        )}
-      </Box>
+      )}
 
+      {/* Transcript of interest */}
       {loading ? (
         <Box sx={{ display: "flex", justifyContent: "center", p: 3 }}>
           <CircularProgress size={24} />
         </Box>
-      ) : txList.length > 0 ? (
-        <Stack direction="column" spacing={0.5}>
-          {highlightedTx && renderArcRow(highlightedTx)}
-          {highlightedTx && otherTx.length > 0 && <Divider sx={{ my: 0.5 }} />}
-          {otherTx.map(renderCssRow)}
-        </Stack>
+      ) : highlightedTx ? (
+        <Box sx={{ mb: 1.5 }}>
+          {renderArcRow(highlightedTx)}
+        </Box>
       ) : null}
+
+      <Divider sx={{ mb: 1.5 }} />
+
+      {/* Transcript section — header, ENSG, biotype chips, all rows */}
+      {!loading && txList.length > 0 && (
+        <>
+          <Box sx={{ mb: 1 }}>
+            <Typography sx={{ fontWeight: 700 }}>
+              {geneName ? <><em>{geneName}</em> Transcripts</> : "Transcripts"}
+            </Typography>
+            {geneID && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.25 }}>
+                {geneID} (strand: {strandLabel})
+              </Typography>
+            )}
+            {legendItems.length > 0 && (
+              <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", alignItems: "center", mt: 0.75 }}>
+                {legendItems.map(([bio, colour]) => {
+                  const selected = activeBiotypes.has(bio);
+                  const bg = selected ? colour : hexToRgba(colour, 0.5);
+                  return (
+                    <Chip key={bio} label={bio} size="small" onClick={() => toggleBio(bio)} sx={{ bgcolor: bg, color: "common.white", fontWeight: selected ? 700 : 400, border: "1px solid", borderColor: selected ? "transparent" : "divider", cursor: "pointer" }} />
+                  );
+                })}
+              </Stack>
+            )}
+          </Box>
+          <Stack direction="column" spacing={0.5}>
+            {otherTx.map(renderCssRow)}
+          </Stack>
+        </>
+      )}
 
       {hoveredExon && (
         <Box
