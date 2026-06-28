@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { Box, Typography, Stack, Chip } from "@mui/material";
+import { Box, Divider, Typography, Stack, Chip } from "@mui/material";
 import { colourForBiotype, hexToRgba } from "./lib/biotypeColors";
 
-export default function TranscriptVis({ geneID, strand = "+" }) {
+export default function TranscriptVis({ geneID, strand = "+", highlightedTranscript = null }) {
   const [txList, setTxList] = useState([]);
   const [activeBiotypes, setActiveBiotypes] = useState(new Set());
   const [canonicalOnly, setCanonicalOnly] = useState(false);
@@ -42,6 +42,7 @@ export default function TranscriptVis({ geneID, strand = "+" }) {
           if (!id) return null;
           const biotype = t?.biotype || t?.BioType || t?.biotype_name || "unknown";
           const isCanonical = (t?.is_canonical === 1 || t?.is_canonical === true || (canonicalId && id === canonicalId));
+          const displayName = t?.display_name || t?.name || id;
           const colour = colourForBiotype(biotype);
           // Robust exon count extraction across potential shapes (arrays or objects, plus numeric fields)
           let exonCount = null;
@@ -74,7 +75,7 @@ export default function TranscriptVis({ geneID, strand = "+" }) {
             .filter(Boolean)
             .sort((a, b) => a.start - b.start);
           if (exonCount == null) exonCount = exons.length > 0 ? exons.length : null;
-          return { id, biotype, isCanonical, colour, exonCount, exons };
+          return { id, displayName, biotype, isCanonical, colour, exonCount, exons };
         }).filter(Boolean);
         setTxList(items);
         // Ensure all biotypes are selected immediately upon data load
@@ -216,30 +217,109 @@ export default function TranscriptVis({ geneID, strand = "+" }) {
   // After all hooks are declared, safely early-return when no data
   if (!txList.length) return null;
 
+  const effStrand = apiStrand ?? strand ?? "+";
+  const highlightedTx = highlightedTranscript
+    ? visible.find((t) => t.displayName === highlightedTranscript) ?? null
+    : null;
+  const otherTx = highlightedTx
+    ? visible.filter((t) => t.displayName !== highlightedTranscript)
+    : visible;
+
+  const renderArcRow = (t) => {
+    const ARC_H = 30;
+    const TRACK_H = 18;
+    const W = 1000;
+    const svgH = ARC_H + TRACK_H;
+    const exonsSvg = coordDomain && t.exons?.length
+      ? t.exons.map((e) => {
+          const l = ((e.start - coordDomain.min) / coordDomain.span) * W;
+          const r = ((e.end - coordDomain.min) / coordDomain.span) * W;
+          const left = effStrand === "-" ? W - r : l;
+          return { left, width: Math.max(2, r - l) };
+        })
+      : [];
+    return (
+      <Box key={t.id} sx={{ display: "flex", alignItems: "center" }}>
+        <Typography variant="caption" sx={{ fontSize: 12, color: t.colour, fontWeight: 700, minWidth: 140, mr: 1, overflow: "hidden", textOverflow: "ellipsis" }} title={t.id}>
+          {t.displayName}
+        </Typography>
+        {exonsSvg.length > 0 ? (
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <svg width="100%" height={svgH} viewBox={`0 0 ${W} ${svgH}`} preserveAspectRatio="none">
+              {exonsSvg.slice(0, -1).map((e, i) => {
+                const next = exonsSvg[i + 1];
+                const x1 = e.left + e.width;
+                const x2 = next.left;
+                if (x2 <= x1) return null;
+                const midX = (x1 + x2) / 2;
+                const d = `M ${x1},${ARC_H} Q ${midX},${ARC_H * 0.08} ${x2},${ARC_H}`;
+                return <path key={i} d={d} fill="none" stroke={t.colour} strokeWidth={6} strokeLinecap="round" vectorEffect="non-scaling-stroke" />;
+              })}
+              {exonsSvg.map((e, i) => (
+                <rect key={i} x={e.left} y={ARC_H} width={e.width} height={TRACK_H} rx={4} ry={4} fill={t.colour} />
+              ))}
+            </svg>
+          </Box>
+        ) : (
+          <Box sx={{ display: "inline-block", ml: 1, px: 0.5, border: "1px solid", borderColor: "divider", borderRadius: 0.5, fontSize: 11, lineHeight: 1.4, color: "text.secondary", bgcolor: "background.paper" }}>
+            NA
+          </Box>
+        )}
+      </Box>
+    );
+  };
+
+  const renderCssRow = (t) => {
+    const trackH = 20;
+    return (
+      <Box key={t.id} sx={{ display: "flex", alignItems: "center" }}>
+        <Typography variant="caption" sx={{ fontSize: 12, color: t.colour, minWidth: 140, mr: 1, overflow: "hidden", textOverflow: "ellipsis" }} title={t.id}>
+          {t.displayName}
+        </Typography>
+        {coordDomain && t.exons?.length > 0 ? (
+          <Box sx={{ position: "relative", flex: 1, minWidth: 0, height: trackH, bgcolor: "background.default" }}>
+            {t.exons.slice(0, -1).map((e, idx) => {
+              const next = t.exons[idx + 1];
+              if (!next) return null;
+              const intronStart = Math.max(e.end, coordDomain.min);
+              const intronEnd = Math.min(next.start, coordDomain.max);
+              if (!Number.isFinite(intronStart) || !Number.isFinite(intronEnd) || intronEnd <= intronStart) return null;
+              const l = Math.max(0, ((intronStart - coordDomain.min) / coordDomain.span) * 100);
+              const r = Math.min(100, ((intronEnd - coordDomain.min) / coordDomain.span) * 100);
+              const leftPct = effStrand === "-" ? Math.max(0, 100 - r) : l;
+              return (
+                <Box key={`intron-${idx}`} sx={{ position: "absolute", left: `${leftPct}%`, top: `${Math.round(trackH / 2)}px`, width: `${Math.max(0, r - l)}%`, height: "1px", bgcolor: "text.disabled" }} />
+              );
+            })}
+            {t.exons.map((e, idx) => {
+              const l = Math.max(0, ((e.start - coordDomain.min) / coordDomain.span) * 100);
+              const r = Math.min(100, ((e.end - coordDomain.min) / coordDomain.span) * 100);
+              const leftPct = effStrand === "-" ? Math.max(0, 100 - r) : l;
+              return (
+                <Box key={`exon-${idx}`} sx={{ position: "absolute", left: `${leftPct}%`, top: "1px", width: `${Math.max(0.2, r - l)}%`, height: trackH - 2, bgcolor: hexToRgba(t.colour, 0.9), border: "1px solid", borderColor: "divider", borderRadius: 0.5 }} />
+              );
+            })}
+          </Box>
+        ) : (
+          <Box sx={{ display: "inline-block", ml: 1, px: 0.5, border: "1px solid", borderColor: "divider", borderRadius: 0.5, fontSize: 11, lineHeight: 1.4, color: "text.secondary", bgcolor: "background.paper" }}>
+            NA
+          </Box>
+        )}
+      </Box>
+    );
+  };
+
   return (
     <Box sx={{ mt: 2 }}>
       <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 1 }}>
         <Typography sx={{ fontWeight: 700 }}>Transcripts</Typography>
         {legendItems.length > 0 && (
-          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
+          <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", alignItems: "center" }}>
             {legendItems.map(([bio, colour]) => {
               const selected = activeBiotypes.has(bio);
               const bg = selected ? colour : hexToRgba(colour, 0.5);
               return (
-                <Chip
-                  key={bio}
-                  label={bio}
-                  size="small"
-                  onClick={() => toggleBio(bio)}
-                  sx={{
-                    bgcolor: bg,
-                    color: 'common.white',
-                    fontWeight: selected ? 700 : 400,
-                    border: '1px solid',
-                    borderColor: selected ? 'transparent' : 'divider',
-                    cursor: 'pointer',
-                  }}
-                />
+                <Chip key={bio} label={bio} size="small" onClick={() => toggleBio(bio)} sx={{ bgcolor: bg, color: "common.white", fontWeight: selected ? 700 : 400, border: "1px solid", borderColor: selected ? "transparent" : "divider", cursor: "pointer" }} />
               );
             })}
           </Stack>
@@ -247,83 +327,9 @@ export default function TranscriptVis({ geneID, strand = "+" }) {
       </Stack>
 
       <Stack direction="column" spacing={0.5}>
-        {visible.map((t) => {
-          const trackH = 20;
-          const fill = t.colour;
-          const effStrand = apiStrand ?? strand ?? "+";
-          return (
-            <Box key={t.id} sx={{ display: 'flex', alignItems: 'center' }}>
-              <Typography variant="caption" sx={{ fontSize: 12, color: t.colour, minWidth: 140, mr: 1, overflow: 'hidden', textOverflow: 'ellipsis' }} title={t.id}>
-                {t.id}
-              </Typography>
-              {coordDomain && (t.exons && t.exons.length > 0) ? (
-                <Box
-                  sx={{
-                    position: 'relative',
-                    flex: 1,
-                    minWidth: 0,
-                    height: trackH,
-                    bgcolor: 'background.default',
-                  }}
-                >
-                  {/* Intronic segments: thin line centered between exon boxes */}
-                  {(t.exons || []).slice(0, -1).map((e, idx) => {
-                    const next = (t.exons || [])[idx + 1];
-                    if (!next) return null;
-                    const intronStart = Math.max(e.end, coordDomain.min);
-                    const intronEnd = Math.min(next.start, coordDomain.max);
-                    if (!Number.isFinite(intronStart) || !Number.isFinite(intronEnd) || intronEnd <= intronStart) return null;
-                    const l = Math.max(0, ((intronStart - coordDomain.min) / coordDomain.span) * 100);
-                    const r = Math.min(100, ((intronEnd - coordDomain.min) / coordDomain.span) * 100);
-                    const leftPct = effStrand === '-' ? Math.max(0, 100 - r) : l;
-                    const widthPct = Math.max(0, r - l);
-                    return (
-                      <Box
-                        key={`intron-${idx}`}
-                        sx={{
-                          position: 'absolute',
-                          left: `${leftPct}%`,
-                          top: `${Math.round(trackH / 2)}px`,
-                          width: `${widthPct}%`,
-                          height: '1px',
-                          bgcolor: 'text.disabled',
-                        }}
-                      />
-                    );
-                  })}
-
-                  {/* Exon rectangles */}
-                  {(t.exons || []).map((e, idx) => {
-                    const l = Math.max(0, ((e.start - coordDomain.min) / coordDomain.span) * 100);
-                    const r = Math.min(100, ((e.end - coordDomain.min) / coordDomain.span) * 100);
-                    const leftPct = effStrand === '-' ? Math.max(0, 100 - r) : l;
-                    const widthPct = Math.max(0.2, r - l);
-                    return (
-                      <Box
-                        key={`exon-${idx}`}
-                        sx={{
-                          position: 'absolute',
-                          left: `${leftPct}%`,
-                          top: '1px',
-                          width: `${widthPct}%`,
-                          height: trackH - 2,
-                          bgcolor: hexToRgba(fill, 0.9),
-                          border: '1px solid',
-                          borderColor: 'divider',
-                          borderRadius: 0.5,
-                        }}
-                      />
-                    );
-                  })}
-                </Box>
-              ) : (
-                <Box sx={{ display: 'inline-block', ml: 1, px: 0.5, py: 0, border: '1px solid', borderColor: 'divider', borderRadius: 0.5, fontSize: 11, lineHeight: 1.4, color: 'text.secondary', bgcolor: 'background.paper' }}>
-                  NA
-                </Box>
-              )}
-            </Box>
-          );
-        })}
+        {highlightedTx && renderArcRow(highlightedTx)}
+        {highlightedTx && otherTx.length > 0 && <Divider sx={{ opacity: 0.35, my: 0.5 }} />}
+        {otherTx.map(renderCssRow)}
       </Stack>
     </Box>
   );
