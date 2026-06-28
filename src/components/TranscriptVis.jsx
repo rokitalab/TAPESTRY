@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
-import { Box, Divider, Typography, Stack, Chip } from "@mui/material";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Box, CircularProgress, Divider, Typography, Stack, Chip } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import { colourForBiotype, hexToRgba } from "./lib/biotypeColors";
 
-export default function TranscriptVis({ geneID, strand = "+", highlightedTranscript = null, junctionCoords = null }) {
+export default function TranscriptVis({ geneID, geneName = null, strand = "+", highlightedTranscript = null, junctionCoords = null }) {
   const [txList, setTxList] = useState([]);
+  const [loading, setLoading] = useState(false);
   const [activeBiotypes, setActiveBiotypes] = useState(new Set());
   const [canonicalOnly, setCanonicalOnly] = useState(false);
   const [apiStrand, setApiStrand] = useState(null);
@@ -21,6 +22,9 @@ export default function TranscriptVis({ geneID, strand = "+", highlightedTranscr
   useEffect(() => {
     if (!geneID) return;
     const controller = new AbortController();
+    let active = true;
+    setLoading(true);
+    setTxList([]);
     const url = `https://rest.ensembl.org/lookup/id/${encodeURIComponent(geneID)}?content-type=application/json;expand=1`;
     fetch(url, { signal: controller.signal, headers: { Accept: "application/json" } })
       .then(r => {
@@ -28,6 +32,7 @@ export default function TranscriptVis({ geneID, strand = "+", highlightedTranscr
         return r.json();
       })
       .then(data => {
+        if (!active) return;
         // Derive strand from gene lookup: 1 => '+', -1 => '-'
         const s = data?.strand;
         let sChar = null;
@@ -82,14 +87,17 @@ export default function TranscriptVis({ geneID, strand = "+", highlightedTranscr
         // Ensure all biotypes are selected immediately upon data load
         const allBiotypes = new Set(items.map(it => it.biotype));
         setActiveBiotypes(allBiotypes);
+        setLoading(false);
       })
       .catch(err => {
+        if (!active) return;
         if (err.name !== "AbortError") {
           console.error("TranscriptVis Ensembl lookup failed", err);
         }
         setTxList([]);
+        setLoading(false);
       });
-    return () => controller.abort();
+    return () => { active = false; controller.abort(); };
   }, [geneID]);
 
   const legendItems = useMemo(() => {
@@ -209,31 +217,52 @@ export default function TranscriptVis({ geneID, strand = "+", highlightedTranscr
   };
 
   const visible = useMemo(() => {
-    // Base filtering by selected biotypes (or all if selection empty)
     const base = (activeBiotypes.size === 0) ? txList : txList.filter(t => activeBiotypes.has(t.biotype));
-    // Further restrict to canonical only if toggled
-    return canonicalOnly ? base.filter(t => t.isCanonical) : base;
+    const filtered = canonicalOnly ? base.filter(t => t.isCanonical) : base;
+    // Canonical first, then ascending by the -201 number in displayName (same order as GeneModelGtex)
+    return [...filtered].sort((a, b) => {
+      if (a.isCanonical !== b.isCanonical) return a.isCanonical ? -1 : 1;
+      const numOf = (name) => { const m = (/-(\d+)$/).exec(name || ""); return m ? Number(m[1]) : null; };
+      const na = numOf(a.displayName), nb = numOf(b.displayName);
+      if (na !== null && nb !== null) return na - nb;
+      if (na !== null) return -1;
+      if (nb !== null) return 1;
+      return a.displayName.localeCompare(b.displayName);
+    });
   }, [txList, activeBiotypes, canonicalOnly]);
 
   const theme = useTheme();
-
-  // After all hooks are declared, safely early-return when no data
-  if (!txList.length) return null;
+  const containerRef = useRef(null);
+  const [hoveredExon, setHoveredExon] = useState(null);
 
   const effStrand = apiStrand ?? strand ?? "+";
+  const strandLabel = effStrand === "+" ? "+" : effStrand === "-" ? "−" : "?";
+
+  const exonMouseMove = (e, t, exonIdx) => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect || !t.exons?.[exonIdx]) return;
+    const exon = t.exons[exonIdx];
+    setHoveredExon({
+      transcriptLabel: `${t.displayName} (${t.id})`,
+      exonNumber: effStrand === "-" ? t.exons.length - exonIdx : exonIdx + 1,
+      chromStart: exon.start,
+      chromEnd: exon.end,
+      length: exon.end - exon.start,
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+    });
+  };
   const highlightedTx = highlightedTranscript
     ? visible.find((t) => t.displayName === highlightedTranscript) ?? null
     : null;
-  const otherTx = highlightedTx
-    ? visible.filter((t) => t.displayName !== highlightedTranscript)
-    : visible;
+  const otherTx = visible;
 
   const renderArcRow = (t) => {
     const ARC_H = 30;
     const TRACK_H = 18;
     const W = 1000;
     const svgH = ARC_H + TRACK_H;
-    const hlColour = theme.palette.primary.main;
+    const hlColour = theme.palette.error.main;
 
     const exonsSvg = coordDomain && t.exons?.length
       ? t.exons.map((e) => {
@@ -289,14 +318,28 @@ export default function TranscriptVis({ geneID, strand = "+", highlightedTranscr
 
     return (
       <Box key={t.id} sx={{ display: "flex", alignItems: "center" }}>
-        <Typography variant="caption" sx={{ fontSize: 12, color: t.colour, fontWeight: 700, minWidth: 140, mr: 1, overflow: "hidden", textOverflow: "ellipsis" }} title={t.id}>
-          {t.displayName}
+        <Typography variant="caption" sx={{ fontSize: 12, color: t.colour, fontWeight: 700, minWidth: 200, mr: 1, overflow: "hidden", textOverflow: "ellipsis" }} title={`${t.displayName} (${t.id})`}>
+          {t.displayName} ({t.id})
         </Typography>
         {exonsSvg.length > 0 ? (
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <svg width="100%" height={svgH} viewBox={`0 0 ${W} ${svgH}`} preserveAspectRatio="none">
 
-              {/* Retained intron / intronic material — drawn first so exon rects sit on top */}
+              {/* Intron backbone line — drawn first so everything renders on top */}
+              {exonsSvg.length >= 2 && (() => {
+                const minLeft = Math.min(...exonsSvg.map(e => e.left));
+                const maxRight = Math.max(...exonsSvg.map(e => e.left + e.width));
+                return (
+                  <line
+                    x1={minLeft} y1={ARC_H + TRACK_H / 2}
+                    x2={maxRight} y2={ARC_H + TRACK_H / 2}
+                    stroke={t.colour} strokeWidth={2} strokeOpacity={0.4}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                );
+              })()}
+
+              {/* Retained intron / intronic material — drawn before exon rects */}
               {isIR && hasJunction && (
                 <rect x={irX} y={ARC_H} width={irW} height={TRACK_H} fill={hlColour} opacity={0.3} />
               )}
@@ -304,7 +347,7 @@ export default function TranscriptVis({ geneID, strand = "+", highlightedTranscr
                 <rect key={`intron-${i}`} x={r.x} y={ARC_H} width={r.width} height={TRACK_H} fill={hlColour} opacity={0.3} />
               ))}
 
-              {/* Junction arcs (skipped for intron retention) */}
+              {/* Junction arcs (skipped for intron retention) — all visible, junction-of-interest in red */}
               {!isIR && exonsSvg.slice(0, -1).map((e, i) => {
                 const next = exonsSvg[i + 1];
                 const x1 = e.left + e.width;
@@ -319,15 +362,15 @@ export default function TranscriptVis({ geneID, strand = "+", highlightedTranscr
                     d={d}
                     fill="none"
                     stroke={isJunctionArc ? hlColour : t.colour}
-                    strokeWidth={isJunctionArc ? 10 : 4}
-                    strokeOpacity={isJunctionArc ? 1 : 0.3}
+                    strokeWidth={isJunctionArc ? 4 : 2}
+                    strokeOpacity={1}
                     strokeLinecap="round"
                     vectorEffect="non-scaling-stroke"
                   />
                 );
               })}
 
-              {/* Exon rects */}
+              {/* Exon rects — full opacity; junction exons in red */}
               {exonsSvg.map((e, i) => {
                 const isJunctionExon = hasJunction && (i === leftExonIdx || i === rightExonIdx);
                 return (
@@ -340,7 +383,10 @@ export default function TranscriptVis({ geneID, strand = "+", highlightedTranscr
                     rx={4}
                     ry={4}
                     fill={isJunctionExon ? hlColour : t.colour}
-                    opacity={isJunctionExon ? 1 : 0.4}
+                    opacity={1}
+                    style={{ cursor: "pointer" }}
+                    onMouseMove={(ev) => exonMouseMove(ev, t, i)}
+                    onMouseLeave={() => setHoveredExon(null)}
                   />
                 );
               })}
@@ -359,8 +405,8 @@ export default function TranscriptVis({ geneID, strand = "+", highlightedTranscr
     const trackH = 20;
     return (
       <Box key={t.id} sx={{ display: "flex", alignItems: "center" }}>
-        <Typography variant="caption" sx={{ fontSize: 12, color: t.colour, minWidth: 140, mr: 1, overflow: "hidden", textOverflow: "ellipsis" }} title={t.id}>
-          {t.displayName}
+        <Typography variant="caption" sx={{ fontSize: 12, color: t.colour, minWidth: 200, mr: 1, overflow: "hidden", textOverflow: "ellipsis" }} title={`${t.displayName} (${t.id})`}>
+          {t.displayName} ({t.id})
         </Typography>
         {coordDomain && t.exons?.length > 0 ? (
           <Box sx={{ position: "relative", flex: 1, minWidth: 0, height: trackH, bgcolor: "background.default" }}>
@@ -382,7 +428,7 @@ export default function TranscriptVis({ geneID, strand = "+", highlightedTranscr
               const r = Math.min(100, ((e.end - coordDomain.min) / coordDomain.span) * 100);
               const leftPct = effStrand === "-" ? Math.max(0, 100 - r) : l;
               return (
-                <Box key={`exon-${idx}`} sx={{ position: "absolute", left: `${leftPct}%`, top: "1px", width: `${Math.max(0.2, r - l)}%`, height: trackH - 2, bgcolor: hexToRgba(t.colour, 0.9), border: "1px solid", borderColor: "divider", borderRadius: 0.5 }} />
+                <Box key={`exon-${idx}`} onMouseMove={(ev) => exonMouseMove(ev, t, idx)} onMouseLeave={() => setHoveredExon(null)} sx={{ position: "absolute", left: `${leftPct}%`, top: "1px", width: `${Math.max(0.2, r - l)}%`, height: trackH - 2, bgcolor: hexToRgba(t.colour, 0.9), border: "1px solid", borderColor: "divider", borderRadius: 0.5, cursor: "pointer" }} />
               );
             })}
           </Box>
@@ -396,27 +442,71 @@ export default function TranscriptVis({ geneID, strand = "+", highlightedTranscr
   };
 
   return (
-    <Box sx={{ mt: 2 }}>
-      <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 1 }}>
-        <Typography sx={{ fontWeight: 700 }}>Transcripts</Typography>
-        {legendItems.length > 0 && (
-          <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", alignItems: "center" }}>
-            {legendItems.map(([bio, colour]) => {
-              const selected = activeBiotypes.has(bio);
-              const bg = selected ? colour : hexToRgba(colour, 0.5);
-              return (
-                <Chip key={bio} label={bio} size="small" onClick={() => toggleBio(bio)} sx={{ bgcolor: bg, color: "common.white", fontWeight: selected ? 700 : 400, border: "1px solid", borderColor: selected ? "transparent" : "divider", cursor: "pointer" }} />
-              );
-            })}
-          </Stack>
+    <Box ref={containerRef} sx={{ mt: 2, position: "relative" }}>
+      <Box sx={{ mb: 1 }}>
+        <Stack direction="row" alignItems="center" spacing={2}>
+          <Typography sx={{ fontWeight: 700 }}>
+            {geneName ? <><em>{geneName}</em> Transcripts</> : "Transcripts"}
+          </Typography>
+          {!loading && legendItems.length > 0 && (
+            <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", alignItems: "center" }}>
+              {legendItems.map(([bio, colour]) => {
+                const selected = activeBiotypes.has(bio);
+                const bg = selected ? colour : hexToRgba(colour, 0.5);
+                return (
+                  <Chip key={bio} label={bio} size="small" onClick={() => toggleBio(bio)} sx={{ bgcolor: bg, color: "common.white", fontWeight: selected ? 700 : 400, border: "1px solid", borderColor: selected ? "transparent" : "divider", cursor: "pointer" }} />
+                );
+              })}
+            </Stack>
+          )}
+        </Stack>
+        {geneID && (
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.25 }}>
+            {geneID} (strand: {strandLabel})
+          </Typography>
         )}
-      </Stack>
+      </Box>
 
-      <Stack direction="column" spacing={0.5}>
-        {highlightedTx && renderArcRow(highlightedTx)}
-        {highlightedTx && otherTx.length > 0 && <Divider sx={{ opacity: 0.35, my: 0.5 }} />}
-        {otherTx.map(renderCssRow)}
-      </Stack>
+      {loading ? (
+        <Box sx={{ display: "flex", justifyContent: "center", p: 3 }}>
+          <CircularProgress size={24} />
+        </Box>
+      ) : txList.length > 0 ? (
+        <Stack direction="column" spacing={0.5}>
+          {highlightedTx && renderArcRow(highlightedTx)}
+          {highlightedTx && otherTx.length > 0 && <Divider sx={{ my: 0.5 }} />}
+          {otherTx.map(renderCssRow)}
+        </Stack>
+      ) : null}
+
+      {hoveredExon && (
+        <Box
+          sx={{
+            position: "absolute",
+            left: hoveredExon.x,
+            top: hoveredExon.y,
+            transform: "translate(12px, -12px)",
+            pointerEvents: "none",
+            bgcolor: "background.paper",
+            color: "text.primary",
+            border: "1px solid",
+            borderColor: "divider",
+            borderRadius: 1,
+            px: 1,
+            py: 0.5,
+            fontSize: 12,
+            boxShadow: 2,
+            whiteSpace: "nowrap",
+            zIndex: 1,
+          }}
+        >
+          {hoveredExon.transcriptLabel}<br />
+          <b>Exon {hoveredExon.exonNumber}</b><br />
+          start: {hoveredExon.chromStart.toLocaleString()}<br />
+          end: {hoveredExon.chromEnd.toLocaleString()}<br />
+          length: {hoveredExon.length.toLocaleString()} bp
+        </Box>
+      )}
     </Box>
   );
 }

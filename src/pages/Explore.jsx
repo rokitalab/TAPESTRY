@@ -852,6 +852,7 @@ export default function Explore() {
         <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, mt: 3 }}>
           <TranscriptVis
             geneID={ensgId}
+            geneName={txGene}
             strand={selectedRow?.strand ?? "+"}
             highlightedTranscript={highlightedTranscript}
             junctionCoords={junctionCoords}
