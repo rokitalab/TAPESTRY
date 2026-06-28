@@ -26,11 +26,9 @@ function SearchCard({ title, subtitle, onSubmit, submitDisabled, children }) {
     <Paper
       variant="outlined"
       sx={{
-        p: 4,
-        height: "100%",
+        p: 3,
         width: "100%",
-        display: "flex",
-        flexDirection: "column",
+        height: "100%",
         borderRadius: 2,
         transition: "transform 120ms ease, box-shadow 120ms ease",
         "&:hover": {
@@ -39,7 +37,7 @@ function SearchCard({ title, subtitle, onSubmit, submitDisabled, children }) {
         },
       }}
     >
-      <Stack spacing={2} sx={{ height: "100%", width: "100%" }}>
+      <Stack spacing={1.5}>
         <Box>
           <Typography variant="h5" sx={{ fontWeight: 700 }}>
             {title}
@@ -49,18 +47,17 @@ function SearchCard({ title, subtitle, onSubmit, submitDisabled, children }) {
           </Typography>
         </Box>
 
-        {children}
-
-        <Box sx={{ flexGrow: 1 }} />
-
-        <Button
-          variant="contained"
-          onClick={onSubmit}
-          disabled={submitDisabled}
-          sx={{ alignSelf: "flex-start" }}
-        >
-          Search
-        </Button>
+        <Stack direction="row" spacing={1} alignItems="center">
+          <Box sx={{ flex: 1 }}>{children}</Box>
+          <Button
+            variant="contained"
+            onClick={onSubmit}
+            disabled={submitDisabled}
+            sx={{ height: 56, flexShrink: 0 }}
+          >
+            Search
+          </Button>
+        </Stack>
       </Stack>
     </Paper>
   );
