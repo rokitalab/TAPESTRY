@@ -246,19 +246,33 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
   }, [txList, highlightedTranscript, junctionCoords]);
 
   // Genomic window covering the red region (flanking exons + padding) used for zoom mode.
+  // Falls back to raw junction coordinates when exon boundary matching fails (non-annotated
+  // junctions or when the highlighted transcript doesn't span the junction region).
   const zoomDomain = useMemo(() => {
+    if (!coordDomain || !junctionCoords) return null;
+
     const { leftExonIdx, rightExonIdx } = junctionExonIndices;
-    if (leftExonIdx < 0 || rightExonIdx < 0 || !coordDomain) return null;
-    const ht = txList.find(t => t.displayName === highlightedTranscript) ?? null;
-    const leftExon  = ht?.exons?.[leftExonIdx];
-    const rightExon = ht?.exons?.[rightExonIdx];
-    if (!leftExon || !rightExon) return null;
-    const pad = Math.max(500, (rightExon.end - leftExon.start) * 0.25);
-    const min = Math.max(coordDomain.min, leftExon.start  - pad);
-    const max = Math.min(coordDomain.max, rightExon.end   + pad);
+    if (leftExonIdx >= 0 && rightExonIdx >= 0) {
+      const ht = txList.find(t => t.displayName === highlightedTranscript) ?? null;
+      const leftExon  = ht?.exons?.[leftExonIdx];
+      const rightExon = ht?.exons?.[rightExonIdx];
+      if (leftExon && rightExon) {
+        const pad = Math.max(500, (rightExon.end - leftExon.start) * 0.25);
+        const min = Math.max(coordDomain.min, leftExon.start - pad);
+        const max = Math.min(coordDomain.max, rightExon.end  + pad);
+        if (max > min) return { min, max, span: max - min };
+      }
+    }
+
+    // Fallback: derive zoom window directly from splice site coordinates.
+    const lo  = Math.min(junctionCoords.donorSite, junctionCoords.acceptorSite);
+    const hi  = Math.max(junctionCoords.donorSite, junctionCoords.acceptorSite);
+    const pad = Math.max(500, (hi - lo) * 0.25);
+    const min = Math.max(coordDomain.min, lo - pad);
+    const max = Math.min(coordDomain.max, hi + pad);
     if (max <= min) return null;
     return { min, max, span: max - min };
-  }, [junctionExonIndices, coordDomain, txList, highlightedTranscript]);
+  }, [junctionExonIndices, coordDomain, txList, highlightedTranscript, junctionCoords]);
 
   const [zoomed, setZoomed] = useState(false);
 
@@ -577,8 +591,8 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
 
       <Divider sx={{ mb: 1.5 }} />
 
-      {/* Transcript section — header, ENSG, biotype chips, all rows */}
-      {!loading && txList.length > 0 && (
+      {/* Transcript section — header always visible; rows appear once data loads */}
+      {(geneID || geneName) && (
         <>
           <Box sx={{ mb: 1 }}>
             <Typography sx={{ fontWeight: 700 }}>
@@ -601,9 +615,11 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
               </Stack>
             )}
           </Box>
-          <Stack direction="column" spacing={0.5}>
-            {otherTx.map(renderCssRow)}
-          </Stack>
+          {!loading && (
+            <Stack direction="column" spacing={0.5}>
+              {otherTx.map(renderCssRow)}
+            </Stack>
+          )}
         </>
       )}
 
