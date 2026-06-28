@@ -760,13 +760,18 @@ export default function PlotArea({
     return groups;
   }, [groups, activeTab]);
 
-  // Reset the sample selection to the tab's defaults whenever tabGroups
-  // changes (new tab or new junction data) — adjusted during render rather
-  // than in an effect, per https://react.dev/learn/you-might-not-need-an-effect.
+  // Reset the sample selection to the tab's defaults when the available group
+  // keys change (new junction data or tab switch). A sort-mode change reorders
+  // groups without adding or removing any, so we compare sorted key fingerprints
+  // and skip the reset when only order changed.
   const [prevTabGroups, setPrevTabGroups] = useState(tabGroups);
   if (tabGroups !== prevTabGroups) {
     setPrevTabGroups(tabGroups);
-    setSelectedGroups(new Set(defaultGroupsForTab(tabGroups, activeTab).map((g) => g.key)));
+    const prevKeys = prevTabGroups.map((g) => g.key).sort().join("\0");
+    const nextKeys = tabGroups.map((g) => g.key).sort().join("\0");
+    if (prevKeys !== nextKeys) {
+      setSelectedGroups(new Set(defaultGroupsForTab(tabGroups, activeTab).map((g) => g.key)));
+    }
   }
 
   const visibleGroups = useMemo(
