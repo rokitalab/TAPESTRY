@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Box, Paper, Tooltip, Typography, Stack } from "@mui/material";
+import { Box, Paper, Skeleton, Tooltip, Typography, Stack } from "@mui/material";
 import * as d3 from "d3";
 import { HISTOLOGY_COLORS } from "../histologyColors";
 
@@ -146,7 +146,7 @@ function ChartCard({ title, data, size = 160 }) {
   );
 }
 
-function HorizBarChart({ data, labelWidth = 160, formatValue = (v) => v.toLocaleString() }) {
+function HorizBarChart({ data, labelWidth = 160, labelSx, formatValue = (v) => v.toLocaleString() }) {
   const max = Math.max(...data.map((d) => d.value), 1);
   return (
     <Box>
@@ -156,7 +156,7 @@ function HorizBarChart({ data, labelWidth = 160, formatValue = (v) => v.toLocale
             <Typography
               variant="caption"
               noWrap
-              sx={{ width: labelWidth, flexShrink: 0, textAlign: "right", lineHeight: 1.2 }}
+              sx={{ width: labelWidth, flexShrink: 0, textAlign: "right", lineHeight: 1.2, ...labelSx }}
             >
               {d.label}
             </Typography>
@@ -208,17 +208,16 @@ export default function HistologySummary() {
     });
 
   useEffect(() => {
-    Promise.all([
+    Promise.allSettled([
       fetchJson("/summary-histology-view/"),
       fetchJson("/summary-gene-view/"),
       fetchJson("/tej-view/"),
     ])
-      .then(([histologyRows, geneRows, tejRows]) => {
-        setHistologyData(histologyRows);
-        setGeneData(geneRows);
-        setTejData(tejRows);
+      .then(([histResult, geneResult, tejResult]) => {
+        if (histResult.status === "fulfilled") setHistologyData(histResult.value);
+        if (geneResult.status === "fulfilled") setGeneData(geneResult.value);
+        if (tejResult.status  === "fulfilled") setTejData(tejResult.value);
       })
-      .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 
@@ -253,7 +252,7 @@ export default function HistologySummary() {
     return Object.entries(counts)
       .sort(([, a], [, b]) => b - a)
       .map(([label, value], i) => ({
-        label: `${label} TEJs`,
+        label,
         value,
         color: SPECIFICITY_COLORS[label] ?? EVENT_TYPE_FALLBACK[i % EVENT_TYPE_FALLBACK.length],
       }));
@@ -289,22 +288,49 @@ export default function HistologySummary() {
   const topGenes = useMemo(
     () =>
       [...geneData]
+        .filter((r) => r.num_junctions >= 10)
         .sort((a, b) => b.num_junctions - a.num_junctions)
-        .slice(0, 15)
         .map((r) => ({ label: r.gene, value: r.num_junctions, color: "#4e79a7" })),
     [geneData]
   );
 
-  if (loading || histologyData.length === 0) return null;
-
-  return (
-    <Box sx={{ mt: 5 }}>
+  const header = (
+    <Box sx={{ mb: 3 }}>
       <Typography variant="h5" sx={{ fontWeight: 800, mb: 0.5 }}>
         TEJ Landscape
       </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Tumor-exclusive junctions across pediatric CNS tumor histologies.
+      <Typography variant="body2" color="text.secondary">
+        Tumor-enriched junctions across pediatric CNS tumor histologies.
       </Typography>
+    </Box>
+  );
+
+  if (loading) return (
+    <Box sx={{ mt: 5 }}>
+      {header}
+      <Stack direction="row" spacing={2} sx={{ mb: 3 }}>
+        {[...Array(4)].map((_, i) => (
+          <Skeleton key={i} variant="rounded" height={72} sx={{ flex: "1 1 0", borderRadius: 2 }} />
+        ))}
+      </Stack>
+      <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
+        {[...Array(3)].map((_, i) => (
+          <Skeleton key={i} variant="rounded" height={220} sx={{ flex: "1 1 0", borderRadius: 2 }} />
+        ))}
+      </Stack>
+      <Stack direction="row" spacing={2}>
+        {[...Array(2)].map((_, i) => (
+          <Skeleton key={i} variant="rounded" height={300} sx={{ flex: "1 1 0", borderRadius: 2 }} />
+        ))}
+      </Stack>
+    </Box>
+  );
+
+  if (histologyData.length === 0) return null;
+
+  return (
+    <Box sx={{ mt: 5 }}>
+      {header}
 
       <Stack direction="row" spacing={2} sx={{ mb: 3 }}>
         <StatCard label="Histologies" value={totals.histologies} />
@@ -314,8 +340,8 @@ export default function HistologySummary() {
       </Stack>
 
       <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
-        <ChartCard title="Histologies" data={samplesByHistology} />
-        <ChartCard title="Oncofetal vs Tumor-Specific" data={tejBySpecificity} />
+        <ChartCard title="Samples per Histology" data={samplesByHistology} />
+        <ChartCard title="Oncofetal vs Tumor-Specific TEJs" data={tejBySpecificity} />
         <ChartCard title="TEJ Splice Events" data={tejByEventType} />
       </Stack>
 
@@ -328,7 +354,9 @@ export default function HistologySummary() {
           />
         </BarChartCard>
         <BarChartCard title="Top Genes by TEJ Count">
-          <HorizBarChart data={topGenes} labelWidth={80} />
+          <Box sx={{ overflowY: "auto", maxHeight: 400 }}>
+            <HorizBarChart data={topGenes} labelWidth={80} labelSx={{ fontStyle: "italic" }} />
+          </Box>
         </BarChartCard>
       </Stack>
     </Box>
