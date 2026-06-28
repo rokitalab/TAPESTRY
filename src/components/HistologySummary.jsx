@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Box, Paper, Typography, Stack } from "@mui/material";
+import { Box, Paper, Tooltip, Typography, Stack } from "@mui/material";
 import * as d3 from "d3";
 import { HISTOLOGY_COLORS } from "../histologyColors";
 
@@ -146,6 +146,55 @@ function ChartCard({ title, data, size = 160 }) {
   );
 }
 
+function HorizBarChart({ data, labelWidth = 160, formatValue = (v) => v.toLocaleString() }) {
+  const max = Math.max(...data.map((d) => d.value), 1);
+  return (
+    <Box>
+      {data.map((d, i) => (
+        <Tooltip key={i} title={`${d.label}: ${formatValue(d.value)}`} placement="right" arrow>
+          <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5, cursor: "default" }}>
+            <Typography
+              variant="caption"
+              noWrap
+              sx={{ width: labelWidth, flexShrink: 0, textAlign: "right", lineHeight: 1.2 }}
+            >
+              {d.label}
+            </Typography>
+            <Box sx={{ flex: 1, height: 14, bgcolor: "action.hover", borderRadius: 0.5, overflow: "hidden" }}>
+              <Box
+                sx={{
+                  height: "100%",
+                  width: `${(d.value / max) * 100}%`,
+                  bgcolor: d.color,
+                  borderRadius: 0.5,
+                }}
+              />
+            </Box>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ width: 38, flexShrink: 0, textAlign: "right" }}
+            >
+              {formatValue(d.value)}
+            </Typography>
+          </Stack>
+        </Tooltip>
+      ))}
+    </Box>
+  );
+}
+
+function BarChartCard({ title, children }) {
+  return (
+    <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2, flex: "1 1 0", minWidth: 0 }}>
+      <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1.5 }}>
+        {title}
+      </Typography>
+      {children}
+    </Paper>
+  );
+}
+
 export default function HistologySummary() {
   const [histologyData, setHistologyData] = useState([]);
   const [geneData, setGeneData] = useState([]);
@@ -224,6 +273,28 @@ export default function HistologySummary() {
       }));
   }, [tejData]);
 
+  const tejsPerSample = useMemo(
+    () =>
+      [...histologyData]
+        .filter((r) => r.num_samples > 0)
+        .map((r) => ({
+          label: r.plot_group,
+          value: r.num_junctions / r.num_samples,
+          color: HISTOLOGY_COLORS[r.plot_group] ?? "#b5b5b5",
+        }))
+        .sort((a, b) => b.value - a.value),
+    [histologyData]
+  );
+
+  const topGenes = useMemo(
+    () =>
+      [...geneData]
+        .sort((a, b) => b.num_junctions - a.num_junctions)
+        .slice(0, 15)
+        .map((r) => ({ label: r.gene, value: r.num_junctions, color: "#4e79a7" })),
+    [geneData]
+  );
+
   if (loading || histologyData.length === 0) return null;
 
   return (
@@ -242,10 +313,23 @@ export default function HistologySummary() {
         <StatCard label="Samples"     value={totals.samples} />
       </Stack>
 
-      <Stack direction="row" spacing={2}>
+      <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
         <ChartCard title="Histologies" data={samplesByHistology} />
         <ChartCard title="Oncofetal vs Tumor-Specific" data={tejBySpecificity} />
         <ChartCard title="TEJ Splice Events" data={tejByEventType} />
+      </Stack>
+
+      <Stack direction="row" spacing={2}>
+        <BarChartCard title="TEJs per Sample by Histology">
+          <HorizBarChart
+            data={tejsPerSample}
+            labelWidth={175}
+            formatValue={(v) => v.toFixed(1)}
+          />
+        </BarChartCard>
+        <BarChartCard title="Top Genes by TEJ Count">
+          <HorizBarChart data={topGenes} labelWidth={80} />
+        </BarChartCard>
       </Stack>
     </Box>
   );
