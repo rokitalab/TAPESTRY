@@ -3,7 +3,7 @@ import { Box, Button, CircularProgress, Divider, Typography, Stack, Chip } from 
 import { useTheme } from "@mui/material/styles";
 import { colourForBiotype, hexToRgba } from "./lib/biotypeColors";
 
-export default function TranscriptVis({ geneID, geneName = null, strand = "+", highlightedTranscript = null, junctionCoords = null }) {
+export default function TranscriptVis({ geneID, geneName = null, strand = "+", highlightedTranscript = null, junctionCoords = null, junctionName = null, junctionString = null }) {
   const [txList, setTxList] = useState([]);
   const [loading, setLoading] = useState(false);
   const [activeBiotypes, setActiveBiotypes] = useState(new Set());
@@ -500,37 +500,59 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
 
   return (
     <Box ref={containerRef} sx={{ mt: 2, position: "relative" }}>
+
+      {/* Junction info — main header */}
+      {(junctionName || junctionCoords?.eventType) && (
+        <Box sx={{ mb: 1.5 }}>
+          <Stack direction="row" alignItems="baseline" spacing={1.5} sx={{ flexWrap: "wrap" }}>
+            {junctionName && (
+              <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
+                {junctionName}
+              </Typography>
+            )}
+            {junctionCoords?.eventType && (
+              <Typography variant="body2" color="text.secondary">
+                {junctionCoords.eventType}
+              </Typography>
+            )}
+          </Stack>
+          {junctionString && (
+            <Typography variant="caption" color="text.secondary" sx={{ fontFamily: "monospace", display: "block", mt: 0.25 }}>
+              {junctionString}
+            </Typography>
+          )}
+        </Box>
+      )}
+
+      <Divider sx={{ mb: 1.5 }} />
+
+      {/* Transcript section header */}
       <Box sx={{ mb: 1 }}>
         <Stack direction="row" alignItems="center" spacing={2}>
           <Typography sx={{ fontWeight: 700 }}>
             {geneName ? <><em>{geneName}</em> Transcripts</> : "Transcripts"}
           </Typography>
           {!loading && zoomDomain && (
-            <Button
-              size="small"
-              variant="outlined"
-              onClick={() => setZoomed(z => !z)}
-              sx={{ flexShrink: 0 }}
-            >
+            <Button size="small" variant="outlined" onClick={() => setZoomed(z => !z)} sx={{ flexShrink: 0 }}>
               {zoomed ? "View full transcript" : "Zoom to area of interest"}
             </Button>
-          )}
-          {!loading && legendItems.length > 0 && (
-            <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", alignItems: "center" }}>
-              {legendItems.map(([bio, colour]) => {
-                const selected = activeBiotypes.has(bio);
-                const bg = selected ? colour : hexToRgba(colour, 0.5);
-                return (
-                  <Chip key={bio} label={bio} size="small" onClick={() => toggleBio(bio)} sx={{ bgcolor: bg, color: "common.white", fontWeight: selected ? 700 : 400, border: "1px solid", borderColor: selected ? "transparent" : "divider", cursor: "pointer" }} />
-                );
-              })}
-            </Stack>
           )}
         </Stack>
         {geneID && (
           <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.25 }}>
             {geneID} (strand: {strandLabel})
           </Typography>
+        )}
+        {!loading && legendItems.length > 0 && (
+          <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", alignItems: "center", mt: 0.75 }}>
+            {legendItems.map(([bio, colour]) => {
+              const selected = activeBiotypes.has(bio);
+              const bg = selected ? colour : hexToRgba(colour, 0.5);
+              return (
+                <Chip key={bio} label={bio} size="small" onClick={() => toggleBio(bio)} sx={{ bgcolor: bg, color: "common.white", fontWeight: selected ? 700 : 400, border: "1px solid", borderColor: selected ? "transparent" : "divider", cursor: "pointer" }} />
+              );
+            })}
+          </Stack>
         )}
       </Box>
 

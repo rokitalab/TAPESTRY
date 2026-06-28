@@ -856,6 +856,8 @@ export default function Explore() {
             strand={selectedRow?.strand ?? "+"}
             highlightedTranscript={highlightedTranscript}
             junctionCoords={junctionCoords}
+            junctionName={selectedRow?.junction_name ?? null}
+            junctionString={selectedRow?.junction ?? null}
           />
         </Paper>
       )}
