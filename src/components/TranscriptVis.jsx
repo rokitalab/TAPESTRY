@@ -285,14 +285,21 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
     }
     const hasJunction = leftExonIdx >= 0 && rightExonIdx >= 0;
     const isIR = junctionCoords?.eventType === "intron retention";
+    const isSE = junctionCoords?.eventType === "exon skipping";
 
-    // Retained-intron highlight rectangle (SVG coords)
+    // Retained-intron highlight rectangle — spans the full canonical intron
+    // (leftExon.end → rightExon.start) so the entire retained intron is coloured,
+    // not just the junction-read anchor region reported in the junction string.
     let irX = 0, irW = 0;
     if (isIR && hasJunction && coordDomain) {
-      const donorRaw    = ((junctionCoords.donorSite    - coordDomain.min) / coordDomain.span) * W;
-      const acceptorRaw = ((junctionCoords.acceptorSite - coordDomain.min) / coordDomain.span) * W;
-      irX = effStrand === "-" ? W - acceptorRaw : donorRaw;
-      irW = Math.max(2, acceptorRaw - donorRaw);
+      const canonEnd   = t.exons[leftExonIdx]?.end;
+      const canonStart = t.exons[rightExonIdx]?.start;
+      if (canonEnd != null && canonStart != null) {
+        const r1 = ((canonEnd   - coordDomain.min) / coordDomain.span) * W;
+        const r2 = ((canonStart - coordDomain.min) / coordDomain.span) * W;
+        irX = effStrand === "-" ? W - r2 : r1;
+        irW = Math.max(2, r2 - r1);
+      }
     }
 
     // Intronic-material rectangles for alternative splice sites:
@@ -353,7 +360,8 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
                 const x1 = e.left + e.width;
                 const x2 = next.left;
                 if (Math.abs(x2 - x1) < 2) return null;
-                const isJunctionArc = hasJunction && i === leftExonIdx && i + 1 === rightExonIdx;
+                // For SE the skipping arc is drawn separately below; adjacent arcs use normal colour
+                const isJunctionArc = hasJunction && !isSE && i === leftExonIdx && i + 1 === rightExonIdx;
                 const midX = (x1 + x2) / 2;
                 const d = `M ${x1},${ARC_H} Q ${midX},${ARC_H * 0.08} ${x2},${ARC_H}`;
                 return (
@@ -370,9 +378,23 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
                 );
               })}
 
-              {/* Exon rects — full opacity; junction exons in red */}
+              {/* Exon-skipping arc — spans from the left flanking exon to the right flanking exon */}
+              {isSE && hasJunction && exonsSvg[leftExonIdx] && exonsSvg[rightExonIdx] && (() => {
+                const x1 = exonsSvg[leftExonIdx].left + exonsSvg[leftExonIdx].width;
+                const x2 = exonsSvg[rightExonIdx].left;
+                if (Math.abs(x2 - x1) < 2) return null;
+                const midX = (x1 + x2) / 2;
+                const d = `M ${x1},${ARC_H} Q ${midX},${ARC_H * 0.08} ${x2},${ARC_H}`;
+                return (
+                  <path d={d} fill="none" stroke={hlColour} strokeWidth={4}
+                    strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+                );
+              })()}
+
+              {/* Exon rects — junction exons red (not for IR/SE); skipped exons red for SE */}
               {exonsSvg.map((e, i) => {
-                const isJunctionExon = hasJunction && (i === leftExonIdx || i === rightExonIdx);
+                const isJunctionExon = hasJunction && !isIR && !isSE && (i === leftExonIdx || i === rightExonIdx);
+                const isSkippedExon  = isSE && hasJunction && i > leftExonIdx && i < rightExonIdx;
                 return (
                   <rect
                     key={i}
@@ -382,7 +404,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
                     height={TRACK_H}
                     rx={4}
                     ry={4}
-                    fill={isJunctionExon ? hlColour : t.colour}
+                    fill={(isJunctionExon || isSkippedExon) ? hlColour : t.colour}
                     opacity={1}
                     style={{ cursor: "pointer" }}
                     onMouseMove={(ev) => exonMouseMove(ev, t, i)}
