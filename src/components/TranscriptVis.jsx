@@ -427,7 +427,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
                 // For SE the skipping arc is drawn separately below; adjacent arcs use normal colour
                 const isJunctionArc = hasJunction && !isSE && i === leftExonIdx && i + 1 === rightExonIdx;
                 const midX = (x1 + x2) / 2;
-                const peakY = isJunctionArc ? ARC_H * 0.08 : ARC_H * 0.3;
+                const peakY = isJunctionArc ? ARC_H * 0.2 : ARC_H * 0.6;
                 const d = `M ${x1},${ARC_H} Q ${midX},${peakY} ${x2},${ARC_H}`;
                 return (
                   <path
@@ -453,7 +453,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
                   : exonsSvg[rightExonIdx].left;
                 if (Math.abs(x2 - x1) < 2) return null;
                 const midX = (x1 + x2) / 2;
-                const d = `M ${x1},${ARC_H} Q ${midX},${ARC_H * 0.05} ${x2},${ARC_H}`;
+                const d = `M ${x1},${ARC_H} Q ${midX},${ARC_H * 0.1} ${x2},${ARC_H}`;
                 return (
                   <path d={d} fill="none" stroke={hlColour} strokeWidth={4}
                     strokeLinecap="round" vectorEffect="non-scaling-stroke" />
@@ -464,7 +464,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
                   fails (non-annotated junctions). Renders in red between the raw splice sites. */}
               {!isIR && !hasJunction && hasCoordJunction && (() => {
                 const midX = (junctionX1 + junctionX2) / 2;
-                const peakY = isSE ? ARC_H * 0.05 : ARC_H * 0.08;
+                const peakY = isSE ? ARC_H * 0.1 : ARC_H * 0.2;
                 const d = `M ${junctionX1},${ARC_H} Q ${midX},${peakY} ${junctionX2},${ARC_H}`;
                 return (
                   <path d={d} fill="none" stroke={hlColour} strokeWidth={4}
@@ -513,7 +513,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
           {t.displayName} ({t.id})
         </Typography>
         {domain && t.exons?.length > 0 ? (
-          <Box sx={{ position: "relative", flex: 1, minWidth: 0, height: trackH, bgcolor: "background.default" }}>
+          <Box sx={{ position: "relative", flex: 1, minWidth: 0, height: trackH, bgcolor: "background.default", overflow: "hidden" }}>
             {t.exons.slice(0, -1).map((e, idx) => {
               const next = t.exons[idx + 1];
               if (!next) return null;
@@ -528,8 +528,11 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
               );
             })}
             {t.exons.map((e, idx) => {
-              const l = Math.max(0, ((e.start - domain.min) / domain.span) * 100);
-              const r = Math.min(100, ((e.end   - domain.min) / domain.span) * 100);
+              const rawL = ((e.start - domain.min) / domain.span) * 100;
+              const rawR = ((e.end   - domain.min) / domain.span) * 100;
+              if (rawR <= 0 || rawL >= 100) return null;
+              const l = Math.max(0, rawL);
+              const r = Math.min(100, rawR);
               const leftPct = effStrand === "-" ? Math.max(0, 100 - r) : l;
               return (
                 <Box key={`exon-${idx}`} onMouseMove={(ev) => exonMouseMove(ev, t, idx)} onMouseLeave={() => setHoveredExon(null)} sx={{ position: "absolute", left: `${leftPct}%`, top: "1px", width: `${Math.max(0.2, r - l)}%`, height: trackH - 2, bgcolor: hexToRgba(t.colour, 0.9), border: "1px solid", borderColor: "divider", borderRadius: 0.5, cursor: "pointer" }} />
