@@ -1,10 +1,40 @@
 import { useEffect, useMemo, useState } from "react";
-import { Box, Grid, Paper, Typography, Stack } from "@mui/material";
+import { Box, Paper, Typography, Stack } from "@mui/material";
+import * as d3 from "d3";
+import { HISTOLOGY_COLORS } from "../histologyColors";
 
 const API_BASE = (import.meta.env.VITE_API_BASE || "/tapestry-api").replace(/\/$/, "");
 
-const STATUS_COLORS = ["#4e79a7", "#f28e2b", "#e15759"];
-const SPLICE_COLORS = ["#4e79a7", "#76b7b2", "#f28e2b", "#e15759", "#59a14f", "#edc948", "#b07aa1"];
+// Wong (2011) colorblind-safe palette, matching preference_palette in
+// 04-summarize-TEJs/01-summary.Rmd
+const EVENT_TYPE_COLORS = {
+  "exon inclusion":   "#56B4E9",
+  "exon skipping":    "#0072B2",
+  "intron retention": "#009E73",
+  "A3SS-":            "#E69F00",
+  "A3SS+":            "#F0E442",
+  "A5SS-":            "#D55E00",
+  "A5SS+":            "#CC79A7",
+};
+
+const EVENT_TYPE_LABELS = {
+  "exon inclusion":   "Exon Inclusion",
+  "exon skipping":    "Exon Skipping",
+  "intron retention": "Intron Retention",
+  "A3SS-":            "Alt 3'SS (short)",
+  "A3SS+":            "Alt 3'SS (long)",
+  "A5SS-":            "Alt 5'SS (short)",
+  "A5SS+":            "Alt 5'SS (long)",
+};
+const EVENT_TYPE_FALLBACK = ["#4e79a7", "#f28e2b", "#b07aa1", "#ff9da7"];
+
+// NPG palette (scale_fill_npg), matching specificity barplot in 01-summary.Rmd
+const SPECIFICITY_COLORS = {
+  "Oncofetal":      "#E64B35",
+  "Tumor-specific": "#4DBBD5",
+  "oncofetal":      "#E64B35",
+  "tumor-specific": "#4DBBD5",
+};
 
 function StatCard({ label, value }) {
   return (
@@ -22,9 +52,59 @@ function StatCard({ label, value }) {
   );
 }
 
+function DonutChart({ data, size = 160 }) {
+  const r = size / 2 - 2;
+  const ir = r * 0.55;
+  const arcs = useMemo(() => {
+    if (!data.length) return [];
+    const pie = d3.pie().value((d) => d.value).sort(null);
+    const arc = d3.arc().innerRadius(ir).outerRadius(r);
+    return pie(data).map((slice) => ({ path: arc(slice), color: slice.data.color }));
+  }, [data, r, ir]);
+
+  return (
+    <svg width={size} height={size} style={{ flexShrink: 0 }}>
+      <g transform={`translate(${size / 2},${size / 2})`}>
+        {arcs.map((a, i) => (
+          <path key={i} d={a.path} fill={a.color} stroke="white" strokeWidth={1} />
+        ))}
+      </g>
+    </svg>
+  );
+}
+
+function ChartCard({ title, data, size = 160 }) {
+  return (
+    <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2, flex: "1 1 0", minWidth: 0 }}>
+      <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1.5 }}>
+        {title}
+      </Typography>
+      <Stack direction="row" alignItems="flex-start" spacing={2}>
+        <DonutChart data={data} size={size} />
+        <Box sx={{ overflowY: "auto", maxHeight: size, flex: 1, minWidth: 0 }}>
+          {data.map((d, i) => (
+            <Stack key={i} direction="row" alignItems="center" spacing={0.75} sx={{ mb: 0.5 }}>
+              <Box
+                sx={{ width: 9, height: 9, borderRadius: "50%", bgcolor: d.color, flexShrink: 0 }}
+              />
+              <Typography variant="caption" sx={{ lineHeight: 1.3, flex: 1, minWidth: 0 }} noWrap>
+                {d.label}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
+                {d.value.toLocaleString()}
+              </Typography>
+            </Stack>
+          ))}
+        </Box>
+      </Stack>
+    </Paper>
+  );
+}
+
 export default function HistologySummary() {
   const [histologyData, setHistologyData] = useState([]);
   const [geneData, setGeneData] = useState([]);
+  const [tejData, setTejData] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const fetchJson = (path) =>
@@ -34,27 +114,70 @@ export default function HistologySummary() {
     });
 
   useEffect(() => {
-    Promise.all([fetchJson("/summary-histology-view/"), fetchJson("/summary-gene-view/")])
-      .then(([histologyRows, geneRows]) => {
+    Promise.all([
+      fetchJson("/summary-histology-view/"),
+      fetchJson("/summary-gene-view/"),
+      fetchJson("/tej-view/"),
+    ])
+      .then(([histologyRows, geneRows, tejRows]) => {
         setHistologyData(histologyRows);
         setGeneData(geneRows);
+        setTejData(tejRows);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 
-  const totals = useMemo(() => ({
-    histologies: histologyData.length,
-    // A junction can recur across multiple histologies, so summing
-    // num_junctions from the per-histology view double-counts it. Each
-    // junction belongs to exactly one gene, so summing from the per-gene
-    // view instead gives the correct distinct total. Same reasoning for
-    // genes: count distinct genes directly (one row per gene) rather than
-    // summing num_genes per histology.
-    junctions: geneData.reduce((s, r) => s + r.num_junctions, 0),
-    genes: geneData.length,
-    samples: histologyData.reduce((s, r) => s + r.num_samples, 0),
-  }), [histologyData, geneData]);
+  const totals = useMemo(
+    () => ({
+      histologies: histologyData.length,
+      junctions: geneData.reduce((s, r) => s + r.num_junctions, 0),
+      genes: geneData.length,
+      samples: histologyData.reduce((s, r) => s + r.num_samples, 0),
+    }),
+    [histologyData, geneData]
+  );
+
+  const samplesByHistology = useMemo(
+    () =>
+      [...histologyData]
+        .sort((a, b) => b.num_samples - a.num_samples)
+        .map((r) => ({
+          label: r.plot_group,
+          value: r.num_samples,
+          color: HISTOLOGY_COLORS[r.plot_group] ?? "#b5b5b5",
+        })),
+    [histologyData]
+  );
+
+  const tejBySpecificity = useMemo(() => {
+    const counts = {};
+    for (const row of tejData) {
+      const key = row.consensus_specificity;
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+    return Object.entries(counts)
+      .sort(([, a], [, b]) => b - a)
+      .map(([label, value], i) => ({
+        label: `${label} TEJs`,
+        value,
+        color: SPECIFICITY_COLORS[label] ?? EVENT_TYPE_FALLBACK[i % EVENT_TYPE_FALLBACK.length],
+      }));
+  }, [tejData]);
+
+  const tejByEventType = useMemo(() => {
+    const counts = {};
+    for (const row of tejData) {
+      counts[row.event_type] = (counts[row.event_type] ?? 0) + 1;
+    }
+    return Object.entries(counts)
+      .sort(([, a], [, b]) => b - a)
+      .map(([label, value], i) => ({
+        label: EVENT_TYPE_LABELS[label] ?? label,
+        value,
+        color: EVENT_TYPE_COLORS[label] ?? EVENT_TYPE_FALLBACK[i % EVENT_TYPE_FALLBACK.length],
+      }));
+  }, [tejData]);
 
   if (loading || histologyData.length === 0) return null;
 
@@ -73,7 +196,12 @@ export default function HistologySummary() {
         <StatCard label="Genes"       value={totals.genes} />
         <StatCard label="Samples"     value={totals.samples} />
       </Stack>
+
+      <Stack direction="row" spacing={2}>
+        <ChartCard title="Histologies" data={samplesByHistology} />
+        <ChartCard title="Oncofetal vs Tumor-Specific" data={tejBySpecificity} />
+        <ChartCard title="TEJ Splice Events" data={tejByEventType} />
+      </Stack>
     </Box>
   );
 }
-
