@@ -506,38 +506,52 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
 
   const renderCssRow = (t) => {
     const trackH = 20;
+    const W = 1000;
     const domain = zoomed && zoomDomain ? zoomDomain : coordDomain;
+
+    const exonsSvg = domain && t.exons?.length
+      ? t.exons.map(e => {
+          const l = ((e.start - domain.min) / domain.span) * W;
+          const r = ((e.end   - domain.min) / domain.span) * W;
+          const left = effStrand === "-" ? W - r : l;
+          return { left, width: Math.max(2, r - l) };
+        })
+      : [];
+
     return (
       <Box key={t.id} sx={{ display: "flex", alignItems: "center" }}>
         <Typography variant="caption" sx={{ fontSize: 12, color: t.colour, minWidth: 200, mr: 1, overflow: "hidden", textOverflow: "ellipsis" }} title={`${t.displayName} (${t.id})`}>
           {t.displayName} ({t.id})
         </Typography>
-        {domain && t.exons?.length > 0 ? (
-          <Box sx={{ position: "relative", flex: 1, minWidth: 0, height: trackH, bgcolor: "background.default", overflow: "hidden" }}>
-            {t.exons.slice(0, -1).map((e, idx) => {
-              const next = t.exons[idx + 1];
-              if (!next) return null;
-              const intronStart = Math.max(e.end, domain.min);
-              const intronEnd = Math.min(next.start, domain.max);
-              if (!Number.isFinite(intronStart) || !Number.isFinite(intronEnd) || intronEnd <= intronStart) return null;
-              const l = Math.max(0, ((intronStart - domain.min) / domain.span) * 100);
-              const r = Math.min(100, ((intronEnd   - domain.min) / domain.span) * 100);
-              const leftPct = effStrand === "-" ? Math.max(0, 100 - r) : l;
-              return (
-                <Box key={`intron-${idx}`} sx={{ position: "absolute", left: `${leftPct}%`, top: `${Math.round(trackH / 2)}px`, width: `${Math.max(0, r - l)}%`, height: "1px", bgcolor: "text.disabled" }} />
-              );
-            })}
-            {t.exons.map((e, idx) => {
-              const rawL = ((e.start - domain.min) / domain.span) * 100;
-              const rawR = ((e.end   - domain.min) / domain.span) * 100;
-              if (rawR <= 0 || rawL >= 100) return null;
-              const l = Math.max(0, rawL);
-              const r = Math.min(100, rawR);
-              const leftPct = effStrand === "-" ? Math.max(0, 100 - r) : l;
-              return (
-                <Box key={`exon-${idx}`} onMouseMove={(ev) => exonMouseMove(ev, t, idx)} onMouseLeave={() => setHoveredExon(null)} sx={{ position: "absolute", left: `${leftPct}%`, top: "1px", width: `${Math.max(0.2, r - l)}%`, height: trackH - 2, bgcolor: hexToRgba(t.colour, 0.9), border: "1px solid", borderColor: "divider", borderRadius: 0.5, cursor: "pointer" }} />
-              );
-            })}
+        {exonsSvg.length > 0 ? (
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <svg width="100%" height={trackH} viewBox={`0 0 ${W} ${trackH}`} preserveAspectRatio="none">
+              {exonsSvg.length >= 2 && (() => {
+                const minLeft = Math.min(...exonsSvg.map(e => e.left));
+                const maxRight = Math.max(...exonsSvg.map(e => e.left + e.width));
+                return (
+                  <line
+                    x1={minLeft} y1={trackH / 2}
+                    x2={maxRight} y2={trackH / 2}
+                    stroke={t.colour} strokeWidth={2} strokeOpacity={0.4}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                );
+              })()}
+              {exonsSvg.map((e, idx) => (
+                <rect
+                  key={idx}
+                  x={e.left} y={1}
+                  width={e.width}
+                  height={trackH - 2}
+                  rx={3} ry={3}
+                  fill={hexToRgba(t.colour, 0.9)}
+                  style={{ cursor: "pointer" }}
+                  onMouseMove={(ev) => exonMouseMove(ev, t, idx)}
+                  onMouseLeave={() => setHoveredExon(null)}
+                />
+              ))}
+            </svg>
           </Box>
         ) : (
           <Box sx={{ display: "inline-block", ml: 1, px: 0.5, border: "1px solid", borderColor: "divider", borderRadius: 0.5, fontSize: 11, lineHeight: 1.4, color: "text.secondary", bgcolor: "background.paper" }}>
