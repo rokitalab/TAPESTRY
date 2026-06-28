@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Box, Paper, Typography, Stack } from "@mui/material";
 import * as d3 from "d3";
 import { HISTOLOGY_COLORS } from "../histologyColors";
@@ -53,23 +53,68 @@ function StatCard({ label, value }) {
 }
 
 function DonutChart({ data, size = 160 }) {
+  const [tooltip, setTooltip] = useState(null);
+  const containerRef = useRef(null);
   const r = size / 2 - 2;
   const ir = r * 0.55;
+
   const arcs = useMemo(() => {
     if (!data.length) return [];
     const pie = d3.pie().value((d) => d.value).sort(null);
     const arc = d3.arc().innerRadius(ir).outerRadius(r);
-    return pie(data).map((slice) => ({ path: arc(slice), color: slice.data.color }));
+    return pie(data).map((slice) => ({
+      path: arc(slice),
+      color: slice.data.color,
+      datum: slice.data,
+    }));
   }, [data, r, ir]);
 
+  const onMove = (e, datum) => {
+    const rect = containerRef.current.getBoundingClientRect();
+    setTooltip({ ...datum, x: e.clientX - rect.left + 12, y: e.clientY - rect.top - 36 });
+  };
+
   return (
-    <svg width={size} height={size} style={{ flexShrink: 0 }}>
-      <g transform={`translate(${size / 2},${size / 2})`}>
-        {arcs.map((a, i) => (
-          <path key={i} d={a.path} fill={a.color} stroke="white" strokeWidth={1} />
-        ))}
-      </g>
-    </svg>
+    <Box ref={containerRef} sx={{ position: "relative", flexShrink: 0, width: size, height: size }}>
+      <svg width={size} height={size}>
+        <g transform={`translate(${size / 2},${size / 2})`}>
+          {arcs.map((a, i) => (
+            <path
+              key={i}
+              d={a.path}
+              fill={a.color}
+              stroke="white"
+              strokeWidth={1}
+              style={{ cursor: "pointer" }}
+              onMouseMove={(e) => onMove(e, a.datum)}
+              onMouseLeave={() => setTooltip(null)}
+            />
+          ))}
+        </g>
+      </svg>
+      {tooltip && (
+        <Paper
+          elevation={3}
+          sx={{
+            position: "absolute",
+            left: tooltip.x,
+            top: tooltip.y,
+            px: 1.5,
+            py: 0.75,
+            pointerEvents: "none",
+            zIndex: 10,
+            whiteSpace: "nowrap",
+          }}
+        >
+          <Typography variant="caption" display="block" sx={{ fontWeight: 600 }}>
+            {tooltip.label}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            n = {tooltip.value.toLocaleString()}
+          </Typography>
+        </Paper>
+      )}
+    </Box>
   );
 }
 
