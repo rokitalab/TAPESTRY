@@ -296,10 +296,8 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
   const otherTx = visible;
 
   const renderArcRow = (t) => {
-    const ARC_H = 30;
     const TRACK_H = 18;
     const W = 1000;
-    const svgH = ARC_H + TRACK_H;
     const hlColour = theme.palette.error.main;
     const domain = zoomed && zoomDomain ? zoomDomain : coordDomain;
 
@@ -325,6 +323,22 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
     const hasJunction = leftExonIdx >= 0 && rightExonIdx >= 0;
     const isIR = junctionCoords?.eventType === "intron retention";
     const isSE = junctionCoords?.eventType === "exon skipping";
+
+    // Coordinate-based junction positions derived directly from the junction string —
+    // used as a fallback when exon boundary matching fails (non-annotated junctions).
+    let junctionX1 = null, junctionX2 = null;
+    if (junctionCoords && domain) {
+      const rawDonor    = ((junctionCoords.donorSite    - domain.min) / domain.span) * W;
+      const rawAcceptor = ((junctionCoords.acceptorSite - domain.min) / domain.span) * W;
+      junctionX1 = effStrand === "-" ? W - rawAcceptor : rawDonor;
+      junctionX2 = effStrand === "-" ? W - rawDonor    : rawAcceptor;
+    }
+    const hasCoordJunction = junctionX1 !== null && Math.abs(junctionX2 - junctionX1) >= 2;
+
+    // Give SE events a taller arc area so the skipping arc has room to tower
+    // above the regular adjacent arcs.
+    const ARC_H = isSE && (hasJunction || hasCoordJunction) ? 50 : 30;
+    const svgH = ARC_H + TRACK_H;
 
     // Retained-intron highlight rectangle — spans the full canonical intron
     // (leftExon.end → rightExon.start) so the entire retained intron is coloured,
@@ -388,16 +402,19 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
                 <rect key={`intron-${i}`} x={r.x} y={ARC_H} width={r.width} height={TRACK_H} fill={hlColour} opacity={0.3} />
               ))}
 
-              {/* Junction arcs (skipped for intron retention) — all visible, junction-of-interest in red */}
+              {/* Junction arcs (skipped for intron retention) — all visible, junction-of-interest in red.
+                  On - strand exonsSvg[i] is the genomically-lower exon (rightmost visually) so the
+                  intron-facing edges are left of [i] and right of [i+1], not right of [i] and left of [i+1]. */}
               {!isIR && exonsSvg.slice(0, -1).map((e, i) => {
                 const next = exonsSvg[i + 1];
-                const x1 = e.left + e.width;
-                const x2 = next.left;
+                const x1 = effStrand === "-" ? next.left + next.width : e.left + e.width;
+                const x2 = effStrand === "-" ? e.left : next.left;
                 if (Math.abs(x2 - x1) < 2) return null;
                 // For SE the skipping arc is drawn separately below; adjacent arcs use normal colour
                 const isJunctionArc = hasJunction && !isSE && i === leftExonIdx && i + 1 === rightExonIdx;
                 const midX = (x1 + x2) / 2;
-                const d = `M ${x1},${ARC_H} Q ${midX},${ARC_H * 0.08} ${x2},${ARC_H}`;
+                const peakY = isJunctionArc ? ARC_H * 0.08 : ARC_H * 0.3;
+                const d = `M ${x1},${ARC_H} Q ${midX},${peakY} ${x2},${ARC_H}`;
                 return (
                   <path
                     key={i}
@@ -412,13 +429,29 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
                 );
               })}
 
-              {/* Exon-skipping arc — spans from the left flanking exon to the right flanking exon */}
+              {/* Exon-skipping arc — strand-aware endpoints, peaks near the top of the taller arc area */}
               {isSE && hasJunction && exonsSvg[leftExonIdx] && exonsSvg[rightExonIdx] && (() => {
-                const x1 = exonsSvg[leftExonIdx].left + exonsSvg[leftExonIdx].width;
-                const x2 = exonsSvg[rightExonIdx].left;
+                const x1 = effStrand === "-"
+                  ? exonsSvg[rightExonIdx].left + exonsSvg[rightExonIdx].width
+                  : exonsSvg[leftExonIdx].left  + exonsSvg[leftExonIdx].width;
+                const x2 = effStrand === "-"
+                  ? exonsSvg[leftExonIdx].left
+                  : exonsSvg[rightExonIdx].left;
                 if (Math.abs(x2 - x1) < 2) return null;
                 const midX = (x1 + x2) / 2;
-                const d = `M ${x1},${ARC_H} Q ${midX},${ARC_H * 0.08} ${x2},${ARC_H}`;
+                const d = `M ${x1},${ARC_H} Q ${midX},${ARC_H * 0.05} ${x2},${ARC_H}`;
+                return (
+                  <path d={d} fill="none" stroke={hlColour} strokeWidth={4}
+                    strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+                );
+              })()}
+
+              {/* Fallback junction arc — coordinate-based, drawn when exon boundary matching
+                  fails (non-annotated junctions). Renders in red between the raw splice sites. */}
+              {!isIR && !hasJunction && hasCoordJunction && (() => {
+                const midX = (junctionX1 + junctionX2) / 2;
+                const peakY = isSE ? ARC_H * 0.05 : ARC_H * 0.08;
+                const d = `M ${junctionX1},${ARC_H} Q ${midX},${peakY} ${junctionX2},${ARC_H}`;
                 return (
                   <path d={d} fill="none" stroke={hlColour} strokeWidth={4}
                     strokeLinecap="round" vectorEffect="non-scaling-stroke" />
