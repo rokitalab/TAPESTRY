@@ -7,10 +7,10 @@ import { colourForBiotype, hexToRgba } from "./lib/biotypeColors";
 import { selectExpressedJunctionIds, metricValueGetter, filterHiddenGroups } from "./lib/junctionExpressionFilter";
 
 const SVG_HEIGHT = 200;
-// 20px less than JunctionExpressionHeatmap's MARGIN.left (220) -- keeps the
+// 20px less than JunctionExpressionHeatmap's MARGIN.left (200) -- keeps the
 // gene model's exon row aligned under the heatmap's row labels while still
 // reading as its own (slightly inset) plot.
-const PADDING = { top: 10, right: 20, bottom: 10, left: 200 };
+const PADDING = { top: 10, right: 20, bottom: 10, left: 180 };
 
 // Per-transcript isoform rows, stacked below the main model -- shorter and
 // more tightly packed than the main model's 15px exon bar, since these are
@@ -23,12 +23,29 @@ const PADDING = { top: 10, right: 20, bottom: 10, left: 200 };
 const TX_EXON_BAR_HEIGHT = 10;
 const TX_ROW_GAP = 4;
 const TX_ROW_PITCH = TX_EXON_BAR_HEIGHT + TX_ROW_GAP;
+// Top padding for the transcript-rows <svg> specifically -- kept separate
+// from PADDING.top (which the main model's vertical centering depends on)
+// so it can be trimmed down without shifting the main model's exon row.
+const TX_TOP_PAD = 4;
 
 // Height of the standalone transcript-rows <svg> (rendered separately from
 // the main model now that the biotype Chip filter sits between them) --
 // zero when every transcript is filtered out so no empty svg is shown.
 function txSvgHeight(visibleTranscriptCount) {
-  return visibleTranscriptCount > 0 ? PADDING.top + PADDING.bottom + visibleTranscriptCount * TX_ROW_PITCH : 0;
+  return visibleTranscriptCount > 0 ? TX_TOP_PAD + PADDING.bottom + visibleTranscriptCount * TX_ROW_PITCH : 0;
+}
+
+// SVG_HEIGHT (200) reserves room for the main model's junction arcs, which
+// peak well above the exon row, but nothing else fills the space below the
+// exon row -- on screen that's fine since the Chip filter's own box-model
+// spacing sits below the fixed-height <svg> regardless, but the export has
+// no Chips to justify carrying that empty space forward, so it stacks the
+// transcript rows right under the model's actual visible bottom edge
+// (the exon bar, GtexGeneModel's hardcoded 15px height) instead of at the
+// full SVG_HEIGHT.
+function mainModelContentHeight() {
+  const exonY = (SVG_HEIGHT - PADDING.top - PADDING.bottom) / 2;
+  return PADDING.top + exonY + 15 + 10;
 }
 
 // GENCODE/Ensembl's "degraded transcript" quality flags -- these transcripts
@@ -59,6 +76,14 @@ function junctionIdOf(node, ownClass) {
     .split(/\s+/)
     .find((c) => c !== ownClass && c.startsWith("junc"));
   return token ? token.slice(4) : null;
+}
+
+// Pulls the "-201" out of Ensembl's "GENE-201"-style display_name, for
+// sorting transcript rows -- null for names that don't follow that
+// convention (e.g. when display_name fell back to the raw transcript ID).
+function transcriptNumber(displayName) {
+  const m = /-(\d+)$/.exec(displayName || "");
+  return m ? Number(m[1]) : null;
 }
 
 // Ensembl's transcript exons don't come with an exonNumber. exonId is
@@ -112,7 +137,7 @@ function mergeExonIntervals(rawExons) {
 // so the download produces exactly what's on screen. Transcript isoform
 // rows are drawn separately by drawTranscriptRows so the biotype Chip
 // filter can sit between the two in the DOM.
-function drawMainModel(dom, { width, exons, junctions, strand, gene, geneId, textColor, primaryColor, hoveredJunctionId, onHoverJunction, onHoverExon }) {
+function drawMainModel(dom, { width, exons, junctions, strand, gene, geneId, textColor, primaryColor, hoveredJunctionId, onHoverJunction, onHoverExon, container }) {
   dom.selectAll("*").remove();
   const g = dom.append("g").attr("transform", `translate(${PADDING.left},${PADDING.top})`);
 
@@ -133,14 +158,15 @@ function drawMainModel(dom, { width, exons, junctions, strand, gene, geneId, tex
   g.selectAll(".exon-curated").style("fill", primaryColor);
 
   // Hovering an exon rect shows a tooltip with its number/ID/coordinates --
-  // coordinates are reported relative to the outer <svg> (dom), matching
-  // the coordinate space the tooltip overlay in the component is
-  // positioned in.
+  // coordinates are reported relative to `container` (the component's outer
+  // Box), matching the coordinate space the tooltip overlay is positioned
+  // in. Falls back to dom's own node when no container is given (e.g. the
+  // detached export svg, which has no tooltip overlay to align with).
   g.selectAll(".exon-curated")
     .style("cursor", "pointer")
     .on("mousemove", function (event) {
       const d = d3.select(this).datum();
-      const [x, y] = d3.pointer(event, dom.node());
+      const [x, y] = d3.pointer(event, container ?? dom.node());
       onHoverExon?.({
         exonNumber: d.exonNumber,
         exonId: d.exonId,
@@ -217,9 +243,9 @@ function drawMainModel(dom, { width, exons, junctions, strand, gene, geneId, tex
 // inner width as drawMainModel above, so setXscale() recomputes an
 // identical scale every time and each transcript's exons land at the same x
 // as the matching exon in the main model.
-function drawTranscriptRows(dom, { width, exons, strand, transcriptRows, textColor }) {
+function drawTranscriptRows(dom, { width, exons, strand, transcriptRows, textColor, onHoverExon, container }) {
   dom.selectAll("*").remove();
-  const g = dom.append("g").attr("transform", `translate(${PADDING.left},${PADDING.top})`);
+  const g = dom.append("g").attr("transform", `translate(${PADDING.left},${TX_TOP_PAD})`);
 
   const innerWidth = Math.max(width - PADDING.left - PADDING.right, 0);
   const txBarCenter = TX_EXON_BAR_HEIGHT / 2;
@@ -244,11 +270,29 @@ function drawTranscriptRows(dom, { width, exons, strand, transcriptRows, textCol
     // own hardcoded 15px height -- overridden here to flush the (shrunk)
     // bar against the row's top edge so TX_ROW_PITCH alone controls the gap
     // between rows, instead of leaving dead space above each bar.
+    // Hover wiring mirrors drawMainModel's exon tooltip, with the
+    // transcript's own name/ID added so the tooltip says which transcript
+    // the exon belongs to.
     rowG.selectAll(".exon-curated")
       .attr("y", 0)
       .attr("height", TX_EXON_BAR_HEIGHT)
       .style("fill", colourForBiotype(t.biotype))
-      .style("cursor", "default");
+      .style("cursor", "pointer")
+      .on("mousemove", function (event) {
+        const d = d3.select(this).datum();
+        const [x, y] = d3.pointer(event, container ?? dom.node());
+        onHoverExon?.({
+          exonNumber: d.exonNumber,
+          exonId: d.exonId,
+          chromStart: d.chromStart,
+          chromEnd: d.chromEnd,
+          length: d.length,
+          transcriptLabel: `${t.displayName} (${t.id})`,
+          x,
+          y,
+        });
+      })
+      .on("mouseleave", () => onHoverExon?.(null));
     rowG.select(".intron")
       .attr("y1", txBarCenter)
       .attr("y2", txBarCenter)
@@ -278,6 +322,7 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
   ref
 ) {
   const theme = useTheme();
+  const containerRef = useRef(null);
   const svgRef = useRef(null);
   const txSvgRef = useRef(null);
   const [exons, setExons] = useState(null);
@@ -338,9 +383,17 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
         setExons(toGeneModelExons(mergeExonIntervals(rawExons), strandVal));
         setGeneId(ensg);
 
-        // Per-transcript rows, sorted by genomic position -- unlike the
-        // merged exon union above, every transcript is shown here (the
-        // biotype Chip filter below is the user-facing control for this).
+        // Per-transcript rows, canonical first then ascending by the
+        // "-201"-style transcript number Ensembl bakes into display_name --
+        // unlike the merged exon union above, every transcript is shown here
+        // (the biotype Chip filter below is the user-facing control for
+        // that). geneData.canonical_transcript carries a version suffix
+        // (e.g. "ENST00000357654.9") that t.id never does, hence the
+        // startsWith check rather than a direct equality.
+        const canonicalId = geneData?.canonical_transcript ?? null;
+        const isCanonicalTranscript = (t) => (
+          Boolean(t?.is_canonical) || t.id === canonicalId || Boolean(canonicalId?.startsWith(`${t.id}.`))
+        );
         const txRows = transcripts
           .map((t) => {
             const txExons = (Array.isArray(t?.Exon) ? t.Exon : [])
@@ -348,10 +401,24 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
               .filter((e) => Number.isFinite(e.start) && Number.isFinite(e.end))
               .sort((a, b) => a.start - b.start);
             if (txExons.length === 0) return null;
-            return { id: t.id, displayName: t.display_name || t.id, biotype: t?.biotype || "unknown", exons: txExons };
+            return {
+              id: t.id,
+              displayName: t.display_name || t.id,
+              biotype: t?.biotype || "unknown",
+              exons: txExons,
+              isCanonical: isCanonicalTranscript(t),
+            };
           })
           .filter(Boolean)
-          .sort((a, b) => a.exons[0].start - b.exons[0].start);
+          .sort((a, b) => {
+            if (a.isCanonical !== b.isCanonical) return a.isCanonical ? -1 : 1;
+            const numA = transcriptNumber(a.displayName);
+            const numB = transcriptNumber(b.displayName);
+            if (numA !== null && numB !== null) return numA - numB;
+            if (numA !== null) return -1;
+            if (numB !== null) return 1;
+            return a.displayName.localeCompare(b.displayName);
+          });
         setTranscriptRows(txRows);
       } catch (e) {
         if (e.name !== "AbortError") {
@@ -438,6 +505,7 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
       hoveredJunctionId,
       onHoverJunction,
       onHoverExon: setHoveredExon,
+      container: containerRef.current,
     });
   }, [exons, junctions, strand, gene, geneId, width, hoveredJunctionId, onHoverJunction,
       theme.palette.text.primary, theme.palette.primary.main]);
@@ -450,6 +518,8 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
       strand,
       transcriptRows: visibleTranscriptRows,
       textColor: theme.palette.text.primary,
+      onHoverExon: setHoveredExon,
+      container: containerRef.current,
     });
   }, [exons, strand, width, visibleTranscriptRows, theme.palette.text.primary]);
 
@@ -461,8 +531,9 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
     buildExportSvg({ width: exportWidth }) {
       if (!exons || exons.length === 0) return null;
       const svgEl = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      const txOffset = mainModelContentHeight();
       svgEl.setAttribute("width", exportWidth);
-      svgEl.setAttribute("height", SVG_HEIGHT + txSvgHeight(visibleTranscriptRows.length));
+      svgEl.setAttribute("height", txOffset + txSvgHeight(visibleTranscriptRows.length));
       const root = d3.select(svgEl);
       drawMainModel(root.append("g"), {
         width: exportWidth,
@@ -477,7 +548,7 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
         onHoverJunction: () => {},
       });
       if (visibleTranscriptRows.length > 0) {
-        drawTranscriptRows(root.append("g").attr("transform", `translate(0, ${SVG_HEIGHT})`), {
+        drawTranscriptRows(root.append("g").attr("transform", `translate(0, ${txOffset})`), {
           width: exportWidth,
           exons,
           strand,
@@ -492,7 +563,7 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
   if (!gene) return null;
 
   return (
-    <Box sx={{ position: "relative" }}>
+    <Box ref={containerRef} sx={{ position: "relative" }}>
       {loading ? (
         <Box sx={{ display: "flex", justifyContent: "center", p: 3 }}>
           <CircularProgress size={24} />
@@ -503,7 +574,7 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
         <>
           <svg ref={svgRef} width={width} height={SVG_HEIGHT} style={{ display: "block" }} />
           {txBiotypes.length > 0 && (
-            <Stack direction="row" spacing={1} sx={{ my: 1, flexWrap: "wrap", alignItems: "center" }}>
+            <Stack direction="row" spacing={1} sx={{ my: 0.5, flexWrap: "wrap", alignItems: "center" }}>
               {txBiotypes.map((bio) => {
                 const selected = activeBiotypes.has(bio);
                 const colour = colourForBiotype(bio);
@@ -552,6 +623,7 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
             zIndex: 1,
           }}
         >
+          {hoveredExon.transcriptLabel && <>{hoveredExon.transcriptLabel}<br /></>}
           <b>Exon {hoveredExon.exonNumber}</b><br />
           {hoveredExon.exonId && <>{hoveredExon.exonId}<br /></>}
           start: {hoveredExon.chromStart}<br />

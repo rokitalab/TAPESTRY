@@ -13,7 +13,7 @@ import {
 import PlotDownloadMenu from "./PlotDownloadMenu";
 import { stackSvgsVertically } from "./lib/svgExport";
 
-const MARGIN = { top: 10, right: 20, bottom: 140, left: 220 };
+const MARGIN = { top: 10, right: 20, bottom: 140, left: 200 };
 const ROW_HEIGHT = 14;
 
 // Mirrors PlotArea.jsx's evo-devo timepoint progression, so heatmap rows
@@ -249,14 +249,63 @@ function roundToSigFigs(value, sigFigs) {
 
 // Cell color legend gradient -- cells map linearly onto d3.interpolateReds
 // across the color scale's domain (see drawHeatmap), so sampling the same
-// interpolator at even steps reproduces that gradient exactly as CSS.
-const LEGEND_GRADIENT = `linear-gradient(to right, ${d3.range(0, 1.001, 0.1).map((t) => d3.interpolateReds(t)).join(", ")})`;
+// interpolator at even steps reproduces that gradient exactly, both as CSS
+// (for the live HTML legend below) and as SVG gradient stops (drawLegend,
+// for the download -- the live legend is plain HTML, invisible to the
+// export's <svg>-only pipeline).
+const LEGEND_GRADIENT_STEPS = d3.range(0, 1.001, 0.1).map((t) => d3.interpolateReds(t));
+const LEGEND_GRADIENT = `linear-gradient(to right, ${LEGEND_GRADIENT_STEPS.join(", ")})`;
+const LEGEND_GRADIENT_ID = "junction-heatmap-legend-gradient";
+const LEGEND_HEIGHT = 28;
+const LEGEND_BAR_W = 100;
+const LEGEND_BAR_H = 10;
 
 // Splits a 'chr_start_end' junctionId (the format gtex-viz's parseJunctions
 // expects) back into its parts for sorting/display.
 function parseJunctionId(junctionId) {
   const [chr, start, end] = junctionId.split("_");
   return { chr, start: Number(start), end: Number(end) };
+}
+
+// Renders the cell-color legend (gradient swatch + "0"/max labels) into its
+// own <g> -- only needed for the SVG download. The live page renders this
+// as plain HTML (see the Stack with LEGEND_GRADIENT in the component body
+// below) rather than drawing it into the heatmap's <svg>, so it's otherwise
+// invisible to buildExportSvg's <svg>-only export pipeline.
+function drawLegend(dom, { width, legendMax, metricLabel, textColor }) {
+  dom.selectAll("*").remove();
+
+  const gradient = dom.append("defs").append("linearGradient").attr("id", LEGEND_GRADIENT_ID);
+  LEGEND_GRADIENT_STEPS.forEach((color, i) => {
+    gradient.append("stop")
+      .attr("offset", `${(i / (LEGEND_GRADIENT_STEPS.length - 1)) * 100}%`)
+      .attr("stop-color", color);
+  });
+
+  const barX = width - MARGIN.right - LEGEND_BAR_W;
+  const barY = (LEGEND_HEIGHT - LEGEND_BAR_H) / 2;
+
+  dom.append("rect")
+    .attr("x", barX)
+    .attr("y", barY)
+    .attr("width", LEGEND_BAR_W)
+    .attr("height", LEGEND_BAR_H)
+    .attr("rx", 2)
+    .attr("fill", `url(#${LEGEND_GRADIENT_ID})`);
+
+  [{ x: barX - 6, anchor: "end", text: "0" },
+   { x: barX + LEGEND_BAR_W + 6, anchor: "start", text: `${roundToSigFigs(legendMax, 2)} ${metricLabel}` }]
+    .forEach(({ x, anchor, text }) => {
+      dom.append("text")
+        .attr("x", x)
+        .attr("y", LEGEND_HEIGHT / 2)
+        .attr("text-anchor", anchor)
+        .attr("dominant-baseline", "middle")
+        .attr("font-size", 11)
+        .attr("font-family", "sans-serif")
+        .attr("fill", textColor)
+        .text(text);
+    });
 }
 
 // Ported from gtex-viz's TranscriptBrowser.js: junction cells are colored on
@@ -515,10 +564,23 @@ export default function JunctionExpressionHeatmap({
   // a matching copy of the gene model (if mounted and loaded) and stacks it
   // underneath, so the download captures both plots on one canvas.
   function buildExportSvg({ width }) {
+    // Mirrors the live header's `{junctions.length > 0 && (...)}` guard
+    // around the legend Stack -- no legend (or reserved space for it) when
+    // there are no junctions to color.
+    const showLegend = junctions.length > 0;
     const svgEl = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svgEl.setAttribute("width", width);
-    svgEl.setAttribute("height", svgHeight);
-    drawHeatmap(d3.select(svgEl), {
+    svgEl.setAttribute("height", svgHeight + (showLegend ? LEGEND_HEIGHT : 0));
+    const root = d3.select(svgEl);
+    if (showLegend) {
+      drawLegend(root.append("g"), {
+        width,
+        legendMax,
+        metricLabel: METRICS[metric].label,
+        textColor: theme.palette.text.primary,
+      });
+    }
+    drawHeatmap(root.append("g").attr("transform", `translate(0, ${showLegend ? LEGEND_HEIGHT : 0})`), {
       width,
       junctions,
       plotGroups,
