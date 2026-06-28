@@ -5,7 +5,7 @@ export const HISTOLOGY_COLORS = {
   "Atypical Teratoid Rhabdoid Tumor": "#4d0d85",
   "Choroid plexus tumor":             "#00441B",
   "Craniopharyngioma":                "#b2502d",
-  "DIPG or DMG":                      "#ff40d9",
+  "Diffuse midline glioma":           "#ff40d9",
   "Ependymoma":                       "#2200ff",
   "Germ cell tumor":                  "#0074d9",
   "Low-grade glioma":                 "#8f8fbf",

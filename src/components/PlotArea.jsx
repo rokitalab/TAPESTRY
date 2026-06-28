@@ -704,7 +704,7 @@ export default function PlotArea({
     const cellLineGroups = groupByHistology(cellLinePts, true);
 
     // Cell-line groups can share a histology name with a tumor/control group
-    // (e.g. "DIPG or DMG"). Disambiguate the key in that case so the two stay
+    // (e.g. "Diffuse midline glioma"). Disambiguate the key in that case so the two stay
     // distinct for selectedGroups, React list keys, and the scaleBand domain;
     // `label` keeps the plain histology name for display and color lookup.
     const tumorAndControlKeys = new Set(tumorAndControlGroups.map((g) => g.key));
