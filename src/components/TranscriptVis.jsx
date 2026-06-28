@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Box, Divider, Typography, Stack, Chip } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
 import { colourForBiotype, hexToRgba } from "./lib/biotypeColors";
 
-export default function TranscriptVis({ geneID, strand = "+", highlightedTranscript = null }) {
+export default function TranscriptVis({ geneID, strand = "+", highlightedTranscript = null, junctionCoords = null }) {
   const [txList, setTxList] = useState([]);
   const [activeBiotypes, setActiveBiotypes] = useState(new Set());
   const [canonicalOnly, setCanonicalOnly] = useState(false);
@@ -214,6 +215,8 @@ export default function TranscriptVis({ geneID, strand = "+", highlightedTranscr
     return canonicalOnly ? base.filter(t => t.isCanonical) : base;
   }, [txList, activeBiotypes, canonicalOnly]);
 
+  const theme = useTheme();
+
   // After all hooks are declared, safely early-return when no data
   if (!txList.length) return null;
 
@@ -230,6 +233,8 @@ export default function TranscriptVis({ geneID, strand = "+", highlightedTranscr
     const TRACK_H = 18;
     const W = 1000;
     const svgH = ARC_H + TRACK_H;
+    const hlColour = theme.palette.primary.main;
+
     const exonsSvg = coordDomain && t.exons?.length
       ? t.exons.map((e) => {
           const l = ((e.start - coordDomain.min) / coordDomain.span) * W;
@@ -238,6 +243,50 @@ export default function TranscriptVis({ geneID, strand = "+", highlightedTranscr
           return { left, width: Math.max(2, r - l) };
         })
       : [];
+
+    // Match junction donor/acceptor to nearest exon boundary (within 2000 bp)
+    let leftExonIdx = -1;
+    let rightExonIdx = -1;
+    if (junctionCoords && t.exons?.length) {
+      const MAX_DIST = 2000;
+      const lm = t.exons.reduce((b, e, i) => { const d = Math.abs(e.end   - junctionCoords.donorSite);    return d < b.d ? { idx: i, d } : b; }, { idx: -1, d: Infinity });
+      const rm = t.exons.reduce((b, e, i) => { const d = Math.abs(e.start - junctionCoords.acceptorSite); return d < b.d ? { idx: i, d } : b; }, { idx: -1, d: Infinity });
+      leftExonIdx  = lm.d <= MAX_DIST ? lm.idx : -1;
+      rightExonIdx = rm.d <= MAX_DIST ? rm.idx : -1;
+    }
+    const hasJunction = leftExonIdx >= 0 && rightExonIdx >= 0;
+    const isIR = junctionCoords?.eventType === "intron retention";
+
+    // Retained-intron highlight rectangle (SVG coords)
+    let irX = 0, irW = 0;
+    if (isIR && hasJunction && coordDomain) {
+      const donorRaw    = ((junctionCoords.donorSite    - coordDomain.min) / coordDomain.span) * W;
+      const acceptorRaw = ((junctionCoords.acceptorSite - coordDomain.min) / coordDomain.span) * W;
+      irX = effStrand === "-" ? W - acceptorRaw : donorRaw;
+      irW = Math.max(2, acceptorRaw - donorRaw);
+    }
+
+    // Intronic-material rectangles for alternative splice sites:
+    // if the junction coordinate overshoots the canonical exon boundary into the intron,
+    // highlight that overshoot region.
+    const intronicRects = [];
+    if (hasJunction && !isIR && coordDomain) {
+      const canonEnd   = t.exons[leftExonIdx]?.end;
+      const canonStart = t.exons[rightExonIdx]?.start;
+      // Donor side extends into intron (donorSite past canonical exon end)
+      if (canonEnd != null && junctionCoords.donorSite > canonEnd + 5) {
+        const r1 = ((canonEnd - coordDomain.min) / coordDomain.span) * W;
+        const r2 = ((junctionCoords.donorSite - coordDomain.min) / coordDomain.span) * W;
+        intronicRects.push({ x: effStrand === "-" ? W - r2 : r1, width: Math.max(2, r2 - r1) });
+      }
+      // Acceptor side extends into intron (acceptorSite before canonical exon start)
+      if (canonStart != null && junctionCoords.acceptorSite < canonStart - 5) {
+        const r1 = ((junctionCoords.acceptorSite - coordDomain.min) / coordDomain.span) * W;
+        const r2 = ((canonStart - coordDomain.min) / coordDomain.span) * W;
+        intronicRects.push({ x: effStrand === "-" ? W - r2 : r1, width: Math.max(2, r2 - r1) });
+      }
+    }
+
     return (
       <Box key={t.id} sx={{ display: "flex", alignItems: "center" }}>
         <Typography variant="caption" sx={{ fontSize: 12, color: t.colour, fontWeight: 700, minWidth: 140, mr: 1, overflow: "hidden", textOverflow: "ellipsis" }} title={t.id}>
@@ -246,18 +295,55 @@ export default function TranscriptVis({ geneID, strand = "+", highlightedTranscr
         {exonsSvg.length > 0 ? (
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <svg width="100%" height={svgH} viewBox={`0 0 ${W} ${svgH}`} preserveAspectRatio="none">
-              {exonsSvg.slice(0, -1).map((e, i) => {
+
+              {/* Retained intron / intronic material — drawn first so exon rects sit on top */}
+              {isIR && hasJunction && (
+                <rect x={irX} y={ARC_H} width={irW} height={TRACK_H} fill={hlColour} opacity={0.3} />
+              )}
+              {intronicRects.map((r, i) => (
+                <rect key={`intron-${i}`} x={r.x} y={ARC_H} width={r.width} height={TRACK_H} fill={hlColour} opacity={0.3} />
+              ))}
+
+              {/* Junction arcs (skipped for intron retention) */}
+              {!isIR && exonsSvg.slice(0, -1).map((e, i) => {
                 const next = exonsSvg[i + 1];
                 const x1 = e.left + e.width;
                 const x2 = next.left;
-                if (x2 <= x1) return null;
+                if (Math.abs(x2 - x1) < 2) return null;
+                const isJunctionArc = hasJunction && i === leftExonIdx && i + 1 === rightExonIdx;
                 const midX = (x1 + x2) / 2;
                 const d = `M ${x1},${ARC_H} Q ${midX},${ARC_H * 0.08} ${x2},${ARC_H}`;
-                return <path key={i} d={d} fill="none" stroke={t.colour} strokeWidth={6} strokeLinecap="round" vectorEffect="non-scaling-stroke" />;
+                return (
+                  <path
+                    key={i}
+                    d={d}
+                    fill="none"
+                    stroke={isJunctionArc ? hlColour : t.colour}
+                    strokeWidth={isJunctionArc ? 10 : 4}
+                    strokeOpacity={isJunctionArc ? 1 : 0.3}
+                    strokeLinecap="round"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                );
               })}
-              {exonsSvg.map((e, i) => (
-                <rect key={i} x={e.left} y={ARC_H} width={e.width} height={TRACK_H} rx={4} ry={4} fill={t.colour} />
-              ))}
+
+              {/* Exon rects */}
+              {exonsSvg.map((e, i) => {
+                const isJunctionExon = hasJunction && (i === leftExonIdx || i === rightExonIdx);
+                return (
+                  <rect
+                    key={i}
+                    x={e.left}
+                    y={ARC_H}
+                    width={e.width}
+                    height={TRACK_H}
+                    rx={4}
+                    ry={4}
+                    fill={isJunctionExon ? hlColour : t.colour}
+                    opacity={isJunctionExon ? 1 : 0.4}
+                  />
+                );
+              })}
             </svg>
           </Box>
         ) : (

@@ -428,6 +428,20 @@ export default function Explore() {
     return comma > -1 ? name.slice(0, comma).trim() : null;
   }, [selectedRow]);
 
+  // Parse junction coords from junction field, e.g. "chr10:116862799-116862852_116868650-116868706"
+  // Middle two values (end1, start2) are the splice donor and acceptor sites.
+  const junctionCoords = useMemo(() => {
+    const j = selectedRow?.junction;
+    if (!j) return null;
+    const m = j.match(/:(\d+)-(\d+)_(\d+)-(\d+)/);
+    if (!m) return null;
+    return {
+      donorSite:    parseInt(m[2], 10),
+      acceptorSite: parseInt(m[3], 10),
+      eventType:    selectedRow?.event_type ?? "",
+    };
+  }, [selectedRow]);
+
   return (
     <>
       <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "280px 1fr" }, gap: 3 }}>
@@ -840,6 +854,7 @@ export default function Explore() {
             geneID={ensgId}
             strand={selectedRow?.strand ?? "+"}
             highlightedTranscript={highlightedTranscript}
+            junctionCoords={junctionCoords}
           />
         </Paper>
       )}
