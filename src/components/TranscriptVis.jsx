@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Box, CircularProgress, Divider, Typography, Stack, Chip } from "@mui/material";
+import { Box, Button, CircularProgress, Divider, Typography, Stack, Chip } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import { colourForBiotype, hexToRgba } from "./lib/biotypeColors";
 
@@ -231,6 +231,44 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
     });
   }, [txList, activeBiotypes, canonicalOnly]);
 
+  // Exon indices in the highlighted transcript that bracket the junction of interest,
+  // computed here so zoomDomain can be derived without re-running inside renderArcRow.
+  const junctionExonIndices = useMemo(() => {
+    const ht = highlightedTranscript ? txList.find(t => t.displayName === highlightedTranscript) ?? null : null;
+    if (!ht?.exons?.length || !junctionCoords) return { leftExonIdx: -1, rightExonIdx: -1 };
+    const MAX_DIST = 2000;
+    const lm = ht.exons.reduce((b, e, i) => { const d = Math.abs(e.end   - junctionCoords.donorSite);    return d < b.d ? { idx: i, d } : b; }, { idx: -1, d: Infinity });
+    const rm = ht.exons.reduce((b, e, i) => { const d = Math.abs(e.start - junctionCoords.acceptorSite); return d < b.d ? { idx: i, d } : b; }, { idx: -1, d: Infinity });
+    return {
+      leftExonIdx:  lm.d <= MAX_DIST ? lm.idx : -1,
+      rightExonIdx: rm.d <= MAX_DIST ? rm.idx : -1,
+    };
+  }, [txList, highlightedTranscript, junctionCoords]);
+
+  // Genomic window covering the red region (flanking exons + padding) used for zoom mode.
+  const zoomDomain = useMemo(() => {
+    const { leftExonIdx, rightExonIdx } = junctionExonIndices;
+    if (leftExonIdx < 0 || rightExonIdx < 0 || !coordDomain) return null;
+    const ht = txList.find(t => t.displayName === highlightedTranscript) ?? null;
+    const leftExon  = ht?.exons?.[leftExonIdx];
+    const rightExon = ht?.exons?.[rightExonIdx];
+    if (!leftExon || !rightExon) return null;
+    const pad = Math.max(500, (rightExon.end - leftExon.start) * 0.25);
+    const min = Math.max(coordDomain.min, leftExon.start  - pad);
+    const max = Math.min(coordDomain.max, rightExon.end   + pad);
+    if (max <= min) return null;
+    return { min, max, span: max - min };
+  }, [junctionExonIndices, coordDomain, txList, highlightedTranscript]);
+
+  const [zoomed, setZoomed] = useState(false);
+
+  // Reset zoom whenever the selected junction changes.
+  const [prevJunctionCoords, setPrevJunctionCoords] = useState(junctionCoords);
+  if (junctionCoords !== prevJunctionCoords) {
+    setPrevJunctionCoords(junctionCoords);
+    setZoomed(false);
+  }
+
   const theme = useTheme();
   const containerRef = useRef(null);
   const [hoveredExon, setHoveredExon] = useState(null);
@@ -263,11 +301,12 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
     const W = 1000;
     const svgH = ARC_H + TRACK_H;
     const hlColour = theme.palette.error.main;
+    const domain = zoomed && zoomDomain ? zoomDomain : coordDomain;
 
-    const exonsSvg = coordDomain && t.exons?.length
+    const exonsSvg = domain && t.exons?.length
       ? t.exons.map((e) => {
-          const l = ((e.start - coordDomain.min) / coordDomain.span) * W;
-          const r = ((e.end - coordDomain.min) / coordDomain.span) * W;
+          const l = ((e.start - domain.min) / domain.span) * W;
+          const r = ((e.end   - domain.min) / domain.span) * W;
           const left = effStrand === "-" ? W - r : l;
           return { left, width: Math.max(2, r - l) };
         })
@@ -291,34 +330,29 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
     // (leftExon.end → rightExon.start) so the entire retained intron is coloured,
     // not just the junction-read anchor region reported in the junction string.
     let irX = 0, irW = 0;
-    if (isIR && hasJunction && coordDomain) {
+    if (isIR && hasJunction && domain) {
       const canonEnd   = t.exons[leftExonIdx]?.end;
       const canonStart = t.exons[rightExonIdx]?.start;
       if (canonEnd != null && canonStart != null) {
-        const r1 = ((canonEnd   - coordDomain.min) / coordDomain.span) * W;
-        const r2 = ((canonStart - coordDomain.min) / coordDomain.span) * W;
+        const r1 = ((canonEnd   - domain.min) / domain.span) * W;
+        const r2 = ((canonStart - domain.min) / domain.span) * W;
         irX = effStrand === "-" ? W - r2 : r1;
         irW = Math.max(2, r2 - r1);
       }
     }
 
-    // Intronic-material rectangles for alternative splice sites:
-    // if the junction coordinate overshoots the canonical exon boundary into the intron,
-    // highlight that overshoot region.
     const intronicRects = [];
-    if (hasJunction && !isIR && coordDomain) {
+    if (hasJunction && !isIR && domain) {
       const canonEnd   = t.exons[leftExonIdx]?.end;
       const canonStart = t.exons[rightExonIdx]?.start;
-      // Donor side extends into intron (donorSite past canonical exon end)
       if (canonEnd != null && junctionCoords.donorSite > canonEnd + 5) {
-        const r1 = ((canonEnd - coordDomain.min) / coordDomain.span) * W;
-        const r2 = ((junctionCoords.donorSite - coordDomain.min) / coordDomain.span) * W;
+        const r1 = ((canonEnd - domain.min) / domain.span) * W;
+        const r2 = ((junctionCoords.donorSite - domain.min) / domain.span) * W;
         intronicRects.push({ x: effStrand === "-" ? W - r2 : r1, width: Math.max(2, r2 - r1) });
       }
-      // Acceptor side extends into intron (acceptorSite before canonical exon start)
       if (canonStart != null && junctionCoords.acceptorSite < canonStart - 5) {
-        const r1 = ((junctionCoords.acceptorSite - coordDomain.min) / coordDomain.span) * W;
-        const r2 = ((canonStart - coordDomain.min) / coordDomain.span) * W;
+        const r1 = ((junctionCoords.acceptorSite - domain.min) / domain.span) * W;
+        const r2 = ((canonStart - domain.min) / domain.span) * W;
         intronicRects.push({ x: effStrand === "-" ? W - r2 : r1, width: Math.max(2, r2 - r1) });
       }
     }
@@ -425,29 +459,30 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
 
   const renderCssRow = (t) => {
     const trackH = 20;
+    const domain = zoomed && zoomDomain ? zoomDomain : coordDomain;
     return (
       <Box key={t.id} sx={{ display: "flex", alignItems: "center" }}>
         <Typography variant="caption" sx={{ fontSize: 12, color: t.colour, minWidth: 200, mr: 1, overflow: "hidden", textOverflow: "ellipsis" }} title={`${t.displayName} (${t.id})`}>
           {t.displayName} ({t.id})
         </Typography>
-        {coordDomain && t.exons?.length > 0 ? (
+        {domain && t.exons?.length > 0 ? (
           <Box sx={{ position: "relative", flex: 1, minWidth: 0, height: trackH, bgcolor: "background.default" }}>
             {t.exons.slice(0, -1).map((e, idx) => {
               const next = t.exons[idx + 1];
               if (!next) return null;
-              const intronStart = Math.max(e.end, coordDomain.min);
-              const intronEnd = Math.min(next.start, coordDomain.max);
+              const intronStart = Math.max(e.end, domain.min);
+              const intronEnd = Math.min(next.start, domain.max);
               if (!Number.isFinite(intronStart) || !Number.isFinite(intronEnd) || intronEnd <= intronStart) return null;
-              const l = Math.max(0, ((intronStart - coordDomain.min) / coordDomain.span) * 100);
-              const r = Math.min(100, ((intronEnd - coordDomain.min) / coordDomain.span) * 100);
+              const l = Math.max(0, ((intronStart - domain.min) / domain.span) * 100);
+              const r = Math.min(100, ((intronEnd   - domain.min) / domain.span) * 100);
               const leftPct = effStrand === "-" ? Math.max(0, 100 - r) : l;
               return (
                 <Box key={`intron-${idx}`} sx={{ position: "absolute", left: `${leftPct}%`, top: `${Math.round(trackH / 2)}px`, width: `${Math.max(0, r - l)}%`, height: "1px", bgcolor: "text.disabled" }} />
               );
             })}
             {t.exons.map((e, idx) => {
-              const l = Math.max(0, ((e.start - coordDomain.min) / coordDomain.span) * 100);
-              const r = Math.min(100, ((e.end - coordDomain.min) / coordDomain.span) * 100);
+              const l = Math.max(0, ((e.start - domain.min) / domain.span) * 100);
+              const r = Math.min(100, ((e.end   - domain.min) / domain.span) * 100);
               const leftPct = effStrand === "-" ? Math.max(0, 100 - r) : l;
               return (
                 <Box key={`exon-${idx}`} onMouseMove={(ev) => exonMouseMove(ev, t, idx)} onMouseLeave={() => setHoveredExon(null)} sx={{ position: "absolute", left: `${leftPct}%`, top: "1px", width: `${Math.max(0.2, r - l)}%`, height: trackH - 2, bgcolor: hexToRgba(t.colour, 0.9), border: "1px solid", borderColor: "divider", borderRadius: 0.5, cursor: "pointer" }} />
@@ -470,6 +505,16 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
           <Typography sx={{ fontWeight: 700 }}>
             {geneName ? <><em>{geneName}</em> Transcripts</> : "Transcripts"}
           </Typography>
+          {!loading && zoomDomain && (
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => setZoomed(z => !z)}
+              sx={{ flexShrink: 0 }}
+            >
+              {zoomed ? "View full transcript" : "Zoom to area of interest"}
+            </Button>
+          )}
           {!loading && legendItems.length > 0 && (
             <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", alignItems: "center" }}>
               {legendItems.map(([bio, colour]) => {
