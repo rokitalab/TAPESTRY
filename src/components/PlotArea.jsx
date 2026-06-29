@@ -116,7 +116,7 @@ function facetName(g) {
 
 // Renders the per-histology box plot into `svg`, sized to `width` x `height`.
 // Shared by the on-screen chart and off-screen export rendering.
-function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightIds, enrichedIds = highlightIds, textColor = "#333", onHover, onMove, onLeave }) {
+function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightIds, enrichedIds = highlightIds, textColor = "#333", onHover, onBoxHover = onHover, onMove, onLeave }) {
   svg.selectAll("*").remove();
 
   const iW = width - MARGIN.left - MARGIN.right;
@@ -233,7 +233,7 @@ function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightId
       .attr("fill", color).attr("fill-opacity", 0.2)
       .attr("stroke", textColor).attr("stroke-width", 1.5)
       .attr("rx", 2)
-      .on("mouseover", (e) => onHover(e, boxTip))
+      .on("mouseover", (e) => onBoxHover(e, boxTip))
       .on("mousemove", onMove)
       .on("mouseout", onLeave);
 
@@ -257,7 +257,7 @@ function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightId
         .attr("stroke-width", highlighted ? 1.5 : 0.5)
         .style("cursor", "pointer")
         .on("mouseover", (e) =>
-          onHover(e, `<strong>${d.id}</strong>${d.sampleId ? `<br/><a href="https://pedcbioportal.kidsfirstdrc.org/patient?studyId=pbta_all&sampleId=${encodeURIComponent(d.sampleId)}" target="_blank" rel="noreferrer">${d.sampleId}</a>` : ""}<br/>${label}${d.molecularSubtype ? `<br/>${d.molecularSubtype}` : ""}<br/>${axisLabel}: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}${enriched ? "<br/><em>tumor enriched</em>" : ""}`)
+          onHover(e, `<strong>${d.id}</strong>${d.sampleId ? `<br/><a href="https://pedcbioportal.kidsfirstdrc.org/patient?studyId=pbta_all&sampleId=${encodeURIComponent(d.sampleId)}" target="_blank" rel="noreferrer">${d.sampleId}<img src="https://pbs.twimg.com/profile_images/448682169553006594/Uh7nmhLE_400x400.png" style="width:12px;height:12px;vertical-align:middle;margin-left:3px;border-radius:2px;display:inline-block;" /></a>` : ""}<br/>${label}${d.molecularSubtype ? `<br/>${d.molecularSubtype}` : ""}<br/>${axisLabel}: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}${enriched ? "<br/><em>tumor enriched</em>" : ""}`)
         )
         .on("mousemove", onMove)
         .on("mouseout", onLeave);
@@ -337,7 +337,7 @@ function drawEvoDevoPlot(svg, { width, height, evodevoPoints, log2Scale, textCol
         .attr("stroke-width", 0.5)
         .style("cursor", "pointer")
         .on("mouseover", (e) =>
-          onHover(e, `<strong>${d.id}</strong>${d.sampleId ? `<br/><a href="https://pedcbioportal.kidsfirstdrc.org/patient?studyId=pbta_all&sampleId=${encodeURIComponent(d.sampleId)}" target="_blank" rel="noreferrer">${d.sampleId}</a>` : ""}<br/>${region} — ${timepointDisplay(d.timepoint)}<br/>CPM: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}`)
+          onHover(e, `<strong>${d.id}</strong>${d.sampleId ? `<br/><a href="https://pedcbioportal.kidsfirstdrc.org/patient?studyId=pbta_all&sampleId=${encodeURIComponent(d.sampleId)}" target="_blank" rel="noreferrer">${d.sampleId}<img src="https://pbs.twimg.com/profile_images/448682169553006594/Uh7nmhLE_400x400.png" style="width:12px;height:12px;vertical-align:middle;margin-left:3px;border-radius:2px;display:inline-block;" /></a>` : ""}<br/>${region} — ${timepointDisplay(d.timepoint)}<br/>CPM: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}`)
         )
         .on("mousemove", onMove)
         .on("mouseout", onLeave);
@@ -389,7 +389,7 @@ function drawEvoDevoPlot(svg, { width, height, evodevoPoints, log2Scale, textCol
 
 // Renders tumor box plots on the left and the evo-devo line plot on the right
 // as two adjacent facets sharing a continuous y-scale and grid lines.
-function drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleGroups, log2Scale, highlightIds, enrichedIds = highlightIds, textColor = "#333", onHover, onMove, onLeave }) {
+function drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleGroups, log2Scale, highlightIds, enrichedIds = highlightIds, textColor = "#333", onHover, onBoxHover = onHover, onMove, onLeave }) {
   svg.selectAll("*").remove();
 
   const presentTimepoints = EVODEVO_TIMEPOINTS.filter((t) =>
@@ -485,7 +485,7 @@ function drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleG
       .attr("width", bw).attr("height", Math.abs(y(q1) - y(q3)))
       .attr("fill", color).attr("fill-opacity", 0.2)
       .attr("stroke", textColor).attr("stroke-width", 1.5).attr("rx", 2)
-      .on("mouseover", (e) => onHover(e, boxTip))
+      .on("mouseover", (e) => onBoxHover(e, boxTip))
       .on("mousemove", onMove).on("mouseout", onLeave);
     root.append("line")
       .attr("x1", cx - bw / 2).attr("x2", cx + bw / 2)
@@ -502,7 +502,7 @@ function drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleG
         .attr("stroke", textColor).attr("stroke-width", highlighted ? 1.5 : 0.5)
         .style("cursor", "pointer")
         .on("mouseover", (e) =>
-          onHover(e, `<strong>${d.id}</strong>${d.sampleId ? `<br/><a href="https://pedcbioportal.kidsfirstdrc.org/patient?studyId=pbta_all&sampleId=${encodeURIComponent(d.sampleId)}" target="_blank" rel="noreferrer">${d.sampleId}</a>` : ""}<br/>${label}${d.molecularSubtype ? `<br/>${d.molecularSubtype}` : ""}<br/>${axisLabel}: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}${enriched ? "<br/><em>tumor enriched</em>" : ""}`)
+          onHover(e, `<strong>${d.id}</strong>${d.sampleId ? `<br/><a href="https://pedcbioportal.kidsfirstdrc.org/patient?studyId=pbta_all&sampleId=${encodeURIComponent(d.sampleId)}" target="_blank" rel="noreferrer">${d.sampleId}<img src="https://pbs.twimg.com/profile_images/448682169553006594/Uh7nmhLE_400x400.png" style="width:12px;height:12px;vertical-align:middle;margin-left:3px;border-radius:2px;display:inline-block;" /></a>` : ""}<br/>${label}${d.molecularSubtype ? `<br/>${d.molecularSubtype}` : ""}<br/>${axisLabel}: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}${enriched ? "<br/><em>tumor enriched</em>" : ""}`)
         )
         .on("mousemove", onMove).on("mouseout", onLeave);
     });
@@ -543,7 +543,7 @@ function drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleG
         .attr("r", 3).attr("fill", color).attr("fill-opacity", 0.3)
         .attr("stroke", textColor).attr("stroke-width", 0.5).style("cursor", "pointer")
         .on("mouseover", (e) =>
-          onHover(e, `<strong>${d.id}</strong>${d.sampleId ? `<br/><a href="https://pedcbioportal.kidsfirstdrc.org/patient?studyId=pbta_all&sampleId=${encodeURIComponent(d.sampleId)}" target="_blank" rel="noreferrer">${d.sampleId}</a>` : ""}<br/>${region} — ${timepointDisplay(d.timepoint)}<br/>CPM: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}`)
+          onHover(e, `<strong>${d.id}</strong>${d.sampleId ? `<br/><a href="https://pedcbioportal.kidsfirstdrc.org/patient?studyId=pbta_all&sampleId=${encodeURIComponent(d.sampleId)}" target="_blank" rel="noreferrer">${d.sampleId}<img src="https://pbs.twimg.com/profile_images/448682169553006594/Uh7nmhLE_400x400.png" style="width:12px;height:12px;vertical-align:middle;margin-left:3px;border-radius:2px;display:inline-block;" /></a>` : ""}<br/>${region} — ${timepointDisplay(d.timepoint)}<br/>CPM: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}`)
         )
         .on("mousemove", onMove).on("mouseout", onLeave);
     });
@@ -623,6 +623,7 @@ export default function PlotArea({
   const svgRef = useRef(null);
   const containerRef = useRef(null);
   const hideTimeoutRef = useRef(null);
+  const pinnedRef = useRef(false);
   const [containerWidth, setContainerWidth] = useState(900);
   const [fetchedRows, setFetchedRows] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -785,10 +786,10 @@ export default function PlotArea({
   const activeHighlightIds = showHighlight ? highlightIds : EMPTY_SET;
 
   const scheduleHide = () => {
-    hideTimeoutRef.current = setTimeout(
-      () => setTooltip((prev) => ({ ...prev, visible: false })),
-      150,
-    );
+    hideTimeoutRef.current = setTimeout(() => {
+      pinnedRef.current = false;
+      setTooltip((prev) => ({ ...prev, visible: false }));
+    }, 150);
   };
   const cancelHide = () => clearTimeout(hideTimeoutRef.current);
 
@@ -802,7 +803,8 @@ export default function PlotArea({
       highlightIds: activeHighlightIds,
       enrichedIds: highlightIds,
       textColor: theme.palette.text.primary,
-      onHover: (e, html) => { cancelHide(); setTooltip({ visible: true, x: e.clientX + 14, y: e.clientY - 32, html }); },
+      onHover: (e, html) => { cancelHide(); pinnedRef.current = true; setTooltip({ visible: true, x: e.clientX + 14, y: e.clientY - 32, html }); },
+      onBoxHover: (e, html) => { if (pinnedRef.current) return; cancelHide(); setTooltip({ visible: true, x: e.clientX + 14, y: e.clientY - 32, html }); },
       onMove: (e) => { cancelHide(); setTooltip((prev) => ({ ...prev, x: e.clientX + 14, y: e.clientY - 32 })); },
       onLeave: scheduleHide,
     });
@@ -810,14 +812,15 @@ export default function PlotArea({
 
   useEffect(() => {
     if (!svgRef.current || activeTab !== TAB_EVO_DEVO) return;
-    const onHover = (e, html) => { cancelHide(); setTooltip({ visible: true, x: e.clientX + 14, y: e.clientY - 32, html }); };
+    const onHover = (e, html) => { cancelHide(); pinnedRef.current = true; setTooltip({ visible: true, x: e.clientX + 14, y: e.clientY - 32, html }); };
+    const onBoxHover = (e, html) => { if (pinnedRef.current) return; cancelHide(); setTooltip({ visible: true, x: e.clientX + 14, y: e.clientY - 32, html }); };
     const onMove = (e) => { cancelHide(); setTooltip((prev) => ({ ...prev, x: e.clientX + 14, y: e.clientY - 32 })); };
     const onLeave = scheduleHide;
     if (visibleGroups.length > 0) {
       drawEvoDevoWithTumorsPlot(d3.select(svgRef.current), {
         width: containerWidth, height, evodevoPoints: filteredEvodevoPoints,
         visibleGroups, log2Scale, highlightIds: activeHighlightIds, enrichedIds: highlightIds,
-        textColor: theme.palette.text.primary, onHover, onMove, onLeave,
+        textColor: theme.palette.text.primary, onHover, onBoxHover, onMove, onLeave,
       });
     } else {
       drawEvoDevoPlot(d3.select(svgRef.current), {
@@ -1153,7 +1156,7 @@ export default function PlotArea({
         <Box
           dangerouslySetInnerHTML={{ __html: tooltip.html }}
           onMouseEnter={cancelHide}
-          onMouseLeave={() => setTooltip((prev) => ({ ...prev, visible: false }))}
+          onMouseLeave={() => { pinnedRef.current = false; setTooltip((prev) => ({ ...prev, visible: false })); }}
           sx={{
             position: "fixed",
             left: tooltip.x,
