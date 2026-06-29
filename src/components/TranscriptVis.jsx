@@ -217,8 +217,11 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
   };
 
   const visible = useMemo(() => {
-    const base = (activeBiotypes.size === 0) ? txList : txList.filter(t => activeBiotypes.has(t.biotype));
-    const filtered = canonicalOnly ? base.filter(t => t.isCanonical) : base;
+    const noBiotype = activeBiotypes.size === 0;
+    const filtered = txList.filter(t =>
+      (canonicalOnly && t.isCanonical) ||
+      (noBiotype ? !canonicalOnly : activeBiotypes.has(t.biotype))
+    );
     // Canonical first, then ascending by the -201 number in displayName (same order as GeneModelGtex)
     return [...filtered].sort((a, b) => {
       if (a.isCanonical !== b.isCanonical) return a.isCanonical ? -1 : 1;
@@ -284,6 +287,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
   }
 
   const theme = useTheme();
+  const canonicalColor = theme.palette.mode === "dark" ? "#ffffff" : "#000000";
   const containerRef = useRef(null);
   const [hoveredExon, setHoveredExon] = useState(null);
 
@@ -385,9 +389,10 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
       }
     }
 
+    const displayColor = t.isCanonical ? canonicalColor : t.colour;
     return (
       <Box key={t.id} sx={{ display: "flex", alignItems: "center" }}>
-        <Typography variant="caption" sx={{ fontSize: 12, color: t.colour, fontWeight: 700, minWidth: 200, mr: 1, overflow: "hidden", textOverflow: "ellipsis" }} title={`${t.displayName} (${t.id})`}>
+        <Typography variant="caption" sx={{ fontSize: 12, color: displayColor, fontWeight: 700, minWidth: 200, mr: 1, overflow: "hidden", textOverflow: "ellipsis" }} title={`${t.displayName} (${t.id})`}>
           {t.displayName} ({t.id})
         </Typography>
         {exonsSvg.length > 0 ? (
@@ -402,7 +407,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
                   <line
                     x1={minLeft} y1={ARC_H + TRACK_H / 2}
                     x2={maxRight} y2={ARC_H + TRACK_H / 2}
-                    stroke={t.colour} strokeWidth={2} strokeOpacity={0.4}
+                    stroke={displayColor} strokeWidth={2} strokeOpacity={0.4}
                     vectorEffect="non-scaling-stroke"
                   />
                 );
@@ -434,7 +439,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
                     key={i}
                     d={d}
                     fill="none"
-                    stroke={isJunctionArc ? hlColour : t.colour}
+                    stroke={isJunctionArc ? hlColour : displayColor}
                     strokeWidth={isJunctionArc ? 4 : 2}
                     strokeOpacity={1}
                     strokeLinecap="round"
@@ -485,7 +490,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
                     height={TRACK_H}
                     rx={4}
                     ry={4}
-                    fill={(isJunctionExon || isSkippedExon) ? hlColour : t.colour}
+                    fill={(isJunctionExon || isSkippedExon) ? hlColour : displayColor}
                     opacity={1}
                     style={{ cursor: "pointer" }}
                     onMouseMove={(ev) => exonMouseMove(ev, t, i)}
@@ -509,6 +514,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
     const W = 1000;
     const domain = zoomed && zoomDomain ? zoomDomain : coordDomain;
 
+    const displayColor = t.isCanonical ? canonicalColor : t.colour;
     const exonsSvg = domain && t.exons?.length
       ? t.exons.map(e => {
           const l = ((e.start - domain.min) / domain.span) * W;
@@ -520,7 +526,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
 
     return (
       <Box key={t.id} sx={{ display: "flex", alignItems: "center" }}>
-        <Typography variant="caption" sx={{ fontSize: 12, color: t.colour, minWidth: 200, mr: 1, overflow: "hidden", textOverflow: "ellipsis" }} title={`${t.displayName} (${t.id})`}>
+        <Typography variant="caption" sx={{ fontSize: 12, color: displayColor, minWidth: 200, mr: 1, overflow: "hidden", textOverflow: "ellipsis" }} title={`${t.displayName} (${t.id})`}>
           {t.displayName} ({t.id})
         </Typography>
         {exonsSvg.length > 0 ? (
@@ -533,7 +539,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
                   <line
                     x1={minLeft} y1={trackH / 2}
                     x2={maxRight} y2={trackH / 2}
-                    stroke={t.colour} strokeWidth={2} strokeOpacity={0.4}
+                    stroke={displayColor} strokeWidth={2} strokeOpacity={0.4}
                     vectorEffect="non-scaling-stroke"
                   />
                 );
@@ -545,7 +551,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
                   width={e.width}
                   height={trackH - 2}
                   rx={3} ry={3}
-                  fill={hexToRgba(t.colour, 0.9)}
+                  fill={hexToRgba(displayColor, 0.9)}
                   style={{ cursor: "pointer" }}
                   onMouseMove={(ev) => exonMouseMove(ev, t, idx)}
                   onMouseLeave={() => setHoveredExon(null)}
@@ -620,8 +626,25 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
                 {geneID} (strand: {strandLabel})
               </Typography>
             )}
-            {legendItems.length > 0 && (
+            {(legendItems.length > 0 || txList.some(t => t.isCanonical)) && (
               <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", alignItems: "center", mt: 0.75 }}>
+                {txList.some(t => t.isCanonical) && (
+                  <Chip
+                    label="canonical"
+                    size="small"
+                    onClick={() => setCanonicalOnly(c => !c)}
+                    sx={{
+                      bgcolor: canonicalOnly ? canonicalColor : hexToRgba(canonicalColor, 0.15),
+                      color: canonicalOnly
+                        ? (theme.palette.mode === "dark" ? "common.black" : "common.white")
+                        : "text.primary",
+                      fontWeight: canonicalOnly ? 700 : 400,
+                      border: "1px solid",
+                      borderColor: canonicalOnly ? "transparent" : "divider",
+                      cursor: "pointer",
+                    }}
+                  />
+                )}
                 {legendItems.map(([bio, colour]) => {
                   const selected = activeBiotypes.has(bio);
                   const bg = selected ? colour : hexToRgba(colour, 0.5);
