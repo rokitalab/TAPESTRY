@@ -1167,8 +1167,9 @@ function evoDevoLabelSort(a, b) {
   const phaseRank = (label) => (label.endsWith("(Prenatal)") ? 0 : label.endsWith("(Postnatal)") ? 1 : null);
   const aPhase = phaseRank(a);
   const bPhase = phaseRank(b);
-  if (aPhase !== null && bPhase !== null && a.slice(0, a.lastIndexOf("(")) === b.slice(0, b.lastIndexOf("("))) {
-    return aPhase - bPhase;
+  if (aPhase !== null && bPhase !== null) {
+    if (aPhase !== bPhase) return aPhase - bPhase;
+    return a.localeCompare(b);
   }
   return a.localeCompare(b);
 }
