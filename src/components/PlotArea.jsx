@@ -257,7 +257,7 @@ function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightId
         .attr("stroke-width", highlighted ? 1.5 : 0.5)
         .style("cursor", "pointer")
         .on("mouseover", (e) =>
-          onHover(e, `<strong>${d.id}</strong><br/>${label}${d.molecularSubtype ? `<br/>${d.molecularSubtype}` : ""}<br/>${axisLabel}: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}${enriched ? "<br/><em>tumor enriched</em>" : ""}`)
+          onHover(e, `<strong>${d.id}</strong>${d.sampleId ? `<br/><a href="https://pedcbioportal.kidsfirstdrc.org/patient?studyId=pbta_all&sampleId=${encodeURIComponent(d.sampleId)}" target="_blank" rel="noreferrer">${d.sampleId}</a>` : ""}<br/>${label}${d.molecularSubtype ? `<br/>${d.molecularSubtype}` : ""}<br/>${axisLabel}: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}${enriched ? "<br/><em>tumor enriched</em>" : ""}`)
         )
         .on("mousemove", onMove)
         .on("mouseout", onLeave);
@@ -337,7 +337,7 @@ function drawEvoDevoPlot(svg, { width, height, evodevoPoints, log2Scale, textCol
         .attr("stroke-width", 0.5)
         .style("cursor", "pointer")
         .on("mouseover", (e) =>
-          onHover(e, `<strong>${d.id}</strong><br/>${region} — ${timepointDisplay(d.timepoint)}<br/>CPM: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}`)
+          onHover(e, `<strong>${d.id}</strong>${d.sampleId ? `<br/><a href="https://pedcbioportal.kidsfirstdrc.org/patient?studyId=pbta_all&sampleId=${encodeURIComponent(d.sampleId)}" target="_blank" rel="noreferrer">${d.sampleId}</a>` : ""}<br/>${region} — ${timepointDisplay(d.timepoint)}<br/>CPM: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}`)
         )
         .on("mousemove", onMove)
         .on("mouseout", onLeave);
@@ -502,7 +502,7 @@ function drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleG
         .attr("stroke", textColor).attr("stroke-width", highlighted ? 1.5 : 0.5)
         .style("cursor", "pointer")
         .on("mouseover", (e) =>
-          onHover(e, `<strong>${d.id}</strong><br/>${label}${d.molecularSubtype ? `<br/>${d.molecularSubtype}` : ""}<br/>${axisLabel}: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}${enriched ? "<br/><em>tumor enriched</em>" : ""}`)
+          onHover(e, `<strong>${d.id}</strong>${d.sampleId ? `<br/><a href="https://pedcbioportal.kidsfirstdrc.org/patient?studyId=pbta_all&sampleId=${encodeURIComponent(d.sampleId)}" target="_blank" rel="noreferrer">${d.sampleId}</a>` : ""}<br/>${label}${d.molecularSubtype ? `<br/>${d.molecularSubtype}` : ""}<br/>${axisLabel}: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}${enriched ? "<br/><em>tumor enriched</em>" : ""}`)
         )
         .on("mousemove", onMove).on("mouseout", onLeave);
     });
@@ -543,7 +543,7 @@ function drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleG
         .attr("r", 3).attr("fill", color).attr("fill-opacity", 0.3)
         .attr("stroke", textColor).attr("stroke-width", 0.5).style("cursor", "pointer")
         .on("mouseover", (e) =>
-          onHover(e, `<strong>${d.id}</strong><br/>${region} — ${timepointDisplay(d.timepoint)}<br/>CPM: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}`)
+          onHover(e, `<strong>${d.id}</strong>${d.sampleId ? `<br/><a href="https://pedcbioportal.kidsfirstdrc.org/patient?studyId=pbta_all&sampleId=${encodeURIComponent(d.sampleId)}" target="_blank" rel="noreferrer">${d.sampleId}</a>` : ""}<br/>${region} — ${timepointDisplay(d.timepoint)}<br/>CPM: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}`)
         )
         .on("mousemove", onMove).on("mouseout", onLeave);
     });
@@ -622,6 +622,7 @@ export default function PlotArea({
   const subTitle = junctionName && junction ? junction : null;
   const svgRef = useRef(null);
   const containerRef = useRef(null);
+  const hideTimeoutRef = useRef(null);
   const [containerWidth, setContainerWidth] = useState(900);
   const [fetchedRows, setFetchedRows] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -665,6 +666,7 @@ export default function PlotArea({
       const id = r.biospecimen_id ?? `S${i}`;
       return {
         id,
+        sampleId: r.sample_id ?? null,
         cpm: Number(r.cpm),
         log2CpmCorrected: r.log2_cpm_corrected ?? null,
         histology: collapseControlGroup(r.plot_group ?? "Unknown"),
@@ -732,6 +734,7 @@ export default function PlotArea({
         const dash = pg.indexOf("-");
         return {
           id: r.biospecimen_id ?? `S${i}`,
+          sampleId: r.sample_id ?? null,
           cpm: Number(r.cpm),
           log2CpmCorrected: r.log2_cpm_corrected ?? null,
           region: dash >= 0 ? pg.slice(0, dash) : pg,
@@ -781,6 +784,14 @@ export default function PlotArea({
 
   const activeHighlightIds = showHighlight ? highlightIds : EMPTY_SET;
 
+  const scheduleHide = () => {
+    hideTimeoutRef.current = setTimeout(
+      () => setTooltip((prev) => ({ ...prev, visible: false })),
+      150,
+    );
+  };
+  const cancelHide = () => clearTimeout(hideTimeoutRef.current);
+
   useEffect(() => {
     if (!svgRef.current || activeTab === TAB_EVO_DEVO) return;
     drawBoxPlot(d3.select(svgRef.current), {
@@ -791,17 +802,17 @@ export default function PlotArea({
       highlightIds: activeHighlightIds,
       enrichedIds: highlightIds,
       textColor: theme.palette.text.primary,
-      onHover: (e, html) => setTooltip({ visible: true, x: e.clientX + 14, y: e.clientY - 32, html }),
-      onMove: (e) => setTooltip((prev) => ({ ...prev, x: e.clientX + 14, y: e.clientY - 32 })),
-      onLeave: () => setTooltip((prev) => ({ ...prev, visible: false })),
+      onHover: (e, html) => { cancelHide(); setTooltip({ visible: true, x: e.clientX + 14, y: e.clientY - 32, html }); },
+      onMove: (e) => { cancelHide(); setTooltip((prev) => ({ ...prev, x: e.clientX + 14, y: e.clientY - 32 })); },
+      onLeave: scheduleHide,
     });
   }, [visibleGroups, containerWidth, height, activeTab, activeHighlightIds, highlightIds, log2Scale, theme.palette.text.primary]);
 
   useEffect(() => {
     if (!svgRef.current || activeTab !== TAB_EVO_DEVO) return;
-    const onHover = (e, html) => setTooltip({ visible: true, x: e.clientX + 14, y: e.clientY - 32, html });
-    const onMove = (e) => setTooltip((prev) => ({ ...prev, x: e.clientX + 14, y: e.clientY - 32 }));
-    const onLeave = () => setTooltip((prev) => ({ ...prev, visible: false }));
+    const onHover = (e, html) => { cancelHide(); setTooltip({ visible: true, x: e.clientX + 14, y: e.clientY - 32, html }); };
+    const onMove = (e) => { cancelHide(); setTooltip((prev) => ({ ...prev, x: e.clientX + 14, y: e.clientY - 32 })); };
+    const onLeave = scheduleHide;
     if (visibleGroups.length > 0) {
       drawEvoDevoWithTumorsPlot(d3.select(svgRef.current), {
         width: containerWidth, height, evodevoPoints: filteredEvodevoPoints,
@@ -836,6 +847,7 @@ export default function PlotArea({
   function downloadAsTsv() {
     const columns = [
       ["biospecimen_id", (r) => r.biospecimen_id],
+      ["sample_id", (r) => r.sample_id],
       ["patient_id", (r) => r.patient_id],
       ["junction", (r) => r.junction],
       ["gene_symbol", () => gene],
@@ -1138,21 +1150,29 @@ export default function PlotArea({
       </Box>
 
       {tooltip.visible && (
-        <div
+        <Box
           dangerouslySetInnerHTML={{ __html: tooltip.html }}
-          style={{
+          onMouseEnter={cancelHide}
+          onMouseLeave={() => setTooltip((prev) => ({ ...prev, visible: false }))}
+          sx={{
             position: "fixed",
             left: tooltip.x,
             top: tooltip.y,
             background: "rgba(30,30,30,0.9)",
             color: "#fff",
-            padding: "6px 10px",
-            borderRadius: 4,
+            px: "10px",
+            py: "6px",
+            borderRadius: "4px",
             fontSize: 12,
             lineHeight: 1.6,
-            pointerEvents: "none",
+            pointerEvents: "auto",
             zIndex: 9999,
             whiteSpace: "nowrap",
+            "& a": {
+              color: "#7eb8f7",
+              textDecoration: "underline",
+              cursor: "pointer",
+            },
           }}
         />
       )}
