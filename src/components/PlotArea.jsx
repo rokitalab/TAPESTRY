@@ -14,6 +14,198 @@ const MARGIN = { top: 20, right: 20, bottom: 160, left: 100 };
 const API_BASE = (import.meta.env.VITE_API_BASE || "/tapestry-api").replace(/\/$/, "");
 const EMPTY_ROWS = [];
 
+// Maps cell-line biospecimen IDs to their PedcBioPortal sampleId URL parameters.
+// Source: pbta_all_clinical_data.tsv (SPECIMEN_ID → sampleId columns).
+const CELL_LINE_SAMPLE_ID_MAP = {
+  "BS_0RQ4P069": "7316-1746-CL-Serum-based-P-4",
+  "BS_0Z1XRQ8F": "7316-5335-CL-Serum-free-P-7_1034249",
+  "BS_169P1QCA": "7316-5922",
+  "BS_1A521KDP": "7316-8851-CL-Serum-free-P-9",
+  "BS_1E684SD5": "7316-9433-CL-Serum-free-P-7",
+  "BS_1X206RYY": "7316-388-CL-Serum-based-P-10",
+  "BS_2A162JH9": "7316-3058-CL-Serum-free-P-7",
+  "BS_2EAF5GXZ": "7316-2686-CL-Serum-based-P-8",
+  "BS_2KD2NR56": "7316-1746-CL-Serum-based-P-8",
+  "BS_2WS7E25W": "7316-2151-CL-Serum-based-P-11",
+  "BS_31XK6FNH": "7316-2189-CL-Serum-based-P-13",
+  "BS_3JQDQR52": "7316-445-CL-Serum-based-P-9",
+  "BS_3K5MMTMR": "7316-1102-CL-Serum-based-P-4",
+  "BS_40MP5BWR": "7316-1769-CL-Serum-free-P-11",
+  "BS_4DQAQFQH": "7316-4446",
+  "BS_4FXPXSR4": "7316-8741-CL-Serum-based-P-6",
+  "BS_52V1ADN9": "7316-124-CL-Serum-based-P-5",
+  "BS_5357BVCQ": "7316-6349-CL-Serum-free-P-7",
+  "BS_59ZJWJTF": "7316-85-CL-Serum-based-P-4",
+  "BS_5AK32KGB": "7316-158-CL-Serum-free-P-25",
+  "BS_5C0SRKYC": "7316-1763-CL-Serum-based-P-8",
+  "BS_5GNQC2FF": "7316-2176-CL-Serum-based-P-3",
+  "BS_5SWRB9C6": "7316-4423-CL-Serum-based-P-11",
+  "BS_5WG0W2NQ": "7316-7919-CL-Serum-based-P-6",
+  "BS_5YF9GK7D": "7316-195-CL-Serum-based-P-11",
+  "BS_672V4AHJ": "7316-4423-CL-Serum-free-P-8",
+  "BS_68TZMZH1": "7316-1746-CL-Serum-based-P-4",
+  "BS_6JBE0947": "7316-4448",
+  "BS_6S2YMXRY": "7316-1100-CL-Serum-based-P-9",
+  "BS_6Y08PVRK": "7316-4423-CL-Serum-free-P-8",
+  "BS_70AW1WH4": "7316-6475-CL-Serum-free-P-5",
+  "BS_7E9HHKXA": "7316-2186-CL-Serum-based-P-8",
+  "BS_7HD5FK4Z": "7316-4062-CL-Serum-free-P-8",
+  "BS_7MZTDB19": "7316-2187-CL-Serum-free-P-10",
+  "BS_7ZA2AYHR": "7316-7924-CL-Serum-based-P-6",
+  "BS_853PNV7P": "7316-1763-CL-Serum-based-P-3",
+  "BS_87E0MMHD": "7316-7538-CL-Serum-free-P-12",
+  "BS_8HBQ3JPK": "7316-4509-CL-Serum-free-P-8",
+  "BS_8Q7NWJ22": "7316-3058-CL-Serum-free-P-8",
+  "BS_8TM3SM9D": "7316-870-CL-Serum-based-P-7",
+  "BS_8ZD6J47V": "7316-913-CL-Serum-free-P-13",
+  "BS_91JG3WPD": "7316-7963-CL-Serum-based-P-11",
+  "BS_91PQ311R": "7316-8128-CL-Serum-free-P-9",
+  "BS_93B03065": "7316-6477-CL-Serum-free-P-11",
+  "BS_97PS4DTQ": "7316-913-CL-Serum-based-P-16_1007885",
+  "BS_989GRHJC": "7316-870-CL-Serum-based-P-7",
+  "BS_9FN0417M": "7316-6758-CL-Serum-based-P-11",
+  "BS_9VJ3VV46": "7316-2187-CL-Serum-free-P-10",
+  "BS_9XKZY5PR": "7316-1746-CL-Serum-free-P-14",
+  "BS_A3S28ANC": "7316-445-CL-Serum-free-P-12",
+  "BS_A79S84KJ": "7316-2666-CL-Serum-free-P-13",
+  "BS_A8XRT37Q": "7316-440-CL-Serum-based-P-11",
+  "BS_AFBPM6CN": "7316-1746-CL-Serum-free-P-10",
+  "BS_AH3RVK53": "SF11385",
+  "BS_AHW1VXPG": "7316-85-CL-Serum-free-P-14",
+  "BS_AJ2YA7HC": "7316-1781-CL-Serum-based-P-9",
+  "BS_AM05X074": "7316-406-CL-Serum-based-P-7",
+  "BS_AMJRV0NK": "7316-6758-CL-Serum-based-P-11",
+  "BS_ANZMQ09Q": "7316-5335-CL-Serum-free-P-7_1034249",
+  "BS_AZD61W93": "7316-388-CL-Serum-free-P-21",
+  "BS_B5S27A0B": "7316-195-CL-Serum-free-P-14",
+  "BS_BF2MCS03": "7316-6477-CL-Serum-free-P-11",
+  "BS_BFFK7M53": "7316-2151-CL-Serum-based-P-11",
+  "BS_BJGV8RBP": "7316-2141-CL-Serum-based-P-8",
+  "BS_BPK2KS9J": "7316-7955-CL-Serum-based-P-6",
+  "BS_BWBDH9GM": "7316-3058-CL-Serum-based-P-6",
+  "BS_C64R2V60": "7316-8017-CL-Serum-based-P-5",
+  "BS_C9NE8QMR": "7316-599-CL-Serum-based-P-8",
+  "BS_CA4CRZKP": "CNMC-967",
+  "BS_CHBWCERH": "7316-2141-CL-Serum-free-P-9",
+  "BS_CHFJZQWR": "7316-161-CL-Serum-based-P-13",
+  "BS_CNMM5BCD": "7316-2187-CL-Serum-based-P-8",
+  "BS_CNNBPEXA": "7316-3045-CL-Serum-based-P-5",
+  "BS_CRWF3CZQ": "7316-8128-CL-Serum-based-P-8",
+  "BS_CS091RPM": "7316-161-CL-Serum-based-P-13",
+  "BS_CX2EPMNP": "7316-6349-CL-Serum-free-P-7",
+  "BS_CZ6XFMAW": "7316-8128-CL-Serum-free-P-11",
+  "BS_CZRA594T": "7316-85-CL-Serum-based-P-4",
+  "BS_DKF4CQB4": "7316-7965-CL-Serum-based-P-10",
+  "BS_DRY58DTF": "7316-1763-CL-Serum-based-P-3",
+  "BS_DVDT4VXQ": "7316-3234",
+  "BS_DVQ6Q5C1": "7316-913-CL-Serum-based-P-16_1007886",
+  "BS_DX3CGG44": "7316-4800-CL-Serum-based-P-8",
+  "BS_DXXVE0V1": "7316-1763-CL-Serum-based-P-8",
+  "BS_E3N4JN0X": "7316-5335-CL-Serum-free-P-7_1034337",
+  "BS_E60JZ9Z3": "7316-1763-CL-Serum-free-P-9",
+  "BS_EK4XEBRD": "7316-8128-CL-Serum-based-P-8",
+  "BS_EKJB7HFV": "7316-9433-CL-Serum-free-P-7",
+  "BS_EM8PDG4B": "7316-2186-CL-Serum-based-P-8",
+  "BS_ERAWW3H7": "7316-85-CL-Serum-free-P-13",
+  "BS_ERFMPQN3": "7316-2189-CL-Serum-based-P-4",
+  "BS_EY857EMY": "7316-7943-CL-Serum-based-P-7",
+  "BS_F2YGCAHF": "7316-445-CL-Serum-based-P-9",
+  "BS_F3Q8HG1M": "7316-7958-CL-Serum-based-P-8",
+  "BS_F5JCJM6S": "7316-913-CL-Serum-free-P-11",
+  "BS_FH4TA0XM": "7316-1102-CL-Serum-based-P-4",
+  "BS_FJEZ3ASV": "7316-913-CL-Serum-free-P-13",
+  "BS_FMCSE824": "7316-212-CL-Serum-based-P-6",
+  "BS_G802JZ6S": "7316-2176-CL-Serum-based-P-6",
+  "BS_GF8MHY11": "7316-195-CL-Serum-free-P-14",
+  "BS_GGXGNP9S": "7316-7049-CL-Serum-free-P-14",
+  "BS_GNSAKWR4": "7316-4062-CL-Serum-based-P-5",
+  "BS_GW7MKKP9": "7316-1763-CL-Serum-free-P-8",
+  "BS_GXTFW99H": "7316-2151-CL-Serum-based-P-5",
+  "BS_HFZPE6ZA": "7316-5335-CL-Serum-free-P-7_1034337",
+  "BS_HGE47RGT": "7316-8121-CL-Serum-free-P-7",
+  "BS_HM5GFJN8": "7316-3058-CL-Serum-free-P-7",
+  "BS_HMJD6DTA": "7316-5317-CL-Serum-free-P-11",
+  "BS_J440ZA7W": "7316-440-CL-Serum-free-P-21",
+  "BS_JEZBA2EW": "CNMC-1277",
+  "BS_JGKRN7NA": "7316-195-CL-Serum-free-P-8",
+  "BS_JPVVRR84": "7316-7958-CL-Serum-based-P-8",
+  "BS_JV0K935Z": "7316-1781-CL-Serum-based-P-9",
+  "BS_K0X5TZ5K": "7316-7919-CL-Serum-based-P-6",
+  "BS_K20V1HST": "7316-7924-CL-Serum-based-P-6",
+  "BS_KK87WD8M": "7316-2176-CL-Serum-based-P-6",
+  "BS_KQPCYZ2K": "CNMC-1034",
+  "BS_KYRAHGZ8": "7316-2187-CL-Serum-based-P-8",
+  "BS_M0FN1D8Y": "7316-2686-CL-Serum-based-P-8",
+  "BS_M659G06J": "7316-2176-CL-Serum-based-P-3",
+  "BS_M8EA6R2A": "7316-913-CL-Serum-based-P-4",
+  "BS_MH9D24WY": "7316-4062-CL-Serum-free-P-8",
+  "BS_MJ3ZTWB7": "7316-3058-CL-Serum-based-P-7",
+  "BS_MS39AKDH": "7316-8851-CL-Serum-free-P-9",
+  "BS_MVPJFHPG": "7316-440-CL-Serum-free-P-21",
+  "BS_MX23ZY0Y": "7316-195-CL-Serum-free-P-8",
+  "BS_MZM00D4F": "7316-8128-CL-Serum-free-P-9",
+  "BS_MZMTHD63": "7316-7928-CL-Serum-based-P-6",
+  "BS_NE82PE7G": "7316-195-CL-Serum-based-P-11",
+  "BS_NFTZDWJ8": "7316-406-CL-Serum-based-P-7",
+  "BS_NXXTPSEP": "7316-388-CL-Serum-based-P-10",
+  "BS_P7J6GBHR": "7316-85-CL-Serum-based-P-5",
+  "BS_P9JP6JFA": "7316-195-CL-Serum-based-P-4",
+  "BS_P9MA3S97": "7316-1100-CL-Serum-based-P-9",
+  "BS_PBBWKYFX": "7316-8128-CL-Serum-free-P-11",
+  "BS_PGK832G2": "7316-2189-CL-Serum-based-P-4",
+  "BS_PKZ1HWNB": "7316-913-CL-Serum-based-P-4",
+  "BS_PMFAKGQ5": "7316-2189-CL-Serum-based-P-13",
+  "BS_PNYN0AYD": "7316-1746-CL-Serum-free-P-10",
+  "BS_Q3KV6NDN": "7316-2141-CL-Serum-based-P-8",
+  "BS_Q9MAXZF6": "7316-2141-CL-Serum-free-P-9",
+  "BS_QCVB3325": "7316-3058-CL-Serum-based-P-7",
+  "BS_QFS497M1": "7316-8121-CL-Serum-free-P-8",
+  "BS_QNQX0Q35": "7316-3237-CL-Serum-free-P-22",
+  "BS_QNTYAQJN": "7316-5317-CL-Serum-free-P-11",
+  "BS_QWM9BPDY": "7316-3058-CL-Serum-based-P-6",
+  "BS_QYPHA40N": "7316-85-CL-Serum-free-P-13",
+  "BS_QZRP3NSG": "7316-4447-CL-Serum-free-P-0",
+  "BS_R34ZYJR8": "7316-7943-CL-Serum-based-P-7",
+  "BS_RMNNT83R": "7316-913-CL-Serum-based-P-16_1007885",
+  "BS_RQ9W1EQ7": "7316-2183-CL-Serum-based-P-6",
+  "BS_RXP2ZRQT": "7316-1769-CL-Serum-free-P-11",
+  "BS_S4P7XKFK": "7316-913-CL-Serum-free-P-11",
+  "BS_SAHWJ50F": "7316-7955-CL-Serum-based-P-6",
+  "BS_SH9NS018": "7316-158-CL-Serum-free-P-25",
+  "BS_SNWRBH0J": "7316-212-CL-Serum-based-P-6",
+  "BS_SXM30B9W": "7316-85-CL-Serum-free-P-14",
+  "BS_T5N6GWXH": "7316-7965-CL-Serum-based-P-10",
+  "BS_TF5TTEXH": "7316-1763-CL-Serum-free-P-9",
+  "BS_TGSXGXM7": "7316-1763-CL-Serum-free-P-8",
+  "BS_TX8C5VAJ": "7316-2151-CL-Serum-based-P-5",
+  "BS_V27ABVGT": "7316-1746-CL-Serum-free-P-14",
+  "BS_V2QN65XA": "7316-7959-CL-Serum-based-P-7",
+  "BS_V9Y9HSGQ": "7316-4062-CL-Serum-based-P-5",
+  "BS_VKGX1F8Z": "7316-2582-CL-Serum-based-P-6",
+  "BS_VT2YFZNB": "7316-8121-CL-Serum-free-P-8",
+  "BS_VXDGXQKZ": "7316-3235",
+  "BS_VYGCBBWB": "7316-599-CL-Serum-based-P-8",
+  "BS_W37YKD6X": "7316-4509-CL-Serum-free-P-8",
+  "BS_W6PXPK9Q": "7316-7538-CL-Serum-free-P-12",
+  "BS_WE4C1XN1": "7316-6475-CL-Serum-free-P-5",
+  "BS_WF90N975": "7316-445-CL-Serum-free-P-12",
+  "BS_X586X4VM": "7316-2183-CL-Serum-based-P-6",
+  "BS_XFW6426N": "7316-8121-CL-Serum-free-P-7",
+  "BS_XMP9XNR9": "7316-195-CL-Serum-based-P-4",
+  "BS_Y7CT08T2": "7316-2582-CL-Serum-based-P-6",
+  "BS_YAT7CTDK": "7316-3045-CL-Serum-based-P-5",
+  "BS_YBZ2DNSK": "7316-7963-CL-Serum-based-P-11",
+  "BS_YHVCFBXZ": "7316-913-CL-Serum-based-P-16_1007886",
+  "BS_YPN9H9KK": "7316-1746-CL-Serum-based-P-8",
+  "BS_YS3ZJWN9": "7316-388-CL-Serum-free-P-21",
+  "BS_YTTPJ4RX": "7316-406-CL-Serum-free-P-9",
+  "BS_ZEQCS2WN": "7316-85-CL-Serum-based-P-5",
+};
+
+function cbioportalId(biospecimenId, sampleId) {
+  return CELL_LINE_SAMPLE_ID_MAP[biospecimenId] ?? sampleId;
+}
+
 // Tab indices, named so reordering the <Tab> elements doesn't require
 // touching every activeTab === N check scattered through this file.
 const TAB_TUMORS = 0;
@@ -257,7 +449,7 @@ function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightId
         .attr("stroke-width", highlighted ? 1.5 : 0.5)
         .style("cursor", "pointer")
         .on("mouseover", (e) =>
-          onHover(e, `<strong>${d.id}</strong>${d.sampleId ? `<br/><a href="https://pedcbioportal.kidsfirstdrc.org/patient?studyId=pbta_all&sampleId=${encodeURIComponent(d.sampleId)}" target="_blank" rel="noreferrer">${d.sampleId}<img src="https://pbs.twimg.com/profile_images/448682169553006594/Uh7nmhLE_400x400.png" style="width:12px;height:12px;vertical-align:middle;margin-left:3px;border-radius:2px;display:inline-block;" /></a>` : ""}<br/>${label}${d.molecularSubtype ? `<br/>${d.molecularSubtype}` : ""}<br/>${axisLabel}: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}${enriched ? "<br/><em>tumor enriched</em>" : ""}`)
+          onHover(e, `<strong>${d.id}</strong>${d.sampleId ? `<br/><a href="https://pedcbioportal.kidsfirstdrc.org/patient?studyId=pbta_all&sampleId=${encodeURIComponent(cbioportalId(d.id, d.sampleId))}" target="_blank" rel="noreferrer">${cbioportalId(d.id, d.sampleId)}<img src="https://pbs.twimg.com/profile_images/448682169553006594/Uh7nmhLE_400x400.png" style="width:12px;height:12px;vertical-align:middle;margin-left:3px;border-radius:2px;display:inline-block;" /></a>` : ""}<br/>${label}${d.molecularSubtype ? `<br/>${d.molecularSubtype}` : ""}<br/>${axisLabel}: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}${enriched ? "<br/><em>tumor enriched</em>" : ""}`)
         )
         .on("mousemove", onMove)
         .on("mouseout", onLeave);
@@ -337,7 +529,7 @@ function drawEvoDevoPlot(svg, { width, height, evodevoPoints, log2Scale, textCol
         .attr("stroke-width", 0.5)
         .style("cursor", "pointer")
         .on("mouseover", (e) =>
-          onHover(e, `<strong>${d.id}</strong>${d.sampleId ? `<br/><a href="https://pedcbioportal.kidsfirstdrc.org/patient?studyId=pbta_all&sampleId=${encodeURIComponent(d.sampleId)}" target="_blank" rel="noreferrer">${d.sampleId}<img src="https://pbs.twimg.com/profile_images/448682169553006594/Uh7nmhLE_400x400.png" style="width:12px;height:12px;vertical-align:middle;margin-left:3px;border-radius:2px;display:inline-block;" /></a>` : ""}<br/>${region} — ${timepointDisplay(d.timepoint)}<br/>CPM: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}`)
+          onHover(e, `<strong>${d.id}</strong>${d.sampleId ? `<br/><a href="https://pedcbioportal.kidsfirstdrc.org/patient?studyId=pbta_all&sampleId=${encodeURIComponent(cbioportalId(d.id, d.sampleId))}" target="_blank" rel="noreferrer">${cbioportalId(d.id, d.sampleId)}<img src="https://pbs.twimg.com/profile_images/448682169553006594/Uh7nmhLE_400x400.png" style="width:12px;height:12px;vertical-align:middle;margin-left:3px;border-radius:2px;display:inline-block;" /></a>` : ""}<br/>${region} — ${timepointDisplay(d.timepoint)}<br/>CPM: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}`)
         )
         .on("mousemove", onMove)
         .on("mouseout", onLeave);
@@ -502,7 +694,7 @@ function drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleG
         .attr("stroke", textColor).attr("stroke-width", highlighted ? 1.5 : 0.5)
         .style("cursor", "pointer")
         .on("mouseover", (e) =>
-          onHover(e, `<strong>${d.id}</strong>${d.sampleId ? `<br/><a href="https://pedcbioportal.kidsfirstdrc.org/patient?studyId=pbta_all&sampleId=${encodeURIComponent(d.sampleId)}" target="_blank" rel="noreferrer">${d.sampleId}<img src="https://pbs.twimg.com/profile_images/448682169553006594/Uh7nmhLE_400x400.png" style="width:12px;height:12px;vertical-align:middle;margin-left:3px;border-radius:2px;display:inline-block;" /></a>` : ""}<br/>${label}${d.molecularSubtype ? `<br/>${d.molecularSubtype}` : ""}<br/>${axisLabel}: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}${enriched ? "<br/><em>tumor enriched</em>" : ""}`)
+          onHover(e, `<strong>${d.id}</strong>${d.sampleId ? `<br/><a href="https://pedcbioportal.kidsfirstdrc.org/patient?studyId=pbta_all&sampleId=${encodeURIComponent(cbioportalId(d.id, d.sampleId))}" target="_blank" rel="noreferrer">${cbioportalId(d.id, d.sampleId)}<img src="https://pbs.twimg.com/profile_images/448682169553006594/Uh7nmhLE_400x400.png" style="width:12px;height:12px;vertical-align:middle;margin-left:3px;border-radius:2px;display:inline-block;" /></a>` : ""}<br/>${label}${d.molecularSubtype ? `<br/>${d.molecularSubtype}` : ""}<br/>${axisLabel}: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}${enriched ? "<br/><em>tumor enriched</em>" : ""}`)
         )
         .on("mousemove", onMove).on("mouseout", onLeave);
     });
@@ -543,7 +735,7 @@ function drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleG
         .attr("r", 3).attr("fill", color).attr("fill-opacity", 0.3)
         .attr("stroke", textColor).attr("stroke-width", 0.5).style("cursor", "pointer")
         .on("mouseover", (e) =>
-          onHover(e, `<strong>${d.id}</strong>${d.sampleId ? `<br/><a href="https://pedcbioportal.kidsfirstdrc.org/patient?studyId=pbta_all&sampleId=${encodeURIComponent(d.sampleId)}" target="_blank" rel="noreferrer">${d.sampleId}<img src="https://pbs.twimg.com/profile_images/448682169553006594/Uh7nmhLE_400x400.png" style="width:12px;height:12px;vertical-align:middle;margin-left:3px;border-radius:2px;display:inline-block;" /></a>` : ""}<br/>${region} — ${timepointDisplay(d.timepoint)}<br/>CPM: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}`)
+          onHover(e, `<strong>${d.id}</strong>${d.sampleId ? `<br/><a href="https://pedcbioportal.kidsfirstdrc.org/patient?studyId=pbta_all&sampleId=${encodeURIComponent(cbioportalId(d.id, d.sampleId))}" target="_blank" rel="noreferrer">${cbioportalId(d.id, d.sampleId)}<img src="https://pbs.twimg.com/profile_images/448682169553006594/Uh7nmhLE_400x400.png" style="width:12px;height:12px;vertical-align:middle;margin-left:3px;border-radius:2px;display:inline-block;" /></a>` : ""}<br/>${region} — ${timepointDisplay(d.timepoint)}<br/>CPM: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}`)
         )
         .on("mousemove", onMove).on("mouseout", onLeave);
     });
