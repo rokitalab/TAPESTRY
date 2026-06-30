@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
-import { Box, Typography, Stack, Chip } from "@mui/material";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Box, Button, CircularProgress, Divider, Typography, Stack, Chip } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
 import { colourForBiotype, hexToRgba } from "./lib/biotypeColors";
 
-export default function TranscriptVis({ geneID, strand = "+" }) {
+export default function TranscriptVis({ geneID, geneName = null, strand = "+", highlightedTranscript = null, junctionCoords = null, junctionName = null, junctionString = null }) {
   const [txList, setTxList] = useState([]);
+  const [loading, setLoading] = useState(false);
   const [activeBiotypes, setActiveBiotypes] = useState(new Set());
   const [canonicalOnly, setCanonicalOnly] = useState(false);
   const [apiStrand, setApiStrand] = useState(null);
@@ -20,6 +22,9 @@ export default function TranscriptVis({ geneID, strand = "+" }) {
   useEffect(() => {
     if (!geneID) return;
     const controller = new AbortController();
+    let active = true;
+    setLoading(true);
+    setTxList([]);
     const url = `https://rest.ensembl.org/lookup/id/${encodeURIComponent(geneID)}?content-type=application/json;expand=1`;
     fetch(url, { signal: controller.signal, headers: { Accept: "application/json" } })
       .then(r => {
@@ -27,6 +32,7 @@ export default function TranscriptVis({ geneID, strand = "+" }) {
         return r.json();
       })
       .then(data => {
+        if (!active) return;
         // Derive strand from gene lookup: 1 => '+', -1 => '-'
         const s = data?.strand;
         let sChar = null;
@@ -42,6 +48,7 @@ export default function TranscriptVis({ geneID, strand = "+" }) {
           if (!id) return null;
           const biotype = t?.biotype || t?.BioType || t?.biotype_name || "unknown";
           const isCanonical = (t?.is_canonical === 1 || t?.is_canonical === true || (canonicalId && id === canonicalId));
+          const displayName = t?.display_name || t?.name || id;
           const colour = colourForBiotype(biotype);
           // Robust exon count extraction across potential shapes (arrays or objects, plus numeric fields)
           let exonCount = null;
@@ -74,20 +81,23 @@ export default function TranscriptVis({ geneID, strand = "+" }) {
             .filter(Boolean)
             .sort((a, b) => a.start - b.start);
           if (exonCount == null) exonCount = exons.length > 0 ? exons.length : null;
-          return { id, biotype, isCanonical, colour, exonCount, exons };
+          return { id, displayName, biotype, isCanonical, colour, exonCount, exons };
         }).filter(Boolean);
         setTxList(items);
         // Ensure all biotypes are selected immediately upon data load
         const allBiotypes = new Set(items.map(it => it.biotype));
         setActiveBiotypes(allBiotypes);
+        setLoading(false);
       })
       .catch(err => {
+        if (!active) return;
         if (err.name !== "AbortError") {
           console.error("TranscriptVis Ensembl lookup failed", err);
         }
         setTxList([]);
+        setLoading(false);
       });
-    return () => controller.abort();
+    return () => { active = false; controller.abort(); };
   }, [geneID]);
 
   const legendItems = useMemo(() => {
@@ -207,124 +217,480 @@ export default function TranscriptVis({ geneID, strand = "+" }) {
   };
 
   const visible = useMemo(() => {
-    // Base filtering by selected biotypes (or all if selection empty)
-    const base = (activeBiotypes.size === 0) ? txList : txList.filter(t => activeBiotypes.has(t.biotype));
-    // Further restrict to canonical only if toggled
-    return canonicalOnly ? base.filter(t => t.isCanonical) : base;
+    const noBiotype = activeBiotypes.size === 0;
+    const filtered = txList.filter(t =>
+      (canonicalOnly && t.isCanonical) ||
+      (noBiotype ? !canonicalOnly : activeBiotypes.has(t.biotype))
+    );
+    // Canonical first, then ascending by the -201 number in displayName (same order as GeneModelGtex)
+    return [...filtered].sort((a, b) => {
+      if (a.isCanonical !== b.isCanonical) return a.isCanonical ? -1 : 1;
+      const numOf = (name) => { const m = (/-(\d+)$/).exec(name || ""); return m ? Number(m[1]) : null; };
+      const na = numOf(a.displayName), nb = numOf(b.displayName);
+      if (na !== null && nb !== null) return na - nb;
+      if (na !== null) return -1;
+      if (nb !== null) return 1;
+      return a.displayName.localeCompare(b.displayName);
+    });
   }, [txList, activeBiotypes, canonicalOnly]);
 
-  // After all hooks are declared, safely early-return when no data
-  if (!txList.length) return null;
+  // Exon indices in the highlighted transcript that bracket the junction of interest,
+  // computed here so zoomDomain can be derived without re-running inside renderArcRow.
+  const junctionExonIndices = useMemo(() => {
+    const ht = highlightedTranscript ? txList.find(t => t.displayName === highlightedTranscript) ?? null : null;
+    if (!ht?.exons?.length || !junctionCoords) return { leftExonIdx: -1, rightExonIdx: -1 };
+    const MAX_DIST = 2000;
+    const lm = ht.exons.reduce((b, e, i) => { const d = Math.abs(e.end   - junctionCoords.donorSite);    return d < b.d ? { idx: i, d } : b; }, { idx: -1, d: Infinity });
+    const rm = ht.exons.reduce((b, e, i) => { const d = Math.abs(e.start - junctionCoords.acceptorSite); return d < b.d ? { idx: i, d } : b; }, { idx: -1, d: Infinity });
+    return {
+      leftExonIdx:  lm.d <= MAX_DIST ? lm.idx : -1,
+      rightExonIdx: rm.d <= MAX_DIST ? rm.idx : -1,
+    };
+  }, [txList, highlightedTranscript, junctionCoords]);
+
+  // Genomic window covering the red region (flanking exons + padding) used for zoom mode.
+  // Falls back to raw junction coordinates when exon boundary matching fails (non-annotated
+  // junctions or when the highlighted transcript doesn't span the junction region).
+  const zoomDomain = useMemo(() => {
+    if (!coordDomain || !junctionCoords) return null;
+
+    const { leftExonIdx, rightExonIdx } = junctionExonIndices;
+    if (leftExonIdx >= 0 && rightExonIdx >= 0) {
+      const ht = txList.find(t => t.displayName === highlightedTranscript) ?? null;
+      const leftExon  = ht?.exons?.[leftExonIdx];
+      const rightExon = ht?.exons?.[rightExonIdx];
+      if (leftExon && rightExon) {
+        const pad = Math.max(500, (rightExon.end - leftExon.start) * 0.25);
+        const min = Math.max(coordDomain.min, leftExon.start - pad);
+        const max = Math.min(coordDomain.max, rightExon.end  + pad);
+        if (max > min) return { min, max, span: max - min };
+      }
+    }
+
+    // Fallback: derive zoom window directly from splice site coordinates.
+    const lo  = Math.min(junctionCoords.donorSite, junctionCoords.acceptorSite);
+    const hi  = Math.max(junctionCoords.donorSite, junctionCoords.acceptorSite);
+    const pad = Math.max(500, (hi - lo) * 0.25);
+    const min = Math.max(coordDomain.min, lo - pad);
+    const max = Math.min(coordDomain.max, hi + pad);
+    if (max <= min) return null;
+    return { min, max, span: max - min };
+  }, [junctionExonIndices, coordDomain, txList, highlightedTranscript, junctionCoords]);
+
+  const [zoomed, setZoomed] = useState(false);
+
+  // Reset zoom whenever the selected junction changes.
+  const [prevJunctionCoords, setPrevJunctionCoords] = useState(junctionCoords);
+  if (junctionCoords !== prevJunctionCoords) {
+    setPrevJunctionCoords(junctionCoords);
+    setZoomed(false);
+  }
+
+  const theme = useTheme();
+  const canonicalColor = theme.palette.mode === "dark" ? "#ffffff" : "#000000";
+  const containerRef = useRef(null);
+  const [hoveredExon, setHoveredExon] = useState(null);
+
+  const effStrand = apiStrand ?? strand ?? "+";
+  const strandLabel = effStrand === "+" ? "+" : effStrand === "-" ? "−" : "?";
+
+  const exonMouseMove = (e, t, exonIdx) => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect || !t.exons?.[exonIdx]) return;
+    const exon = t.exons[exonIdx];
+    setHoveredExon({
+      transcriptLabel: `${t.displayName} (${t.id})`,
+      exonNumber: effStrand === "-" ? t.exons.length - exonIdx : exonIdx + 1,
+      chromStart: exon.start,
+      chromEnd: exon.end,
+      length: exon.end - exon.start,
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+    });
+  };
+  const highlightedTx = highlightedTranscript
+    ? visible.find((t) => t.displayName === highlightedTranscript) ?? null
+    : null;
+  const otherTx = visible;
+
+  const renderArcRow = (t) => {
+    const TRACK_H = 18;
+    const W = 1000;
+    const hlColour = theme.palette.error.main;
+    const domain = zoomed && zoomDomain ? zoomDomain : coordDomain;
+
+    const exonsSvg = domain && t.exons?.length
+      ? t.exons.map((e) => {
+          const l = ((e.start - domain.min) / domain.span) * W;
+          const r = ((e.end   - domain.min) / domain.span) * W;
+          const left = effStrand === "-" ? W - r : l;
+          return { left, width: Math.max(2, r - l) };
+        })
+      : [];
+
+    // Match junction donor/acceptor to nearest exon boundary (within 2000 bp)
+    let leftExonIdx = -1;
+    let rightExonIdx = -1;
+    if (junctionCoords && t.exons?.length) {
+      const MAX_DIST = 2000;
+      const lm = t.exons.reduce((b, e, i) => { const d = Math.abs(e.end   - junctionCoords.donorSite);    return d < b.d ? { idx: i, d } : b; }, { idx: -1, d: Infinity });
+      const rm = t.exons.reduce((b, e, i) => { const d = Math.abs(e.start - junctionCoords.acceptorSite); return d < b.d ? { idx: i, d } : b; }, { idx: -1, d: Infinity });
+      leftExonIdx  = lm.d <= MAX_DIST ? lm.idx : -1;
+      rightExonIdx = rm.d <= MAX_DIST ? rm.idx : -1;
+    }
+    const hasJunction = leftExonIdx >= 0 && rightExonIdx >= 0;
+    const isIR = junctionCoords?.eventType === "intron retention";
+    const isSE = junctionCoords?.eventType === "exon skipping";
+
+    // Coordinate-based junction positions derived directly from the junction string —
+    // used as a fallback when exon boundary matching fails (non-annotated junctions).
+    let junctionX1 = null, junctionX2 = null;
+    if (junctionCoords && domain) {
+      const rawDonor    = ((junctionCoords.donorSite    - domain.min) / domain.span) * W;
+      const rawAcceptor = ((junctionCoords.acceptorSite - domain.min) / domain.span) * W;
+      junctionX1 = effStrand === "-" ? W - rawAcceptor : rawDonor;
+      junctionX2 = effStrand === "-" ? W - rawDonor    : rawAcceptor;
+    }
+    const hasCoordJunction = junctionX1 !== null && Math.abs(junctionX2 - junctionX1) >= 2;
+
+    // Give SE events a taller arc area so the skipping arc has room to tower
+    // above the regular adjacent arcs.
+    const ARC_H = isSE && (hasJunction || hasCoordJunction) ? 50 : 30;
+    const svgH = ARC_H + TRACK_H;
+
+    // Retained-intron highlight rectangle — spans the full canonical intron
+    // (leftExon.end → rightExon.start) so the entire retained intron is coloured,
+    // not just the junction-read anchor region reported in the junction string.
+    let irX = 0, irW = 0;
+    if (isIR && hasJunction && domain) {
+      const canonEnd   = t.exons[leftExonIdx]?.end;
+      const canonStart = t.exons[rightExonIdx]?.start;
+      if (canonEnd != null && canonStart != null) {
+        const r1 = ((canonEnd   - domain.min) / domain.span) * W;
+        const r2 = ((canonStart - domain.min) / domain.span) * W;
+        irX = effStrand === "-" ? W - r2 : r1;
+        irW = Math.max(2, r2 - r1);
+      }
+    }
+
+    const intronicRects = [];
+    if (hasJunction && !isIR && domain) {
+      const canonEnd   = t.exons[leftExonIdx]?.end;
+      const canonStart = t.exons[rightExonIdx]?.start;
+      if (canonEnd != null && junctionCoords.donorSite > canonEnd + 5) {
+        const r1 = ((canonEnd - domain.min) / domain.span) * W;
+        const r2 = ((junctionCoords.donorSite - domain.min) / domain.span) * W;
+        intronicRects.push({ x: effStrand === "-" ? W - r2 : r1, width: Math.max(2, r2 - r1) });
+      }
+      if (canonStart != null && junctionCoords.acceptorSite < canonStart - 5) {
+        const r1 = ((junctionCoords.acceptorSite - domain.min) / domain.span) * W;
+        const r2 = ((canonStart - domain.min) / domain.span) * W;
+        intronicRects.push({ x: effStrand === "-" ? W - r2 : r1, width: Math.max(2, r2 - r1) });
+      }
+    }
+
+    const displayColor = t.isCanonical ? canonicalColor : t.colour;
+    return (
+      <Box key={t.id} sx={{ display: "flex", alignItems: "center" }}>
+        <Typography variant="caption" sx={{ fontSize: 12, color: displayColor, fontWeight: 700, minWidth: 200, mr: 1, overflow: "hidden", textOverflow: "ellipsis" }} title={`${t.displayName} (${t.id})`}>
+          {t.displayName} ({t.id})
+        </Typography>
+        {exonsSvg.length > 0 ? (
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <svg width="100%" height={svgH} viewBox={`0 0 ${W} ${svgH}`} preserveAspectRatio="none">
+
+              {/* Intron backbone line — drawn first so everything renders on top */}
+              {exonsSvg.length >= 2 && (() => {
+                const minLeft = Math.min(...exonsSvg.map(e => e.left));
+                const maxRight = Math.max(...exonsSvg.map(e => e.left + e.width));
+                return (
+                  <line
+                    x1={minLeft} y1={ARC_H + TRACK_H / 2}
+                    x2={maxRight} y2={ARC_H + TRACK_H / 2}
+                    stroke={displayColor} strokeWidth={2} strokeOpacity={0.4}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                );
+              })()}
+
+              {/* Retained intron / intronic material — drawn before exon rects */}
+              {isIR && hasJunction && (
+                <rect x={irX} y={ARC_H} width={irW} height={TRACK_H} fill={hlColour} opacity={0.3} />
+              )}
+              {intronicRects.map((r, i) => (
+                <rect key={`intron-${i}`} x={r.x} y={ARC_H} width={r.width} height={TRACK_H} fill={hlColour} opacity={0.3} />
+              ))}
+
+              {/* Junction arcs (skipped for intron retention) — all visible, junction-of-interest in red.
+                  On - strand exonsSvg[i] is the genomically-lower exon (rightmost visually) so the
+                  intron-facing edges are left of [i] and right of [i+1], not right of [i] and left of [i+1]. */}
+              {!isIR && exonsSvg.slice(0, -1).map((e, i) => {
+                const next = exonsSvg[i + 1];
+                const x1 = effStrand === "-" ? next.left + next.width : e.left + e.width;
+                const x2 = effStrand === "-" ? e.left : next.left;
+                if (Math.abs(x2 - x1) < 2) return null;
+                // For SE the skipping arc is drawn separately below; adjacent arcs use normal colour
+                const isJunctionArc = hasJunction && !isSE && i === leftExonIdx && i + 1 === rightExonIdx;
+                const midX = (x1 + x2) / 2;
+                const peakY = isJunctionArc ? ARC_H * 0.2 : ARC_H * 0.6;
+                const d = `M ${x1},${ARC_H} Q ${midX},${peakY} ${x2},${ARC_H}`;
+                return (
+                  <path
+                    key={i}
+                    d={d}
+                    fill="none"
+                    stroke={isJunctionArc ? hlColour : displayColor}
+                    strokeWidth={isJunctionArc ? 4 : 2}
+                    strokeOpacity={1}
+                    strokeLinecap="round"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                );
+              })}
+
+              {/* Exon-skipping arc — strand-aware endpoints, peaks near the top of the taller arc area */}
+              {isSE && hasJunction && exonsSvg[leftExonIdx] && exonsSvg[rightExonIdx] && (() => {
+                const x1 = effStrand === "-"
+                  ? exonsSvg[rightExonIdx].left + exonsSvg[rightExonIdx].width
+                  : exonsSvg[leftExonIdx].left  + exonsSvg[leftExonIdx].width;
+                const x2 = effStrand === "-"
+                  ? exonsSvg[leftExonIdx].left
+                  : exonsSvg[rightExonIdx].left;
+                if (Math.abs(x2 - x1) < 2) return null;
+                const midX = (x1 + x2) / 2;
+                const d = `M ${x1},${ARC_H} Q ${midX},${ARC_H * 0.1} ${x2},${ARC_H}`;
+                return (
+                  <path d={d} fill="none" stroke={hlColour} strokeWidth={4}
+                    strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+                );
+              })()}
+
+              {/* Fallback junction arc — coordinate-based, drawn when exon boundary matching
+                  fails (non-annotated junctions). Renders in red between the raw splice sites. */}
+              {!isIR && !hasJunction && hasCoordJunction && (() => {
+                const midX = (junctionX1 + junctionX2) / 2;
+                const peakY = isSE ? ARC_H * 0.1 : ARC_H * 0.2;
+                const d = `M ${junctionX1},${ARC_H} Q ${midX},${peakY} ${junctionX2},${ARC_H}`;
+                return (
+                  <path d={d} fill="none" stroke={hlColour} strokeWidth={4}
+                    strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+                );
+              })()}
+
+              {/* Exon rects — junction exons red (not for IR/SE); skipped exons red for SE */}
+              {exonsSvg.map((e, i) => {
+                const isJunctionExon = hasJunction && !isIR && !isSE && (i === leftExonIdx || i === rightExonIdx);
+                const isSkippedExon  = isSE && hasJunction && i > leftExonIdx && i < rightExonIdx;
+                return (
+                  <rect
+                    key={i}
+                    x={e.left}
+                    y={ARC_H}
+                    width={e.width}
+                    height={TRACK_H}
+                    rx={4}
+                    ry={4}
+                    fill={(isJunctionExon || isSkippedExon) ? hlColour : displayColor}
+                    opacity={1}
+                    style={{ cursor: "pointer" }}
+                    onMouseMove={(ev) => exonMouseMove(ev, t, i)}
+                    onMouseLeave={() => setHoveredExon(null)}
+                  />
+                );
+              })}
+            </svg>
+          </Box>
+        ) : (
+          <Box sx={{ display: "inline-block", ml: 1, px: 0.5, border: "1px solid", borderColor: "divider", borderRadius: 0.5, fontSize: 11, lineHeight: 1.4, color: "text.secondary", bgcolor: "background.paper" }}>
+            NA
+          </Box>
+        )}
+      </Box>
+    );
+  };
+
+  const renderCssRow = (t) => {
+    const trackH = 20;
+    const W = 1000;
+    const domain = zoomed && zoomDomain ? zoomDomain : coordDomain;
+
+    const displayColor = t.isCanonical ? canonicalColor : t.colour;
+    const exonsSvg = domain && t.exons?.length
+      ? t.exons.map(e => {
+          const l = ((e.start - domain.min) / domain.span) * W;
+          const r = ((e.end   - domain.min) / domain.span) * W;
+          const left = effStrand === "-" ? W - r : l;
+          return { left, width: Math.max(2, r - l) };
+        })
+      : [];
+
+    return (
+      <Box key={t.id} sx={{ display: "flex", alignItems: "center" }}>
+        <Typography variant="caption" sx={{ fontSize: 12, color: displayColor, minWidth: 200, mr: 1, overflow: "hidden", textOverflow: "ellipsis" }} title={`${t.displayName} (${t.id})`}>
+          {t.displayName} ({t.id})
+        </Typography>
+        {exonsSvg.length > 0 ? (
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <svg width="100%" height={trackH} viewBox={`0 0 ${W} ${trackH}`} preserveAspectRatio="none">
+              {exonsSvg.length >= 2 && (() => {
+                const minLeft = Math.min(...exonsSvg.map(e => e.left));
+                const maxRight = Math.max(...exonsSvg.map(e => e.left + e.width));
+                return (
+                  <line
+                    x1={minLeft} y1={trackH / 2}
+                    x2={maxRight} y2={trackH / 2}
+                    stroke={displayColor} strokeWidth={2} strokeOpacity={0.4}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                );
+              })()}
+              {exonsSvg.map((e, idx) => (
+                <rect
+                  key={idx}
+                  x={e.left} y={1}
+                  width={e.width}
+                  height={trackH - 2}
+                  rx={3} ry={3}
+                  fill={hexToRgba(displayColor, 0.9)}
+                  style={{ cursor: "pointer" }}
+                  onMouseMove={(ev) => exonMouseMove(ev, t, idx)}
+                  onMouseLeave={() => setHoveredExon(null)}
+                />
+              ))}
+            </svg>
+          </Box>
+        ) : (
+          <Box sx={{ display: "inline-block", ml: 1, px: 0.5, border: "1px solid", borderColor: "divider", borderRadius: 0.5, fontSize: 11, lineHeight: 1.4, color: "text.secondary", bgcolor: "background.paper" }}>
+            NA
+          </Box>
+        )}
+      </Box>
+    );
+  };
 
   return (
-    <Box sx={{ mt: 2 }}>
-      <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 1 }}>
-        <Typography sx={{ fontWeight: 700 }}>Transcripts</Typography>
-        {legendItems.length > 0 && (
-          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
-            {legendItems.map(([bio, colour]) => {
-              const selected = activeBiotypes.has(bio);
-              const bg = selected ? colour : hexToRgba(colour, 0.5);
-              return (
-                <Chip
-                  key={bio}
-                  label={bio}
-                  size="small"
-                  onClick={() => toggleBio(bio)}
-                  sx={{
-                    bgcolor: bg,
-                    color: 'common.white',
-                    fontWeight: selected ? 700 : 400,
-                    border: '1px solid',
-                    borderColor: selected ? 'transparent' : 'divider',
-                    cursor: 'pointer',
-                  }}
-                />
-              );
-            })}
-          </Stack>
-        )}
-      </Stack>
+    <Box ref={containerRef} sx={{ mt: 2, position: "relative" }}>
 
-      <Stack direction="column" spacing={0.5}>
-        {visible.map((t) => {
-          const trackH = 20;
-          const fill = t.colour;
-          const effStrand = apiStrand ?? strand ?? "+";
-          return (
-            <Box key={t.id} sx={{ display: 'flex', alignItems: 'center' }}>
-              <Typography variant="caption" sx={{ fontSize: 12, color: t.colour, minWidth: 140, mr: 1, overflow: 'hidden', textOverflow: 'ellipsis' }} title={t.id}>
-                {t.id}
-              </Typography>
-              {coordDomain && (t.exons && t.exons.length > 0) ? (
-                <Box
-                  sx={{
-                    position: 'relative',
-                    flex: 1,
-                    minWidth: 0,
-                    height: trackH,
-                    bgcolor: 'background.default',
-                  }}
-                >
-                  {/* Intronic segments: thin line centered between exon boxes */}
-                  {(t.exons || []).slice(0, -1).map((e, idx) => {
-                    const next = (t.exons || [])[idx + 1];
-                    if (!next) return null;
-                    const intronStart = Math.max(e.end, coordDomain.min);
-                    const intronEnd = Math.min(next.start, coordDomain.max);
-                    if (!Number.isFinite(intronStart) || !Number.isFinite(intronEnd) || intronEnd <= intronStart) return null;
-                    const l = Math.max(0, ((intronStart - coordDomain.min) / coordDomain.span) * 100);
-                    const r = Math.min(100, ((intronEnd - coordDomain.min) / coordDomain.span) * 100);
-                    const leftPct = effStrand === '-' ? Math.max(0, 100 - r) : l;
-                    const widthPct = Math.max(0, r - l);
-                    return (
-                      <Box
-                        key={`intron-${idx}`}
-                        sx={{
-                          position: 'absolute',
-                          left: `${leftPct}%`,
-                          top: `${Math.round(trackH / 2)}px`,
-                          width: `${widthPct}%`,
-                          height: '1px',
-                          bgcolor: 'text.disabled',
-                        }}
-                      />
-                    );
-                  })}
-
-                  {/* Exon rectangles */}
-                  {(t.exons || []).map((e, idx) => {
-                    const l = Math.max(0, ((e.start - coordDomain.min) / coordDomain.span) * 100);
-                    const r = Math.min(100, ((e.end - coordDomain.min) / coordDomain.span) * 100);
-                    const leftPct = effStrand === '-' ? Math.max(0, 100 - r) : l;
-                    const widthPct = Math.max(0.2, r - l);
-                    return (
-                      <Box
-                        key={`exon-${idx}`}
-                        sx={{
-                          position: 'absolute',
-                          left: `${leftPct}%`,
-                          top: '1px',
-                          width: `${widthPct}%`,
-                          height: trackH - 2,
-                          bgcolor: hexToRgba(fill, 0.9),
-                          border: '1px solid',
-                          borderColor: 'divider',
-                          borderRadius: 0.5,
-                        }}
-                      />
-                    );
-                  })}
-                </Box>
-              ) : (
-                <Box sx={{ display: 'inline-block', ml: 1, px: 0.5, py: 0, border: '1px solid', borderColor: 'divider', borderRadius: 0.5, fontSize: 11, lineHeight: 1.4, color: 'text.secondary', bgcolor: 'background.paper' }}>
-                  NA
-                </Box>
+      {/* Junction info header — zoom button floats right inline with the title */}
+      {(junctionName || junctionCoords?.eventType) && (
+        <Stack direction="row" alignItems="flex-start" sx={{ mb: 1.5 }}>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Stack direction="row" alignItems="baseline" spacing={1.5} sx={{ flexWrap: "wrap" }}>
+              {junctionName && (
+                <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
+                  {junctionName}
+                </Typography>
               )}
-            </Box>
-          );
-        })}
-      </Stack>
+              {junctionCoords?.eventType && (
+                <Typography variant="body2" color="text.secondary">
+                  {junctionCoords.eventType}
+                </Typography>
+              )}
+            </Stack>
+            {junctionString && (
+              <Typography variant="caption" color="text.secondary" sx={{ fontFamily: "monospace", display: "block", mt: 0.25 }}>
+                {junctionString}
+              </Typography>
+            )}
+          </Box>
+          {!loading && zoomDomain && (
+            <Button size="small" variant="outlined" onClick={() => setZoomed(z => !z)} sx={{ ml: 2, flexShrink: 0, alignSelf: "center" }}>
+              {zoomed ? "View full transcript" : "Zoom to area of interest"}
+            </Button>
+          )}
+        </Stack>
+      )}
+
+      {/* Transcript of interest */}
+      {loading ? (
+        <Box sx={{ display: "flex", justifyContent: "center", p: 3 }}>
+          <CircularProgress size={24} />
+        </Box>
+      ) : highlightedTx ? (
+        <Box sx={{ mb: 1.5 }}>
+          {renderArcRow(highlightedTx)}
+        </Box>
+      ) : null}
+
+      <Divider sx={{ mb: 1.5 }} />
+
+      {/* Transcript section — header always visible; rows appear once data loads */}
+      {(geneID || geneName) && (
+        <>
+          <Box sx={{ mb: 1 }}>
+            <Typography sx={{ fontWeight: 700 }}>
+              {geneName ? <><em>{geneName}</em> Transcripts</> : "Transcripts"}
+            </Typography>
+            {geneID && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.25 }}>
+                {geneID} (strand: {strandLabel})
+              </Typography>
+            )}
+            {(legendItems.length > 0 || txList.some(t => t.isCanonical)) && (
+              <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", alignItems: "center", mt: 0.75 }}>
+                {txList.some(t => t.isCanonical) && (
+                  <Chip
+                    label="canonical"
+                    size="small"
+                    onClick={() => setCanonicalOnly(c => !c)}
+                    sx={{
+                      bgcolor: canonicalOnly ? canonicalColor : hexToRgba(canonicalColor, 0.15),
+                      color: canonicalOnly
+                        ? (theme.palette.mode === "dark" ? "common.black" : "common.white")
+                        : "text.primary",
+                      fontWeight: canonicalOnly ? 700 : 400,
+                      border: "1px solid",
+                      borderColor: canonicalOnly ? "transparent" : "divider",
+                      cursor: "pointer",
+                    }}
+                  />
+                )}
+                {legendItems.map(([bio, colour]) => {
+                  const selected = activeBiotypes.has(bio);
+                  const bg = selected ? colour : hexToRgba(colour, 0.5);
+                  return (
+                    <Chip key={bio} label={bio} size="small" onClick={() => toggleBio(bio)} sx={{ bgcolor: bg, color: "common.white", fontWeight: selected ? 700 : 400, border: "1px solid", borderColor: selected ? "transparent" : "divider", cursor: "pointer" }} />
+                  );
+                })}
+              </Stack>
+            )}
+          </Box>
+          {!loading && (
+            <Stack direction="column" spacing={0.5}>
+              {otherTx.map(renderCssRow)}
+            </Stack>
+          )}
+        </>
+      )}
+
+      {hoveredExon && (
+        <Box
+          sx={{
+            position: "absolute",
+            left: hoveredExon.x,
+            top: hoveredExon.y,
+            transform: "translate(12px, -12px)",
+            pointerEvents: "none",
+            bgcolor: "background.paper",
+            color: "text.primary",
+            border: "1px solid",
+            borderColor: "divider",
+            borderRadius: 1,
+            px: 1,
+            py: 0.5,
+            fontSize: 12,
+            boxShadow: 2,
+            whiteSpace: "nowrap",
+            zIndex: 1,
+          }}
+        >
+          {hoveredExon.transcriptLabel}<br />
+          <b>Exon {hoveredExon.exonNumber}</b><br />
+          start: {hoveredExon.chromStart.toLocaleString()}<br />
+          end: {hoveredExon.chromEnd.toLocaleString()}<br />
+          length: {hoveredExon.length.toLocaleString()} bp
+        </Box>
+      )}
     </Box>
   );
 }

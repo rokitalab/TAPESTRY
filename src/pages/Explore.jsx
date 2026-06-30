@@ -35,7 +35,9 @@ import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import writeXlsxFile from "write-excel-file/universal";
 import { HISTOLOGY_COLORS } from "../histologyColors";
 import PlotArea from "../components/PlotArea";
-import ExonVis from "../components/ExonVis";
+import TranscriptVis from "../components/TranscriptVis";
+import JunctionExpressionHeatmap from "../components/JunctionExpressionHeatmap";
+import GeneModelGtex from "../components/GeneModelGtex";
 
 const API_BASE = (import.meta.env.VITE_API_BASE || "/tapestry-api").replace(/\/$/, "");
 
@@ -391,6 +393,54 @@ export default function Explore() {
     () => new Set(tumorSamples.map((s) => s.biospecimen_id)),
     [tumorSamples]
   );
+
+  // Resolve gene symbol → Ensembl gene ID for TranscriptVis
+  const [ensgId, setEnsgId] = useState(null);
+  const txGene = selectedRow?.gene_symbol ?? null;
+  const [prevTxGene, setPrevTxGene] = useState(txGene);
+  if (txGene !== prevTxGene) {
+    setPrevTxGene(txGene);
+    setEnsgId(null);
+  }
+
+  useEffect(() => {
+    if (!txGene) return;
+    let active = true;
+    fetch(
+      `https://rest.ensembl.org/xrefs/symbol/homo_sapiens/${encodeURIComponent(txGene)}?content-type=application/json`,
+      { headers: { Accept: "application/json" } }
+    )
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!active || !Array.isArray(data)) return;
+        const ensg = data.find((e) => e.type === "gene" && e.id?.startsWith("ENSG"))?.id;
+        if (ensg) setEnsgId(ensg);
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [txGene]);
+
+  // Parse transcript name from junction_name, e.g. "UBE3A-201, exon5:exon4" → "UBE3A-201"
+  const highlightedTranscript = useMemo(() => {
+    const name = selectedRow?.junction_name;
+    if (!name) return null;
+    const comma = name.indexOf(",");
+    return comma > -1 ? name.slice(0, comma).trim() : null;
+  }, [selectedRow]);
+
+  // Parse junction coords from junction field, e.g. "chr10:116862799-116862852_116868650-116868706"
+  // Middle two values (end1, start2) are the splice donor and acceptor sites.
+  const junctionCoords = useMemo(() => {
+    const j = selectedRow?.junction;
+    if (!j) return null;
+    const m = j.match(/:(\d+)-(\d+)_(\d+)-(\d+)/);
+    if (!m) return null;
+    return {
+      donorSite:    parseInt(m[2], 10),
+      acceptorSite: parseInt(m[3], 10),
+      eventType:    selectedRow?.event_type ?? "",
+    };
+  }, [selectedRow]);
 
   return (
     <>
@@ -798,14 +848,19 @@ export default function Explore() {
           />
         </Box>
       )}
-      <Box sx={{ mt: 3 }}>
-        <ExonVis
-          gene={selectedRow?.gene_symbol ?? null}
-          exonID={null}
-          eventType={selectedRow?.event_type ?? ""}
-          strand={selectedRow?.strand ?? "+"}
-        />
-      </Box>
+      {ensgId && (
+        <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, mt: 3 }}>
+          <TranscriptVis
+            geneID={ensgId}
+            geneName={txGene}
+            strand={selectedRow?.strand ?? "+"}
+            highlightedTranscript={highlightedTranscript}
+            junctionCoords={junctionCoords}
+            junctionName={selectedRow?.junction_name ?? null}
+            junctionString={selectedRow?.junction ?? null}
+          />
+        </Paper>
+      )}
     </>
   );
 }
