@@ -1,15 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert, Box, Button, Checkbox, CircularProgress, Divider,
-  FormControlLabel, IconButton, Menu, MenuItem, Paper, Popover, Stack, Switch, Tab, Tabs, TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography,
+  FormControlLabel, IconButton, MenuItem, Paper, Popover, Stack, Switch, Tab, Tabs, ToggleButton, ToggleButtonGroup, Tooltip, Typography,
   useTheme,
 } from "@mui/material";
-import DownloadIcon from "@mui/icons-material/Download";
 import SettingsIcon from "@mui/icons-material/Settings";
 import * as d3 from "d3";
-import { jsPDF } from "jspdf";
-import UTIF from "utif2";
 import { controlCohortColor, histologyColor } from "../histologyColors";
+import { triggerDownload } from "./lib/svgExport";
+import PlotDownloadMenu from "./PlotDownloadMenu";
 
 const MARGIN = { top: 20, right: 20, bottom: 160, left: 100 };
 const API_BASE = (import.meta.env.VITE_API_BASE || "/tapestry-api").replace(/\/$/, "");
@@ -85,81 +84,6 @@ function boxStats(cpms) {
 }
 
 const EMPTY_SET = new Set();
-
-// SVG dimensions are in CSS px (96 DPI); scale raster exports up to 300 DPI.
-const EXPORT_SCALE = 300 / 96;
-const PX_PER_INCH = 96;
-
-// Extra space (CSS px) reserved at the top of exported images for the plot
-// title, which is normally rendered outside the <svg> as a page heading.
-const TITLE_HEIGHT = 36;
-
-function cloneSvgWithBackground(svgEl, title) {
-  const svgWidth = Number(svgEl.getAttribute("width"));
-  const contentHeight = Number(svgEl.getAttribute("height"));
-  const titleHeight = title ? TITLE_HEIGHT : 0;
-  const svgHeight = contentHeight + titleHeight;
-
-  const clone = svgEl.cloneNode(true);
-  clone.setAttribute("height", svgHeight);
-
-  const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-  bg.setAttribute("width", svgWidth);
-  bg.setAttribute("height", svgHeight);
-  bg.setAttribute("fill", "white");
-  clone.insertBefore(bg, clone.firstChild);
-
-  if (title) {
-    // Shift the existing chart content down to make room for the title.
-    const content = document.createElementNS("http://www.w3.org/2000/svg", "g");
-    content.setAttribute("transform", `translate(0, ${titleHeight})`);
-    Array.from(clone.children).forEach((child) => {
-      if (child !== bg) content.appendChild(child);
-    });
-    clone.appendChild(content);
-
-    const titleEl = document.createElementNS("http://www.w3.org/2000/svg", "text");
-    titleEl.setAttribute("x", svgWidth / 2);
-    titleEl.setAttribute("y", titleHeight / 2);
-    titleEl.setAttribute("text-anchor", "middle");
-    titleEl.setAttribute("dominant-baseline", "central");
-    titleEl.setAttribute("font-size", 16);
-    titleEl.setAttribute("font-weight", 800);
-    titleEl.setAttribute("font-family", "sans-serif");
-    titleEl.setAttribute("fill", "#333");
-    titleEl.textContent = title;
-    clone.appendChild(titleEl);
-  }
-
-  return { clone, svgWidth, svgHeight };
-}
-
-function svgToCanvas(clone, svgWidth, svgHeight, scale) {
-  return new Promise((resolve, reject) => {
-    const svgStr = new XMLSerializer().serializeToString(clone);
-    const url = URL.createObjectURL(new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" }));
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = svgWidth * scale;
-      canvas.height = svgHeight * scale;
-      const ctx = canvas.getContext("2d");
-      ctx.scale(scale, scale);
-      ctx.drawImage(img, 0, 0);
-      URL.revokeObjectURL(url);
-      resolve(canvas);
-    };
-    img.onerror = reject;
-    img.src = url;
-  });
-}
-
-function triggerDownload(href, filename) {
-  const link = document.createElement("a");
-  link.href = href;
-  link.download = filename;
-  link.click();
-}
 
 // Controls are colored by source cohort (GTEx, Evo-devo, etc.) since they
 // don't have per-histology colors; tumor/cell-line groups use histologyColor.
@@ -440,7 +364,7 @@ function drawEvoDevoPlot(svg, { width, height, evodevoPoints, log2Scale, textCol
         .attr("cy", y(d.value))
         .attr("r", 5)
         .attr("fill", color)
-        .attr("stroke", "white")
+        .attr("stroke", textColor)
         .attr("stroke-width", 1.5)
         .style("cursor", "pointer")
         .on("mouseover", (e) =>
@@ -639,7 +563,7 @@ function drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleG
     meanPoints.forEach((d) => {
       root.append("circle")
         .attr("cx", xEvo(d.timepoint)).attr("cy", y(d.value)).attr("r", 5)
-        .attr("fill", color).attr("stroke", "white").attr("stroke-width", 1.5)
+        .attr("fill", color).attr("stroke", textColor).attr("stroke-width", 1.5)
         .style("cursor", "pointer")
         .on("mouseover", (e) =>
           onHover(e, `<strong>${region}</strong><br/>${timepointDisplay(d.timepoint)}<br/>Mean: ${d.value.toFixed(3)}`)
@@ -685,14 +609,17 @@ function buildExportSvg({ width, height, activeTab, visibleGroups, evodevoPoints
 export default function PlotArea({
   junction = null,
   gene = null,
+  junctionName = null,
   rows = EMPTY_ROWS,
   height = 460,
   highlightIds = EMPTY_SET,
 }) {
   const theme = useTheme();
-  const title = gene && junction
-    ? `${gene} — ${junction}`
-    : junction ?? "Junction CPM by histology";
+  // The junction name is the headline label; the junction id (genomic
+  // coordinates) is only shown as a subheading when a name is available,
+  // since otherwise it's already the headline and would be redundant.
+  const mainTitle = junctionName ?? junction ?? "Junction CPM by histology";
+  const subTitle = junctionName && junction ? junction : null;
   const svgRef = useRef(null);
   const containerRef = useRef(null);
   const [containerWidth, setContainerWidth] = useState(900);
@@ -701,14 +628,11 @@ export default function PlotArea({
   const [fetchError, setFetchError] = useState(null);
   const [selectedGroups, setSelectedGroups] = useState(new Set());
   const [settingsAnchor, setSettingsAnchor] = useState(null);
-  const [exportAnchor, setExportAnchor] = useState(null);
   const [tooltip, setTooltip] = useState({ visible: false, x: 0, y: 0, html: "" });
   const [activeTab, setActiveTab] = useState(0);
   const [log2Scale, setLog2Scale] = useState(false);
   const [sortMode, setSortMode] = useState("alpha");
   const [showHighlight, setShowHighlight] = useState(false);
-  const [exportWidthIn, setExportWidthIn] = useState(10);
-  const [exportHeightIn, setExportHeightIn] = useState(5);
   const [expandedFacets, setExpandedFacets] = useState(new Set());
   const [selectedTimepoints, setSelectedTimepoints] = useState(new Set(EVODEVO_TIMEPOINTS));
 
@@ -780,7 +704,7 @@ export default function PlotArea({
     const cellLineGroups = groupByHistology(cellLinePts, true);
 
     // Cell-line groups can share a histology name with a tumor/control group
-    // (e.g. "DIPG or DMG"). Disambiguate the key in that case so the two stay
+    // (e.g. "Diffuse midline glioma"). Disambiguate the key in that case so the two stay
     // distinct for selectedGroups, React list keys, and the scaleBand domain;
     // `label` keeps the plain histology name for display and color lookup.
     const tumorAndControlKeys = new Set(tumorAndControlGroups.map((g) => g.key));
@@ -795,7 +719,7 @@ export default function PlotArea({
       if (rankDiff !== 0) return rankDiff;
       if (sortMode === "asc") return a.stats.median - b.stats.median;
       if (sortMode === "desc") return b.stats.median - a.stats.median;
-      return a.label.localeCompare(b.label);
+      return evoDevoLabelSort(a.label, b.label);
     });
   }, [junction, fetchedRows, rows, sortMode]);
 
@@ -892,55 +816,16 @@ export default function PlotArea({
     return `junction-cpm${junction ? `-${junction}` : ""}.${ext}`;
   }
 
-  function buildExportSvgEl() {
+  function buildExportSvgEl({ width, height }) {
     return buildExportSvg({
-      width: exportWidthIn * PX_PER_INCH,
-      height: exportHeightIn * PX_PER_INCH,
+      width,
+      height,
       activeTab,
       visibleGroups,
       evodevoPoints: filteredEvodevoPoints,
       log2Scale,
       highlightIds: activeHighlightIds,
     });
-  }
-
-  async function downloadAsPdf() {
-    const { clone, svgWidth, svgHeight } = cloneSvgWithBackground(buildExportSvgEl(), title);
-    const canvas = await svgToCanvas(clone, svgWidth, svgHeight, EXPORT_SCALE);
-
-    const pdf = new jsPDF({
-      orientation: svgWidth > svgHeight ? "landscape" : "portrait",
-      unit: "px",
-      format: [svgWidth, svgHeight],
-      hotfixes: ["px_scaling"],
-    });
-    pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, 0, svgWidth, svgHeight);
-    pdf.save(exportFilename("pdf"));
-  }
-
-  async function downloadAsPng() {
-    const { clone, svgWidth, svgHeight } = cloneSvgWithBackground(buildExportSvgEl(), title);
-    const canvas = await svgToCanvas(clone, svgWidth, svgHeight, EXPORT_SCALE);
-    triggerDownload(canvas.toDataURL("image/png"), exportFilename("png"));
-  }
-
-  async function downloadAsTiff() {
-    const { clone, svgWidth, svgHeight } = cloneSvgWithBackground(buildExportSvgEl(), title);
-    const canvas = await svgToCanvas(clone, svgWidth, svgHeight, EXPORT_SCALE);
-    const ctx = canvas.getContext("2d");
-    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const tiff = UTIF.encodeImage(data, canvas.width, canvas.height);
-    const url = URL.createObjectURL(new Blob([tiff], { type: "image/tiff" }));
-    triggerDownload(url, exportFilename("tiff"));
-    setTimeout(() => URL.revokeObjectURL(url), 0);
-  }
-
-  function downloadAsSvg() {
-    const { clone } = cloneSvgWithBackground(buildExportSvgEl(), title);
-    const svgStr = new XMLSerializer().serializeToString(clone);
-    const url = URL.createObjectURL(new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" }));
-    triggerDownload(url, exportFilename("svg"));
-    setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 
   function downloadAsTsv() {
@@ -986,7 +871,14 @@ export default function PlotArea({
   return (
     <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, width: "100%" }}>
       <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", mb: 1 }}>
-        <Typography sx={{ fontWeight: 800 }}>{title}</Typography>
+        <Box>
+          <Typography sx={{ fontWeight: 800 }}>{mainTitle}</Typography>
+          {subTitle && (
+            <Typography variant="caption" color="text.secondary" sx={{ fontFamily: "monospace", display: "block" }}>
+              {subTitle}
+            </Typography>
+          )}
+        </Box>
         <Stack direction="row" spacing={1.5} alignItems="center">
           <FormControlLabel
             control={
@@ -1031,47 +923,17 @@ export default function PlotArea({
           >
             Configure Samples
           </Button>
-          <Tooltip title="Download plot">
-            <IconButton size="small" onClick={(e) => setExportAnchor(e.currentTarget)}>
-              <DownloadIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-          <Menu anchorEl={exportAnchor} open={Boolean(exportAnchor)} onClose={() => setExportAnchor(null)}>
-            <Box sx={{ px: 2, py: 1 }}>
-              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
-                Image size (in)
-              </Typography>
-              <Stack direction="row" spacing={1}>
-                <TextField
-                  label="Width"
-                  type="number"
-                  size="small"
-                  value={exportWidthIn}
-                  onChange={(e) => setExportWidthIn(Math.max(1, Number(e.target.value) || 0))}
-                  inputProps={{ min: 1, step: 0.1 }}
-                  sx={{ width: 100 }}
-                />
-                <TextField
-                  label="Height"
-                  type="number"
-                  size="small"
-                  value={exportHeightIn}
-                  onChange={(e) => setExportHeightIn(Math.max(1, Number(e.target.value) || 0))}
-                  inputProps={{ min: 1, step: 0.1 }}
-                  sx={{ width: 100 }}
-                />
-              </Stack>
-            </Box>
-            <Divider />
-            <MenuItem onClick={() => { setExportAnchor(null); downloadAsPng(); }}>PNG (300 DPI)</MenuItem>
-            <MenuItem onClick={() => { setExportAnchor(null); downloadAsPdf(); }}>PDF (300 DPI)</MenuItem>
-            <MenuItem onClick={() => { setExportAnchor(null); downloadAsTiff(); }}>TIFF (300 DPI)</MenuItem>
-            <MenuItem onClick={() => { setExportAnchor(null); downloadAsSvg(); }}>SVG</MenuItem>
-            <Divider />
-            <MenuItem disabled={fetchedRows.length === 0} onClick={() => { setExportAnchor(null); downloadAsTsv(); }}>
-              TSV (plot data)
-            </MenuItem>
-          </Menu>
+          <PlotDownloadMenu
+            buildExportSvg={buildExportSvgEl}
+            title={mainTitle}
+            subtitle={subTitle}
+            filename={exportFilename}
+            extraItems={(closeMenu) => (
+              <MenuItem disabled={fetchedRows.length === 0} onClick={() => { closeMenu(); downloadAsTsv(); }}>
+                TSV (plot data)
+              </MenuItem>
+            )}
+          />
         </Stack>
       </Box>
 
@@ -1291,6 +1153,19 @@ export default function PlotArea({
       )}
     </Paper>
   );
+}
+
+// Plain alphabetical order would put "Forebrain (Postnatal)" before
+// "Forebrain (Prenatal)" ('o' < 'r') -- this keeps Prenatal first within a
+// region instead, matching JunctionExpressionHeatmap.jsx's row order.
+function evoDevoLabelSort(a, b) {
+  const phaseRank = (label) => (label.endsWith("(Prenatal)") ? 0 : label.endsWith("(Postnatal)") ? 1 : null);
+  const aPhase = phaseRank(a);
+  const bPhase = phaseRank(b);
+  if (aPhase !== null && bPhase !== null && a.slice(0, a.lastIndexOf("(")) === b.slice(0, b.lastIndexOf("("))) {
+    return aPhase - bPhase;
+  }
+  return a.localeCompare(b);
 }
 
 function collapseControlGroup(plotGroup) {
