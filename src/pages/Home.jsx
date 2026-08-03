@@ -114,7 +114,7 @@ export default function Home() {
                     <SearchIcon />
                   </InputAdornment>
                 ),
-                endAdornment: (
+                endAdornment: gene.trim() ? (
                   <InputAdornment position="end">
                     <Tooltip title="Exact match only">
                       <Stack
@@ -137,7 +137,7 @@ export default function Home() {
                       </Stack>
                     </Tooltip>
                   </InputAdornment>
-                ),
+                ) : null,
               }}
             />
           </SearchCard>

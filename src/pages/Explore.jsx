@@ -498,7 +498,7 @@ export default function Explore() {
                 onChange={(e) => setGeneFilter(e.target.value.toUpperCase())}
                 fullWidth
                 InputProps={{
-                  endAdornment: (
+                  endAdornment: geneFilter.trim() ? (
                     <InputAdornment position="end">
                       <Tooltip title="Exact match only">
                         <Stack
@@ -521,7 +521,7 @@ export default function Explore() {
                         </Stack>
                       </Tooltip>
                     </InputAdornment>
-                  ),
+                  ) : null,
                 }}
               />
 
