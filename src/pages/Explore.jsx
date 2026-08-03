@@ -3,11 +3,13 @@ import { useLocation } from "react-router-dom";
 import {
   Alert,
   Box,
+  Checkbox,
   CircularProgress,
   Chip,
   Divider,
   FormControl,
   IconButton,
+  InputAdornment,
   InputLabel,
   Menu,
   MenuItem,
@@ -76,9 +78,14 @@ export default function Explore() {
     () => new URLSearchParams(location.search).get("histology") || "",
     [location.search]
   );
+  const initialGeneExact = useMemo(
+    () => new URLSearchParams(location.search).get("exact") === "1",
+    [location.search]
+  );
 
   const [histology, setHistology] = useState(initialHistology);
   const [geneFilter, setGeneFilter] = useState(initialGene);
+  const [geneExact, setGeneExact] = useState(initialGeneExact);
   const [statusFilter, setStatusFilter] = useState("");
   const [eventTypeFilter, setEventTypeFilter] = useState("");
   const [specificityFilter, setSpecificityFilter] = useState("");
@@ -150,7 +157,8 @@ export default function Explore() {
     const maxMeanCpmActive = isMaxActive(maxMeanCpmMax, MAX_MEAN_CPM_BOUNDS);
 
     return rows.filter((r) => {
-      if (g && !(r.gene_symbol ?? "").toUpperCase().includes(g)) return false;
+      const rowGene = (r.gene_symbol ?? "").toUpperCase();
+      if (g && (geneExact ? rowGene !== g : !rowGene.includes(g))) return false;
       if (statusFilter && r.status !== statusFilter) return false;
       if (eventTypeFilter && r.event_type !== eventTypeFilter) return false;
       if (specificityFilter && r.consensus_specificity !== specificityFilter) return false;
@@ -175,6 +183,7 @@ export default function Explore() {
   }, [
     rows,
     geneFilter,
+    geneExact,
     statusFilter,
     eventTypeFilter,
     specificityFilter,
@@ -336,7 +345,12 @@ export default function Explore() {
   const activeChips = useMemo(() => {
     const chips = [];
     if (histology) chips.push({ key: "histology", label: `Histology: ${histology}` });
-    if (geneFilter.trim()) chips.push({ key: "gene", label: `Gene: ${geneFilter.trim()}` });
+    if (geneFilter.trim()) {
+      chips.push({
+        key: "gene",
+        label: `Gene: ${geneFilter.trim()}${geneExact ? " (exact)" : ""}`,
+      });
+    }
     if (statusFilter) chips.push({ key: "status", label: `Status: ${statusFilter}` });
     if (eventTypeFilter) chips.push({ key: "eventType", label: `Event type: ${eventTypeFilter}` });
     if (specificityFilter) chips.push({ key: "specificity", label: `Specificity: ${specificityFilter}` });
@@ -353,6 +367,7 @@ export default function Explore() {
   }, [
     histology,
     geneFilter,
+    geneExact,
     statusFilter,
     eventTypeFilter,
     specificityFilter,
@@ -364,7 +379,10 @@ export default function Explore() {
 
   const removeChip = (key) => {
     if (key === "histology") setHistology("");
-    if (key === "gene") setGeneFilter("");
+    if (key === "gene") {
+      setGeneFilter("");
+      setGeneExact(false);
+    }
     if (key === "status") setStatusFilter("");
     if (key === "eventType") setEventTypeFilter("");
     if (key === "specificity") setSpecificityFilter("");
@@ -479,6 +497,32 @@ export default function Explore() {
                 size="small"
                 onChange={(e) => setGeneFilter(e.target.value.toUpperCase())}
                 fullWidth
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <Tooltip title="Exact match only">
+                        <Stack
+                          direction="row"
+                          alignItems="center"
+                          spacing={0.25}
+                          sx={{ cursor: "pointer" }}
+                          onClick={() => setGeneExact((v) => !v)}
+                        >
+                          <Checkbox
+                            size="small"
+                            checked={geneExact}
+                            onChange={(e) => setGeneExact(e.target.checked)}
+                            onClick={(e) => e.stopPropagation()}
+                            sx={{ p: 0.5 }}
+                          />
+                          <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>
+                            Exact
+                          </Typography>
+                        </Stack>
+                      </Tooltip>
+                    </InputAdornment>
+                  ),
+                }}
               />
 
               <FormControl fullWidth size="small">
@@ -636,6 +680,7 @@ export default function Explore() {
                 onClick={() => {
                   setHistology("");
                   setGeneFilter("");
+                  setGeneExact(false);
                   setStatusFilter("");
                   setEventTypeFilter("");
                   setSpecificityFilter("");

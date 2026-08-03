@@ -7,6 +7,7 @@ import {
   Grid,
   TextField,
   FormControl,
+  Checkbox,
   InputLabel,
   Select,
   MenuItem,
@@ -14,6 +15,7 @@ import {
   Stack,
   InputAdornment,
   Divider,
+  Tooltip,
 } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
 import HistologySummary from "../components/HistologySummary";
@@ -47,7 +49,7 @@ function SearchCard({ title, subtitle, onSubmit, submitDisabled, children }) {
           </Typography>
         </Box>
 
-        <Stack direction="row" spacing={1} alignItems="center">
+        <Stack direction="row" spacing={1} alignItems="flex-start">
           <Box sx={{ flex: 1 }}>{children}</Box>
           <Button
             variant="contained"
@@ -67,6 +69,7 @@ export default function Home() {
   const navigate = useNavigate();
 
   const [gene, setGene] = useState("");
+  const [geneExact, setGeneExact] = useState(false);
   const [histology, setHistology] = useState("");
 
   const goExplore = (params) => {
@@ -91,22 +94,48 @@ export default function Home() {
           <SearchCard
             title="Search by gene"
             subtitle="Jump straight to events for a gene symbol."
-            onSubmit={() => goExplore({ gene: gene.trim() })}
+            onSubmit={() => goExplore({ gene: gene.trim(), ...(geneExact ? { exact: "1" } : {}) })}
             submitDisabled={!gene.trim()}
           >
             <TextField
               value={gene}
-              onChange={(e) => setGene(e.target.value)}
+              onChange={(e) => setGene(e.target.value.toUpperCase().replace(/[^A-Z]/g, ""))}
               placeholder='e.g. "NRCAM"'
               size="medium"
               fullWidth
               onKeyDown={(e) => {
-                if (e.key === "Enter" && gene.trim()) goExplore({ gene: gene.trim() });
+                if (e.key === "Enter" && gene.trim()) {
+                  goExplore({ gene: gene.trim(), ...(geneExact ? { exact: "1" } : {}) });
+                }
               }}
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">
                     <SearchIcon />
+                  </InputAdornment>
+                ),
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <Tooltip title="Exact match only">
+                      <Stack
+                        direction="row"
+                        alignItems="center"
+                        spacing={0.25}
+                        sx={{ cursor: "pointer" }}
+                        onClick={() => setGeneExact((v) => !v)}
+                      >
+                        <Checkbox
+                          size="small"
+                          checked={geneExact}
+                          onChange={(e) => setGeneExact(e.target.checked)}
+                          onClick={(e) => e.stopPropagation()}
+                          sx={{ p: 0.5 }}
+                        />
+                        <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>
+                          Exact
+                        </Typography>
+                      </Stack>
+                    </Tooltip>
                   </InputAdornment>
                 ),
               }}
