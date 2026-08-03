@@ -152,11 +152,11 @@ function HorizBarChart({ data, labelWidth = 160, labelSx, formatValue = (v) => v
     <Box>
       {data.map((d, i) => (
         <Tooltip key={i} title={`${d.label}: ${formatValue(d.value)}`} placement="right" arrow>
-          <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5, cursor: "default" }}>
+          <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 0.5, cursor: "default" }}>
             <Typography
               variant="caption"
               noWrap
-              sx={{ width: labelWidth, flexShrink: 0, textAlign: "right", lineHeight: 1.2, ...labelSx }}
+              sx={{ width: labelWidth, flexShrink: 0, textAlign: "right", lineHeight: 1.2, pr: 0.75, ...labelSx }}
             >
               {d.label}
             </Typography>
