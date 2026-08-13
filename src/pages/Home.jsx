@@ -99,7 +99,7 @@ export default function Home() {
           >
             <TextField
               value={gene}
-              onChange={(e) => setGene(e.target.value.toUpperCase().replace(/[^A-Z]/g, ""))}
+              onChange={(e) => setGene(e.target.value.toUpperCase())}
               placeholder='e.g. "NRCAM"'
               size="medium"
               fullWidth
