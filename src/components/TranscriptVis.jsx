@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Box, Button, CircularProgress, Divider, Typography, Stack, Chip } from "@mui/material";
+import { Alert, Box, Button, CircularProgress, Divider, Typography, Stack, Chip } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import { colourForBiotype, hexToRgba } from "./lib/biotypeColors";
 
 export default function TranscriptVis({ geneID, geneName = null, strand = "+", highlightedTranscript = null, junctionCoords = null, junctionName = null, junctionString = null }) {
   const [txList, setTxList] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [fetchError, setFetchError] = useState(null);
   const [activeBiotypes, setActiveBiotypes] = useState(new Set());
   const [canonicalOnly, setCanonicalOnly] = useState(false);
   const [apiStrand, setApiStrand] = useState(null);
@@ -25,6 +26,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
     let active = true;
     setLoading(true);
     setTxList([]);
+    setFetchError(null);
     const url = `https://rest.ensembl.org/lookup/id/${encodeURIComponent(geneID)}?content-type=application/json;expand=1`;
     fetch(url, { signal: controller.signal, headers: { Accept: "application/json" } })
       .then(r => {
@@ -93,6 +95,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
         if (!active) return;
         if (err.name !== "AbortError") {
           console.error("TranscriptVis Ensembl lookup failed", err);
+          setFetchError(err.message);
         }
         setTxList([]);
         setLoading(false);
@@ -613,6 +616,12 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
       ) : null}
 
       <Divider sx={{ mb: 1.5 }} />
+
+      {!loading && fetchError && (
+        <Alert severity="warning" sx={{ mb: 1.5 }}>
+          Transcripts are temporarily unavailable — Ensembl's API isn't responding ({fetchError}).
+        </Alert>
+      )}
 
       {/* Transcript section — header always visible; rows appear once data loads */}
       {(geneID || geneName) && (

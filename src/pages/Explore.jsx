@@ -414,27 +414,35 @@ export default function Explore() {
 
   // Resolve gene symbol → Ensembl gene ID for TranscriptVis
   const [ensgId, setEnsgId] = useState(null);
+  const [ensgError, setEnsgError] = useState(null);
   const txGene = selectedRow?.gene_symbol ?? null;
   const [prevTxGene, setPrevTxGene] = useState(txGene);
   if (txGene !== prevTxGene) {
     setPrevTxGene(txGene);
     setEnsgId(null);
+    setEnsgError(null);
   }
 
   useEffect(() => {
     if (!txGene) return;
     let active = true;
+    setEnsgError(null);
     fetch(
       `https://rest.ensembl.org/xrefs/symbol/homo_sapiens/${encodeURIComponent(txGene)}?content-type=application/json`,
       { headers: { Accept: "application/json" } }
     )
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
       .then((data) => {
         if (!active || !Array.isArray(data)) return;
         const ensg = data.find((e) => e.type === "gene" && e.id?.startsWith("ENSG"))?.id;
         if (ensg) setEnsgId(ensg);
       })
-      .catch(() => {});
+      .catch((err) => {
+        if (active) setEnsgError(err.message);
+      });
     return () => { active = false; };
   }, [txGene]);
 
@@ -905,6 +913,11 @@ export default function Explore() {
             junctionString={selectedRow?.junction ?? null}
           />
         </Paper>
+      )}
+      {!ensgId && ensgError && (
+        <Alert severity="warning" sx={{ mt: 3 }}>
+          Gene model is temporarily unavailable — Ensembl's API isn't responding ({ensgError}). Try again later.
+        </Alert>
       )}
     </>
   );

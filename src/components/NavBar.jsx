@@ -19,16 +19,25 @@ export default function NavBar({ mode, setMode }) {
         }}
     >
       <Toolbar>
-        <Typography
-          variant="h6"
+        <Box
           component={NavLink}
           to="/"
-          color="primary"
-          style={{ textDecoration: "none"}}
-          sx={{ fontWeight: 700, letterSpacing: 0.5 }}
+          sx={{ display: "flex", alignItems: "center", gap: 1, textDecoration: "none" }}
         >
-          TAPESTRY
-        </Typography>
+          <Box
+            component="img"
+            src={`/brand/tapestry-mark-${mode === "dark" ? "dark" : "light"}.svg`}
+            alt=""
+            sx={{ height: 28, width: "auto" }}
+          />
+          <Typography
+            variant="h6"
+            color="primary"
+            sx={{ fontWeight: 700, letterSpacing: 0.5 }}
+          >
+            TAPESTRY
+          </Typography>
+        </Box>
 
         <Box sx={{ flexGrow: 1 }} />
 
