@@ -1,9 +1,9 @@
 import { createTheme } from "@mui/material/styles";
 
 const dark = {
-  primary: { main: "#0172b2" },
+  primary: { main: "#57b4e9" },
   secondary: { main: "#e79f01" },
-  tertiary: { main: "#57b4e9" },
+  tertiary: { main: "#0172b2" },
   background: { default: "#1e2228", paper: "#262c35" },
   text: { primary: "#e8edf2", secondary: "#9eaab8" },
 };
