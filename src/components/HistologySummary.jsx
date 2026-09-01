@@ -152,7 +152,7 @@ function HorizBarChart({ data, labelWidth = 160, labelSx, formatValue = (v) => v
     <Box>
       {data.map((d, i) => (
         <Tooltip key={i} title={`${d.label}: ${formatValue(d.value)}`} placement="right" arrow>
-          <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 0.5, cursor: "default" }}>
+          <Stack direction="row" alignItems="center" spacing="5px" sx={{ mb: 0.5, cursor: "default" }}>
             <Typography
               variant="caption"
               noWrap
@@ -349,7 +349,7 @@ export default function HistologySummary() {
         <BarChartCard title="TEJs per Sample by Histology">
           <HorizBarChart
             data={tejsPerSample}
-            labelWidth={175}
+            labelWidth={190}
             formatValue={(v) => v.toFixed(1)}
           />
         </BarChartCard>
