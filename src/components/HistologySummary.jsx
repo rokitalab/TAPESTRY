@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Box, Paper, Skeleton, Tooltip, Typography, Stack } from "@mui/material";
 import { alpha } from "@mui/material/styles";
-import * as d3 from "d3";
 import { HISTOLOGY_COLORS } from "../histologyColors";
 
 const API_BASE = (import.meta.env.VITE_API_BASE || "/tapestry-api").replace(/\/$/, "");
@@ -53,96 +52,115 @@ function StatCard({ label, value }) {
   );
 }
 
-function DonutChart({ data, size = 160 }) {
-  const [tooltip, setTooltip] = useState(null);
-  const containerRef = useRef(null);
-  const r = size / 2 - 2;
-  const ir = r * 0.55;
+const HISTOLOGY_TABLE_TH_SX = {
+  textAlign: "left",
+  fontWeight: 700,
+  color: "text.secondary",
+  fontSize: "0.62rem",
+  textTransform: "uppercase",
+  letterSpacing: "0.03em",
+  pb: "2px",
+  borderBottom: "1px solid",
+  borderColor: "divider",
+  position: "sticky",
+  top: 0,
+  bgcolor: "background.paper",
+};
 
-  const arcs = useMemo(() => {
-    if (!data.length) return [];
-    const pie = d3.pie().value((d) => d.value).sort(null);
-    const arc = d3.arc().innerRadius(ir).outerRadius(r);
-    return pie(data).map((slice) => ({
-      path: arc(slice),
-      color: slice.data.color,
-      datum: slice.data,
-    }));
-  }, [data, r, ir]);
+function HistologiesCard({ data, total, visibleCount = 7 }) {
+  const [expanded, setExpanded] = useState(false);
+  const visible = data.slice(0, visibleCount);
+  const rest = data.slice(visibleCount);
+  const restTotal = rest.reduce((s, d) => s + d.value, 0);
 
-  const onMove = (e, datum) => {
-    const rect = containerRef.current.getBoundingClientRect();
-    setTooltip({ ...datum, x: e.clientX - rect.left + 12, y: e.clientY - rect.top - 36 });
-  };
+  const nameSx = (isLast) => ({
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    py: "4px",
+    borderBottom: isLast ? "none" : "1px solid",
+    borderColor: "divider",
+  });
+  const numSx = (isLast) => ({
+    textAlign: "right",
+    py: "4px",
+    fontVariantNumeric: "tabular-nums",
+    borderBottom: isLast ? "none" : "1px solid",
+    borderColor: "divider",
+  });
 
   return (
-    <Box ref={containerRef} sx={{ position: "relative", flexShrink: 0, width: size, height: size }}>
-      <svg width={size} height={size}>
-        <g transform={`translate(${size / 2},${size / 2})`}>
-          {arcs.map((a, i) => (
-            <path
-              key={i}
-              d={a.path}
-              fill={a.color}
-              stroke="white"
-              strokeWidth={1}
-              style={{ cursor: "pointer" }}
-              onMouseMove={(e) => onMove(e, a.datum)}
-              onMouseLeave={() => setTooltip(null)}
-            />
-          ))}
-        </g>
-      </svg>
-      {tooltip && (
-        <Paper
-          elevation={3}
-          sx={{
-            position: "absolute",
-            left: tooltip.x,
-            top: tooltip.y,
-            px: 1.5,
-            py: 0.75,
-            pointerEvents: "none",
-            zIndex: 10,
-            whiteSpace: "nowrap",
-          }}
-        >
-          <Typography variant="caption" display="block" sx={{ fontWeight: 600 }}>
-            {tooltip.label}
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            n = {tooltip.value.toLocaleString()}
-          </Typography>
-        </Paper>
-      )}
-    </Box>
-  );
-}
-
-function ChartCard({ title, data, size = 160 }) {
-  return (
-    <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2, flex: "1 1 0", minWidth: 0 }}>
-      <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1.5 }}>
-        {title}
+    <Paper
+      variant="outlined"
+      sx={{ p: 2.5, pb: 2, borderRadius: 2, flex: "1 1 0", minWidth: 0, display: "flex", flexDirection: "column" }}
+    >
+      <Typography
+        variant="subtitle2"
+        sx={{ fontWeight: 700, mb: "-10px", position: "relative", zIndex: 2 }}
+      >
+        Histologies
       </Typography>
-      <Stack direction="row" alignItems="flex-start" spacing={2}>
-        <DonutChart data={data} size={size} />
-        <Box sx={{ overflowY: "auto", maxHeight: size, flex: 1, minWidth: 0 }}>
-          {data.map((d, i) => (
-            <Stack key={i} direction="row" alignItems="center" spacing={0.75} sx={{ mb: 0.5 }}>
+      <Box sx={{ overflowY: "auto", maxHeight: expanded ? 230 : "none" }}>
+        <Box component="table" sx={{ width: "100%", borderCollapse: "collapse", fontSize: "0.73rem" }}>
+          <Box component="thead">
+            <Box component="tr">
+              <Box component="th" sx={HISTOLOGY_TABLE_TH_SX} />
+              <Box component="th" sx={{ ...HISTOLOGY_TABLE_TH_SX, textAlign: "right" }}>Samples</Box>
+              <Box component="th" sx={{ ...HISTOLOGY_TABLE_TH_SX, textAlign: "right" }}>Share</Box>
+            </Box>
+          </Box>
+          <Box component="tbody">
+            {visible.map((d, i) => {
+              const isLast = !expanded && rest.length === 0 && i === visible.length - 1;
+              return (
+                <Box component="tr" key={d.label}>
+                  <Box component="td" sx={nameSx(isLast)}>
+                    <Box sx={{ width: 8, height: 8, borderRadius: "2px", bgcolor: d.color, flexShrink: 0 }} />
+                    {d.label}
+                  </Box>
+                  <Box component="td" sx={numSx(isLast)}>{d.value.toLocaleString()}</Box>
+                  <Box component="td" sx={numSx(isLast)}>{((d.value / total) * 100).toFixed(1)}%</Box>
+                </Box>
+              );
+            })}
+            {!expanded && rest.length > 0 && (
               <Box
-                sx={{ width: 9, height: 9, borderRadius: "50%", bgcolor: d.color, flexShrink: 0 }}
-              />
-              <Typography variant="caption" sx={{ lineHeight: 1.3, flex: 1, minWidth: 0 }} noWrap>
-                {d.label}
-              </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
-                {d.value.toLocaleString()}
-              </Typography>
-            </Stack>
-          ))}
+                component="tr"
+                onClick={() => setExpanded(true)}
+                sx={{
+                  cursor: "pointer",
+                  fontStyle: "italic",
+                  color: "text.disabled",
+                  "&:hover": { color: "text.primary" },
+                }}
+              >
+                <Box component="td" sx={nameSx(true)}>
+                  Other ({rest.length} histologies) <Box component="span" sx={{ fontStyle: "normal" }}>&#8250;</Box>
+                </Box>
+                <Box component="td" sx={numSx(true)}>{restTotal.toLocaleString()}</Box>
+                <Box component="td" sx={numSx(true)}>{((restTotal / total) * 100).toFixed(1)}%</Box>
+              </Box>
+            )}
+          </Box>
+          {expanded && (
+            <Box component="tbody">
+              {rest.map((d, i) => (
+                <Box component="tr" key={d.label}>
+                  <Box component="td" sx={nameSx(i === rest.length - 1)}>
+                    <Box sx={{ width: 8, height: 8, borderRadius: "2px", bgcolor: d.color, flexShrink: 0 }} />
+                    {d.label}
+                  </Box>
+                  <Box component="td" sx={numSx(i === rest.length - 1)}>{d.value.toLocaleString()}</Box>
+                  <Box component="td" sx={numSx(i === rest.length - 1)}>{((d.value / total) * 100).toFixed(1)}%</Box>
+                </Box>
+              ))}
+            </Box>
+          )}
         </Box>
-      </Stack>
+      </Box>
     </Paper>
   );
 }
@@ -195,6 +213,7 @@ function SpecificityCard({ total, oncofetal }) {
       variant="outlined"
       sx={{
         p: 2.5,
+        pb: 2,
         borderRadius: 2,
         flex: "1 1 0",
         minWidth: 0,
@@ -258,7 +277,7 @@ function SpliceEventsCard({ data }) {
   return (
     <Paper
       variant="outlined"
-      sx={{ p: 2.5, borderRadius: 2, flex: "1 1 0", minWidth: 0, display: "flex", flexDirection: "column" }}
+      sx={{ p: 2.5, pb: 2, borderRadius: 2, flex: "1 1 0", minWidth: 0, display: "flex", flexDirection: "column" }}
     >
       <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 2 }}>
         TEJ Splice Events
@@ -446,7 +465,7 @@ export default function HistologySummary() {
       </Stack>
 
       <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
-        <ChartCard title="Samples per Histology" data={samplesByHistology} />
+        <HistologiesCard data={samplesByHistology} total={totals.samples} />
         <SpecificityCard total={totals.junctions} oncofetal={oncofetalCount} />
         <SpliceEventsCard data={tejByEventType} />
       </Stack>
