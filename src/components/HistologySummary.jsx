@@ -22,10 +22,10 @@ const EVENT_TYPE_LABELS = {
   "exon inclusion":   "Exon Inclusion",
   "exon skipping":    "Exon Skipping",
   "intron retention": "Intron Retention",
-  "A3SS-":            "Alt 3'SS (short)",
-  "A3SS+":            "Alt 3'SS (long)",
-  "A5SS-":            "Alt 5'SS (short)",
-  "A5SS+":            "Alt 5'SS (long)",
+  "A3SS-":            "Alternative 3'SS (short)",
+  "A3SS+":            "Alternative 3'SS (long)",
+  "A5SS-":            "Alternative 5'SS (short)",
+  "A5SS+":            "Alternative 5'SS (long)",
 };
 const EVENT_TYPE_FALLBACK = ["#4e79a7", "#f28e2b", "#b07aa1", "#ff9da7"];
 
@@ -252,6 +252,52 @@ function SpecificityCard({ total, oncofetal }) {
   );
 }
 
+function SpliceEventsCard({ data }) {
+  const total = data.reduce((s, d) => s + d.value, 0);
+
+  return (
+    <Paper
+      variant="outlined"
+      sx={{ p: 2.5, borderRadius: 2, flex: "1 1 0", minWidth: 0, display: "flex", flexDirection: "column" }}
+    >
+      <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 2 }}>
+        TEJ Splice Events
+      </Typography>
+
+      <Stack direction="row" sx={{ height: 20, borderRadius: 1, overflow: "hidden", mb: 2.25 }}>
+        {data.map((d, i) => (
+          <Box
+            key={i}
+            sx={{
+              width: `${(d.value / total) * 100}%`,
+              bgcolor: d.color,
+              borderRight: i < data.length - 1 ? "2px solid" : "none",
+              borderColor: "background.paper",
+            }}
+          />
+        ))}
+      </Stack>
+
+      <Stack spacing={0.75}>
+        {data.map((d, i) => (
+          <Stack key={i} direction="row" alignItems="center" spacing={1}>
+            <Box sx={{ width: 9, height: 9, borderRadius: "2px", bgcolor: d.color, flexShrink: 0 }} />
+            <Typography variant="caption" sx={{ flex: 1, minWidth: 0 }} noWrap>
+              {d.label}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
+              {d.value.toLocaleString()}{" "}
+              <Box component="span" sx={{ color: "text.disabled" }}>
+                ({((d.value / total) * 100).toFixed(1)}%)
+              </Box>
+            </Typography>
+          </Stack>
+        ))}
+      </Stack>
+    </Paper>
+  );
+}
+
 function BarChartCard({ title, children }) {
   return (
     <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2, flex: "1 1 0", minWidth: 0 }}>
@@ -402,7 +448,7 @@ export default function HistologySummary() {
       <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
         <ChartCard title="Samples per Histology" data={samplesByHistology} />
         <SpecificityCard total={totals.junctions} oncofetal={oncofetalCount} />
-        <ChartCard title="TEJ Splice Events" data={tejByEventType} />
+        <SpliceEventsCard data={tejByEventType} />
       </Stack>
 
       <Stack direction="row" spacing={2}>
