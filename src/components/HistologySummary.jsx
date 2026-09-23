@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Box, Paper, Skeleton, Tooltip, Typography, Stack } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 import * as d3 from "d3";
 import { HISTOLOGY_COLORS } from "../histologyColors";
 
@@ -184,6 +185,73 @@ function HorizBarChart({ data, labelWidth = 160, labelSx, formatValue = (v) => v
   );
 }
 
+function SpecificityCard({ total, oncofetal }) {
+  const pct = total > 0 ? Math.round((oncofetal / total) * 1000) / 10 : 0;
+  const oncofetalColor = SPECIFICITY_COLORS["Oncofetal"];
+  const trackColor = SPECIFICITY_COLORS["Tumor-specific"];
+
+  return (
+    <Paper
+      variant="outlined"
+      sx={{
+        p: 2.5,
+        borderRadius: 2,
+        flex: "1 1 0",
+        minWidth: 0,
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
+      <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 2 }}>
+        Oncofetal Share of TEJs
+      </Typography>
+
+      <Box sx={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+        <Box>
+          <Typography sx={{ fontSize: "2rem", fontWeight: 800, lineHeight: 1 }}>
+            {total.toLocaleString()}
+          </Typography>
+          <Typography sx={{ fontSize: "1.05rem", fontWeight: 500, color: "text.secondary", mt: 0.5 }}>
+            Tumor-enriched Junctions
+          </Typography>
+        </Box>
+
+        <Box
+          sx={{
+            position: "relative",
+            height: 12,
+            bgcolor: alpha(trackColor, 0.18),
+            borderRadius: 999,
+            overflow: "hidden",
+            my: 2,
+          }}
+        >
+          <Box
+            sx={{
+              position: "absolute",
+              right: 0,
+              top: 0,
+              height: "100%",
+              width: `${pct}%`,
+              bgcolor: oncofetalColor,
+              borderRadius: "0 999px 999px 0",
+            }}
+          />
+        </Box>
+
+        <Box sx={{ textAlign: "right" }}>
+          <Typography sx={{ fontSize: "2rem", fontWeight: 800, lineHeight: 1, color: oncofetalColor }}>
+            {oncofetal.toLocaleString()}
+          </Typography>
+          <Typography sx={{ fontSize: "1.05rem", fontWeight: 500, color: oncofetalColor, mt: 0.5 }}>
+            Oncofetal ({pct}%)
+          </Typography>
+        </Box>
+      </Box>
+    </Paper>
+  );
+}
+
 function BarChartCard({ title, children }) {
   return (
     <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2, flex: "1 1 0", minWidth: 0 }}>
@@ -243,20 +311,12 @@ export default function HistologySummary() {
     [histologyData]
   );
 
-  const tejBySpecificity = useMemo(() => {
-    const counts = {};
-    for (const row of tejData) {
-      const key = row.consensus_specificity;
-      counts[key] = (counts[key] ?? 0) + 1;
-    }
-    return Object.entries(counts)
-      .sort(([, a], [, b]) => b - a)
-      .map(([label, value], i) => ({
-        label,
-        value,
-        color: SPECIFICITY_COLORS[label] ?? EVENT_TYPE_FALLBACK[i % EVENT_TYPE_FALLBACK.length],
-      }));
-  }, [tejData]);
+  const oncofetalCount = useMemo(
+    () =>
+      tejData.filter((row) => String(row.consensus_specificity).toLowerCase() === "oncofetal")
+        .length,
+    [tejData]
+  );
 
   const tejByEventType = useMemo(() => {
     const counts = {};
@@ -341,7 +401,7 @@ export default function HistologySummary() {
 
       <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
         <ChartCard title="Samples per Histology" data={samplesByHistology} />
-        <ChartCard title="Oncofetal vs Tumor-Specific TEJs" data={tejBySpecificity} />
+        <SpecificityCard total={totals.junctions} oncofetal={oncofetalCount} />
         <ChartCard title="TEJ Splice Events" data={tejByEventType} />
       </Stack>
 
