@@ -104,12 +104,12 @@ function HistologiesCard({ data, total, visibleCount = 7 }) {
         Histologies
       </Typography>
       <Box sx={{ overflowY: "auto", maxHeight: expanded ? 230 : "none" }}>
-        <Box component="table" sx={{ width: "100%", borderCollapse: "collapse", fontSize: "0.73rem" }}>
+        <Box component="table" sx={{ width: "100%", tableLayout: "fixed", borderCollapse: "collapse", fontSize: "0.73rem" }}>
           <Box component="thead">
             <Box component="tr">
               <Box component="th" sx={HISTOLOGY_TABLE_TH_SX} />
-              <Box component="th" sx={{ ...HISTOLOGY_TABLE_TH_SX, textAlign: "right" }}>Samples</Box>
-              <Box component="th" sx={{ ...HISTOLOGY_TABLE_TH_SX, textAlign: "right" }}>Share</Box>
+              <Box component="th" sx={{ ...HISTOLOGY_TABLE_TH_SX, textAlign: "right", width: 56 }}>Samples</Box>
+              <Box component="th" sx={{ ...HISTOLOGY_TABLE_TH_SX, textAlign: "right", width: 48 }}>Share</Box>
             </Box>
           </Box>
           <Box component="tbody">
