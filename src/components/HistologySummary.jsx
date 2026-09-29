@@ -80,17 +80,27 @@ function HistologiesCard({ data, total, visibleCount = 7 }) {
     whiteSpace: "nowrap",
     overflow: "hidden",
     textOverflow: "ellipsis",
-    py: "4px",
+    py: "3px",
     borderBottom: isLast ? "none" : "1px solid",
     borderColor: "divider",
   });
   const numSx = (isLast) => ({
     textAlign: "right",
-    py: "4px",
+    py: "3px",
     fontVariantNumeric: "tabular-nums",
+    whiteSpace: "nowrap",
     borderBottom: isLast ? "none" : "1px solid",
     borderColor: "divider",
   });
+
+  const samplesCell = (value) => (
+    <>
+      {value.toLocaleString()}{" "}
+      <Box component="span" sx={{ color: "text.disabled" }}>
+        ({((value / total) * 100).toFixed(1)}%)
+      </Box>
+    </>
+  );
 
   return (
     <Paper
@@ -99,7 +109,7 @@ function HistologiesCard({ data, total, visibleCount = 7 }) {
     >
       <Typography
         variant="subtitle2"
-        sx={{ fontWeight: 700, mb: "-10px", position: "relative", zIndex: 2 }}
+        sx={{ fontWeight: 700, mb: "-18px", position: "relative", zIndex: 2 }}
       >
         Histologies
       </Typography>
@@ -108,8 +118,8 @@ function HistologiesCard({ data, total, visibleCount = 7 }) {
           <Box component="thead">
             <Box component="tr">
               <Box component="th" sx={HISTOLOGY_TABLE_TH_SX} />
-              <Box component="th" sx={{ ...HISTOLOGY_TABLE_TH_SX, textAlign: "right", width: 56 }}>Samples</Box>
-              <Box component="th" sx={{ ...HISTOLOGY_TABLE_TH_SX, textAlign: "right", width: 48 }}>Share</Box>
+              <Box component="th" sx={{ ...HISTOLOGY_TABLE_TH_SX, textAlign: "right", width: 92 }}>Samples</Box>
+              <Box component="th" sx={{ ...HISTOLOGY_TABLE_TH_SX, textAlign: "right", width: 48 }}>TEJs</Box>
             </Box>
           </Box>
           <Box component="tbody">
@@ -121,8 +131,8 @@ function HistologiesCard({ data, total, visibleCount = 7 }) {
                     <Box sx={{ width: 8, height: 8, borderRadius: "2px", bgcolor: d.color, flexShrink: 0 }} />
                     {d.label}
                   </Box>
-                  <Box component="td" sx={numSx(isLast)}>{d.value.toLocaleString()}</Box>
-                  <Box component="td" sx={numSx(isLast)}>{((d.value / total) * 100).toFixed(1)}%</Box>
+                  <Box component="td" sx={numSx(isLast)}>{samplesCell(d.value)}</Box>
+                  <Box component="td" sx={numSx(isLast)}>{d.tejs.toLocaleString()}</Box>
                 </Box>
               );
             })}
@@ -140,8 +150,9 @@ function HistologiesCard({ data, total, visibleCount = 7 }) {
                 <Box component="td" sx={nameSx(true)}>
                   Other ({rest.length} histologies) <Box component="span" sx={{ fontStyle: "normal" }}>&#8250;</Box>
                 </Box>
-                <Box component="td" sx={numSx(true)}>{restTotal.toLocaleString()}</Box>
-                <Box component="td" sx={numSx(true)}>{((restTotal / total) * 100).toFixed(1)}%</Box>
+                <Box component="td" sx={numSx(true)}>{samplesCell(restTotal)}</Box>
+                {/* Distinct TEJs can't be summed across histologies without double counting */}
+                <Box component="td" sx={numSx(true)} />
               </Box>
             )}
           </Box>
@@ -153,8 +164,8 @@ function HistologiesCard({ data, total, visibleCount = 7 }) {
                     <Box sx={{ width: 8, height: 8, borderRadius: "2px", bgcolor: d.color, flexShrink: 0 }} />
                     {d.label}
                   </Box>
-                  <Box component="td" sx={numSx(i === rest.length - 1)}>{d.value.toLocaleString()}</Box>
-                  <Box component="td" sx={numSx(i === rest.length - 1)}>{((d.value / total) * 100).toFixed(1)}%</Box>
+                  <Box component="td" sx={numSx(i === rest.length - 1)}>{samplesCell(d.value)}</Box>
+                  <Box component="td" sx={numSx(i === rest.length - 1)}>{d.tejs.toLocaleString()}</Box>
                 </Box>
               ))}
             </Box>
@@ -221,7 +232,7 @@ function SpecificityCard({ total, oncofetal }) {
         flexDirection: "column",
       }}
     >
-      <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 2 }}>
+      <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
         Oncofetal Share of TEJs
       </Typography>
 
@@ -279,7 +290,7 @@ function SpliceEventsCard({ data }) {
       variant="outlined"
       sx={{ p: 2.5, pb: 2, borderRadius: 2, flex: "1 1 0", minWidth: 0, display: "flex", flexDirection: "column" }}
     >
-      <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 2 }}>
+      <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
         TEJ Splice Events
       </Typography>
 
@@ -297,14 +308,14 @@ function SpliceEventsCard({ data }) {
         ))}
       </Stack>
 
-      <Stack spacing={0.75}>
+      <Stack spacing={0}>
         {data.map((d, i) => (
           <Stack key={i} direction="row" alignItems="center" spacing={1}>
             <Box sx={{ width: 9, height: 9, borderRadius: "2px", bgcolor: d.color, flexShrink: 0 }} />
-            <Typography variant="caption" sx={{ flex: 1, minWidth: 0 }} noWrap>
+            <Typography sx={{ fontSize: "0.8rem", flex: 1, minWidth: 0 }} noWrap>
               {d.label}
             </Typography>
-            <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
+            <Typography sx={{ fontSize: "0.8rem", color: "text.secondary", flexShrink: 0 }}>
               {d.value.toLocaleString()}{" "}
               <Box component="span" sx={{ color: "text.disabled" }}>
                 ({((d.value / total) * 100).toFixed(1)}%)
@@ -371,6 +382,7 @@ export default function HistologySummary() {
         .map((r) => ({
           label: r.plot_group,
           value: r.num_samples,
+          tejs: r.num_junctions,
           color: HISTOLOGY_COLORS[r.plot_group] ?? "#b5b5b5",
         })),
     [histologyData]
