@@ -314,7 +314,7 @@ function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightId
   const iW = width - MARGIN.left - MARGIN.right;
   const iH = height - MARGIN.top - MARGIN.bottom;
 
-  const xform = (d) => log2Scale ? (d.log2CpmCorrected ?? Math.log2(d.cpm + 1)) : d.cpm;
+  const xform = (d) => log2Scale ? Math.log2((d.cpmCorrected ?? d.cpm) + 1) : d.cpm;
 
   const allCpms = visibleGroups.flatMap((g) => g.values.map(xform));
   const yMax = d3.max(allCpms) ?? 1;
@@ -467,7 +467,7 @@ function drawEvoDevoPlot(svg, { width, height, evodevoPoints, log2Scale, textCol
   );
   if (presentTimepoints.length === 0) return;
 
-  const xform = (d) => log2Scale ? (d.log2CpmCorrected ?? Math.log2(d.cpm + 1)) : d.cpm;
+  const xform = (d) => log2Scale ? Math.log2((d.cpmCorrected ?? d.cpm) + 1) : d.cpm;
 
   const iW = width - MARGIN.left - MARGIN.right;
   const iH = height - MARGIN.top - MARGIN.bottom;
@@ -589,7 +589,7 @@ function drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleG
   );
   if (presentTimepoints.length === 0) return;
 
-  const xform = (d) => log2Scale ? (d.log2CpmCorrected ?? Math.log2(d.cpm + 1)) : d.cpm;
+  const xform = (d) => log2Scale ? Math.log2((d.cpmCorrected ?? d.cpm) + 1) : d.cpm;
 
   const iW = width - MARGIN.left - MARGIN.right;
   const iH = height - MARGIN.top - MARGIN.bottom;
@@ -861,7 +861,7 @@ export default function PlotArea({
         id,
         sampleId: r.sample_id ?? null,
         cpm: Number(r.cpm),
-        log2CpmCorrected: r.log2_cpm_corrected ?? null,
+        cpmCorrected: r.cpm_corrected ?? null,
         histology: collapseControlGroup(r.plot_group ?? "Unknown"),
         cancerGroup: r.cancer_group ?? null,
         molecularSubtype: r.molecular_subtype ?? null,
@@ -929,7 +929,7 @@ export default function PlotArea({
           id: r.biospecimen_id ?? `S${i}`,
           sampleId: r.sample_id ?? null,
           cpm: Number(r.cpm),
-          log2CpmCorrected: r.log2_cpm_corrected ?? null,
+          cpmCorrected: r.cpm_corrected ?? null,
           region: dash >= 0 ? pg.slice(0, dash) : pg,
           timepoint: dash >= 0 ? pg.slice(dash + 1) : pg,
           rnaLibrary: r.rna_library ?? null,
@@ -1053,7 +1053,7 @@ export default function PlotArea({
       ["rna_library", (r) => r.rna_library],
       ["is_independent_primary", (r) => r.is_independent_primary],
       ["cpm", (r) => r.cpm],
-      ["log2_cpm_corrected", (r) => r.log2_cpm_corrected],
+      ["cpm_corrected", (r) => r.cpm_corrected],
       ["tumor_enriched", (r) => highlightIds.has(r.biospecimen_id)],
     ];
     const escape = (v) => (v === null || v === undefined ? "" : String(v).replace(/[\t\n\r]/g, " "));

@@ -390,7 +390,7 @@ export default function HistologySummary() {
 
   const oncofetalCount = useMemo(
     () =>
-      tejData.filter((row) => String(row.consensus_specificity).toLowerCase() === "oncofetal")
+      tejData.filter((row) => String(row.junction_preference).toLowerCase() === "oncofetal")
         .length,
     [tejData]
   );

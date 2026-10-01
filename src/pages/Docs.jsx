@@ -164,12 +164,13 @@ export default function Docs() {
           </ListItem>
           <ListItem sx={{ display: "list-item", py: 0.5, pl: 0 }}>
             <Typography variant="body2">
-              Junctions that clear enrichment thresholds against{" "}
-              <em>all</em> control cohorts — including fetal/developmental
-              tissue — are called <strong>Tumor-specific</strong>. Junctions
-              that clear those thresholds only against <em>postnatal</em>{" "}
-              controls (i.e., they&apos;re also present in fetal tissue) are
-              called <strong>Oncofetal</strong>.
+              Junctions with fold-change &gt; 5 and SNR &gt; 5 against every{" "}
+              <em>postnatal</em> control group (and no control group averaging
+              10 CPM or more) are called <strong>Tumor-enriched</strong>.
+              Tumor-enriched junctions that are also expressed in at least one{" "}
+              <em>prenatal</em> evo-devo group (fold-change &gt; 2 and SNR &gt; 2
+              against every postnatal group) are called{" "}
+              <strong>Oncofetal</strong>.
             </Typography>
           </ListItem>
           <ListItem sx={{ display: "list-item", py: 0.5, pl: 0 }}>
@@ -205,22 +206,28 @@ export default function Docs() {
             ],
             [
               "Oncofetal",
-              "A TEJ that is enriched in tumor relative to postnatal normal tissue, but is also expressed in fetal/developmental tissue. Interpretation: the tumor has reactivated a splicing program that's normally only active during development.",
+              "A tumor-enriched TEJ that is also expressed in prenatal brain (at least one prenatal evo-devo group, fold-change > 2 and SNR > 2 against every postnatal group). Interpretation: the tumor has reactivated a splicing program that's normally only active during development.",
             ],
             [
-              "Tumor-specific",
-              "A TEJ that is enriched in tumor relative to all normal tissue, including fetal/developmental. Interpretation: this splice form isn't part of any known normal developmental program — it's more uniquely tumor-derived.",
+              "Tumor-enriched",
+              "A TEJ that is enriched in tumor relative to postnatal normal tissue and does not meet the oncofetal criteria (no prenatal evo-devo group exceeds every postnatal group with fold-change > 2 and SNR > 2). Interpretation: this splice form isn't part of the developmental programs captured by the reference cohorts — it's more uniquely tumor-derived.",
             ],
             [
               <Code>junction_preference</Code>,
               <>
-                A <em>per-sample</em> field with values <Code>Tumor-enriched</Code> (passes enrichment thresholds vs. all controls, including fetal) or <Code>Oncofetal</Code> (passes thresholds vs. postnatal controls only — i.e., this sample's copy of the junction looks fetal-like). Every sample carrying a given junction gets its own call.
+                The junction-level call, <Code>Tumor-enriched</Code> or <Code>Oncofetal</Code>. Each junction has a single call shared by every sample that carries it.
               </>,
             ],
             [
-              <Code>consensus_specificity</Code>,
+              <Code>oncofetal_prenatal_group</Code>,
               <>
-                The <em>junction-level</em> rollup of <Code>junction_preference</Code> across every sample that carries the junction — and the rollup is asymmetric, not a majority vote: a junction is called <strong>Oncofetal</strong> if <em>any</em> sample shows the oncofetal pattern, even just 1 of 10. It's only called <strong>Tumor-specific</strong> if <em>every single sample</em> was independently called tumor-specific. "Oncofetal" beats "Tumor-specific" at the slightest hint of fetal-pattern expression, so the call is conservative about claiming a junction is cleanly tumor-specific.
+                For Oncofetal junctions, the prenatal evo-devo group(s) (brain region and stage, e.g. <Code>Forebrain-4-5pcw_early_embryonic</Code>) whose expression qualified the junction as oncofetal, separated by <Code>;</Code>. Empty for Tumor-enriched junctions.
+              </>,
+            ],
+            [
+              <Code>criteria</Code>,
+              <>
+                Why the junction counts as tumor-enriched: <Code>enriched expr vs. ctrls</Code> (passes the fold-change/SNR thresholds against controls that express it) or <Code>No ctrl expr, novel SS usage</Code> (no expression in the control cohorts; novel splice-site usage).
               </>,
             ],
             [
@@ -288,12 +295,12 @@ export default function Docs() {
               "(tumor CPM − control mean CPM) / control CPM standard deviation. Captures enrichment relative to the variability of the control measurement, not just its mean — guards against calling a junction \"enriched\" just because of a noisy low-coverage control estimate.",
             ],
             [
-              <Code>_all</Code>,
-              "Suffix meaning the metric (FC, SNR, max mean CPM) was computed against all control cohorts, including fetal/developmental tissue. Used to call Tumor-specific junctions.",
+              <Code>_postnatal</Code>,
+              "Suffix meaning the metric (FC, SNR, max mean CPM) was computed against postnatal control cohorts only (adult GTEx, postnatal evo-devo timepoints, pediatric normal brain). These are the metrics used to call a junction tumor-enriched.",
             ],
             [
-              <Code>_postnatal</Code>,
-              "Suffix meaning the metric was computed against postnatal control cohorts only (adult GTEx, postnatal evo-devo timepoints, pediatric normal brain). Used to call Oncofetal junctions, since fetal tissue is deliberately excluded from this comparison.",
+              <><Code>max_prenatal_min_cpm_fc</Code> / <Code>max_prenatal_min_cpm_snr</Code></>,
+              "For each prenatal evo-devo group, the minimum fold-change (or SNR) of that group's CPM over every postnatal group; the reported value is the largest of these across prenatal groups. Used to call Oncofetal junctions (both > 2).",
             ],
           ]}
         />
@@ -317,7 +324,7 @@ export default function Docs() {
             ],
             [
               "Evo-devo timepoints",
-              "Developmental stages spanned by the evo-devo control cohort, from prenatal (e.g., 4 weeks post-conception) through postnatal stages (neonate, infant, toddler, school-age, adolescent, young adult), split into Forebrain/Hindbrain. This cohort is what lets TAPESTRY distinguish \"present only in fetal development\" (oncofetal) from \"never normally present\" (tumor-specific).",
+              "Developmental stages spanned by the evo-devo control cohort, from prenatal (e.g., 4 weeks post-conception) through postnatal stages (neonate, infant, toddler, school-age, adolescent, young adult), split into Forebrain/Hindbrain. This cohort is what lets TAPESTRY distinguish \"present in prenatal development\" (oncofetal) from \"not present in the developmental reference\" (tumor-enriched).",
             ],
             [
               <Code>composition</Code>,
@@ -341,7 +348,7 @@ export default function Docs() {
             <>
               From the Home page, use the &ldquo;Search by gene&rdquo; box and enter the gene symbol (e.g. <Code>NRCAM</Code>). This takes you to Explore pre-filtered to that gene.
             </>,
-            "The results table lists every TEJ found in that gene: junction name, specificity (Oncofetal/Tumor-specific), status (Annotated/Novel/Novel splice site), event type, fold-change, SNR, max mean CPM, and number of samples carrying it.",
+            "The results table lists every TEJ found in that gene: junction name, specificity (Oncofetal/Tumor-enriched), status (Annotated/Novel/Novel splice site), event type, fold-change, SNR, max mean CPM, and number of samples carrying it.",
             "Sort by fold-change, SNR, or # samples to find the most enriched or most recurrent junction in the gene.",
             "Click a row to load it into the plot panel below: the Primary Tumors tab shows CPM for that junction across every histology, so you can see whether the signal is broad or confined to one tumor type. The exon diagram underneath shows where in the gene's structure the junction sits, and highlights the specific splicing event (e.g., a skipped exon) on the canonical transcript.",
             "Download the filtered table (TSV/Excel) or the plot (PNG/PDF/TIFF/SVG) for further analysis or a figure.",
@@ -355,7 +362,7 @@ export default function Docs() {
             <>
               From Home or the Explore page, set the Histology dropdown to your histology of interest (e.g., <Code>Medulloblastoma</Code>, <Code>Low-grade glioma</Code>.
             </>,
-            "The table now lists every TEJ recurrent in that histology. Use the Reference cohorts toggle (All vs. Postnatal) plus the min fold-change, min SNR, and max mean CPM sliders to tighten or loosen what counts as \"enriched.\"",
+            "The table now lists every TEJ recurrent in that histology. Use the min fold-change, min SNR, and max mean CPM sliders (computed against postnatal controls) to tighten or loosen what counts as \"enriched.\"",
             "Sort by # samples to prioritize junctions that recur across many patients within the histology (more likely to generalize as a target), or by fold-change/SNR to prioritize the cleanest signal.",
             "Click through interesting rows to inspect their CPM distribution and confirm the signal is concentrated in your histology of interest, rather than showing up broadly across tumor types, which would make it a less histology-specific target.",
             "Export the histology-level table as a working candidate list.",
@@ -363,19 +370,19 @@ export default function Docs() {
         />
 
         <Walkthrough
-          title="Distinguishing oncofetal from tumor-specific junctions"
-          goal="for a junction (or set of junctions), determine whether it's reactivated fetal/developmental splicing (oncofetal) or splicing that has no normal-tissue counterpart at all (tumor-specific) — a distinction that matters for predicting on-target/off-tumor toxicity risk."
+          title="Distinguishing oncofetal from tumor-enriched junctions"
+          goal="for a junction (or set of junctions), determine whether it's reactivated fetal/developmental splicing (oncofetal) or splicing with no counterpart in the normal reference cohorts (tumor-enriched) — a distinction that matters for predicting on-target/off-tumor toxicity risk."
           steps={[
             <>
-              On Explore, use the Specificity filter to restrict the table to <Code>Oncofetal</Code> or <Code>Tumor-specific</Code> directly — this reflects the <Code>consensus_specificity</Code> call already made by the pipeline.
+              On Explore, use the Specificity filter to restrict the table to <Code>Oncofetal</Code> or <Code>Tumor-enriched</Code> directly — this reflects the <Code>junction_preference</Code> call already made by the pipeline.
             </>,
             <>
-              To see why a junction was called one way or the other, toggle Reference cohorts between All and Postnatal: a junction called Oncofetal will show enrichment against the Postnatal reference (low/no signal in postnatal controls) but a weaker or absent fold-change/SNR against All controls, because fetal tissue does express it. A junction called Tumor-specific will show strong enrichment under both scopes — there's no control cohort, fetal or postnatal, where it shows up.
+              To see why a junction was called Oncofetal, download the table: <Code>oncofetal_prenatal_group</Code> lists the prenatal group(s) that express it, and <Code>max_prenatal_min_cpm_fc</Code> / <Code>max_prenatal_min_cpm_snr</Code> show how strongly the best prenatal group exceeds every postnatal group.
             </>,
-            "Select the junction and open the Evo-devo tab in the plot panel. This is the most direct visual confirmation: an oncofetal junction's CPM trace will be elevated in one or more fetal timepoints and drop to near-zero through postnatal development, while a tumor-specific junction's trace will stay flat/near-zero across all developmental timepoints.",
-            "The Controls tab (faceted by cohort: GTEx, Evo-devo, Pediatric brain, etc.) gives a side-by-side view across all normal reference cohorts at once, useful for a final sanity check before treating a junction as a clean tumor-specific candidate.",
+            "Select the junction and open the Evo-devo tab in the plot panel. This is the most direct visual confirmation: an oncofetal junction's CPM trace will be elevated in one or more fetal timepoints and drop to near-zero through postnatal development, while a tumor-enriched junction's trace will stay flat/near-zero across all developmental timepoints.",
+            "The Controls tab (faceted by cohort: GTEx, Evo-devo, Pediatric brain, etc.) gives a side-by-side view across all normal reference cohorts at once, useful for a final sanity check before treating a junction as a clean tumor-enriched candidate.",
             <>
-              <strong>Interpretation caveat:</strong> <Code>consensus_specificity</Code> is rolled up across every sample carrying the junction, and the rollup favors Oncofetal — a junction is only ever called Tumor-specific if every sample carrying it independently avoided the fetal-like pattern; it's called Oncofetal if even a single sample showed it. So a junction labeled Oncofetal isn't necessarily fetal-like in most of the patients who have it — it just needs one. If you need a junction that's consistently tumor-specific patient-to-patient (e.g., for a therapy where fetal off-target risk in even a subset of patients is unacceptable), don't stop at the table label — open the Primary Tumors tab and check sample-to-sample consistency directly.
+              <strong>Interpretation caveat:</strong> the Oncofetal / Tumor-enriched call is only as complete as the prenatal reference — a Tumor-enriched junction may still be expressed at developmental stages or in brain regions the evo-devo cohort doesn't cover. If fetal off-target risk is a concern, check the Evo-devo and Controls tabs directly rather than relying on the table label alone.
             </>,
           ]}
         />
