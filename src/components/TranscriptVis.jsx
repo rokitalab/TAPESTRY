@@ -2,6 +2,18 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Box, Button, CircularProgress, Divider, Typography, Stack, Chip } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import { colourForBiotype, hexToRgba } from "./lib/biotypeColors";
+import { fetchUniProtDomains, mapDomainsToGenomicSegments, stripVersion, colourForDomainIndex } from "./lib/proteinDomains";
+
+// Genomic CDS bounds (always ascending, regardless of strand) + protein
+// stable ID from Ensembl's Translation object, used to place UniProt domains.
+function parseTranslation(raw) {
+  if (!raw) return null;
+  const s = Number(raw.start ?? raw.seq_region_start);
+  const en = Number(raw.end ?? raw.seq_region_end);
+  if (!Number.isFinite(s) || !Number.isFinite(en)) return null;
+  const id = raw.id || raw.stable_id || null;
+  return { id, start: Math.min(s, en), end: Math.max(s, en) };
+}
 
 export default function TranscriptVis({ geneID, geneName = null, strand = "+", highlightedTranscript = null, junctionCoords = null, junctionName = null, junctionString = null }) {
   const [txList, setTxList] = useState([]);
@@ -67,23 +79,30 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
             else if (Number.isFinite(t?.exonCount)) exonCount = t.exonCount;
             else if (Number.isFinite(t?.exons_count)) exonCount = t.exons_count;
           }
-          // Extract exon coordinates and normalize to { start, end }
+          // Extract exon coordinates and normalize to { start, end }. Left as `null`
+          // (rather than []) when the gene-level payload had no Exon/exon/exons key at
+          // all, so the backfill effect below can tell "not fetched yet" apart from
+          // "fetched, genuinely has zero exons" and knows which transcripts to re-fetch.
+          const hasExonSource = candidates.some(c => c != null);
           let rawExons = [];
           for (const c of candidates) {
             if (Array.isArray(c)) { rawExons = c; break; }
             if (c && typeof c === 'object') { rawExons = Object.values(c); break; }
           }
-          const exons = (rawExons || [])
-            .map(e => {
-              const s = Number(e?.start ?? e?.seq_region_start ?? e?.begin ?? e?.location_start);
-              const en = Number(e?.end ?? e?.seq_region_end ?? e?.finish ?? e?.location_end);
-              if (!Number.isFinite(s) || !Number.isFinite(en)) return null;
-              return { start: Math.min(s, en), end: Math.max(s, en) };
-            })
-            .filter(Boolean)
-            .sort((a, b) => a.start - b.start);
-          if (exonCount == null) exonCount = exons.length > 0 ? exons.length : null;
-          return { id, displayName, biotype, isCanonical, colour, exonCount, exons };
+          const exons = hasExonSource
+            ? (rawExons || [])
+                .map(e => {
+                  const s = Number(e?.start ?? e?.seq_region_start ?? e?.begin ?? e?.location_start);
+                  const en = Number(e?.end ?? e?.seq_region_end ?? e?.finish ?? e?.location_end);
+                  if (!Number.isFinite(s) || !Number.isFinite(en)) return null;
+                  return { start: Math.min(s, en), end: Math.max(s, en) };
+                })
+                .filter(Boolean)
+                .sort((a, b) => a.start - b.start)
+            : null;
+          if (exonCount == null) exonCount = exons?.length > 0 ? exons.length : null;
+          const translation = parseTranslation(t?.Translation ?? t?.translation);
+          return { id, displayName, biotype, isCanonical, colour, exonCount, exons, translation };
         }).filter(Boolean);
         setTxList(items);
         // Ensure all biotypes are selected immediately upon data load
@@ -160,26 +179,27 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
           .then(d => {
             const raw = d?.Exon ?? d?.exon ?? d?.exons;
             const exons = parseExons(raw);
-            return { id, exons };
+            const translation = parseTranslation(d?.Translation ?? d?.translation);
+            return { id, exons, translation };
           })
-          .catch(() => ({ id, exons: [] }))
+          .catch(() => ({ id, exons: [], translation: null }))
       )
     )
       .then(results => {
         const byId = new Map();
         results.forEach((r, i) => {
           if (r.status === "fulfilled" && r.value) {
-            byId.set(r.value.id, r.value.exons || []);
+            byId.set(r.value.id, { exons: r.value.exons || [], translation: r.value.translation || null });
           } else {
-            byId.set(missing[i], []);
+            byId.set(missing[i], { exons: [], translation: null });
           }
         });
         setTxList(prev => prev.map(t => {
           if (Array.isArray(t.exons) && t.exons.length > 0) return t;
-          const xs = byId.get(t.id);
-          if (!xs) return t;
-          const exonCount = t.exonCount != null ? t.exonCount : (xs.length > 0 ? xs.length : null);
-          return { ...t, exons: xs, exonCount };
+          const backfilled = byId.get(t.id);
+          if (!backfilled) return t;
+          const exonCount = t.exonCount != null ? t.exonCount : (backfilled.exons.length > 0 ? backfilled.exons.length : null);
+          return { ...t, exons: backfilled.exons, exonCount, translation: t.translation ?? backfilled.translation };
         }));
       })
       .catch(() => {});
@@ -301,6 +321,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect || !t.exons?.[exonIdx]) return;
     const exon = t.exons[exonIdx];
+    setHoveredDomain(null);
     setHoveredExon({
       transcriptLabel: `${t.displayName} (${t.id})`,
       exonNumber: effStrand === "-" ? t.exons.length - exonIdx : exonIdx + 1,
@@ -315,6 +336,115 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
     ? visible.find((t) => t.displayName === highlightedTranscript) ?? null
     : null;
   const otherTx = visible;
+
+  // UniProt protein-domain lookup for the gene, used to draw a domain track
+  // under the highlighted transcript.
+  const [uniprotData, setUniprotData] = useState(null);
+  const [hoveredDomain, setHoveredDomain] = useState(null);
+
+  useEffect(() => {
+    if (!geneName) { setUniprotData(null); return; }
+    const controller = new AbortController();
+    let active = true;
+    setUniprotData(null);
+    fetchUniProtDomains(geneName, { signal: controller.signal })
+      .then(data => { if (active) setUniprotData(data); })
+      .catch(err => {
+        if (!active) return;
+        if (err.name !== "AbortError") console.error("UniProt domain lookup failed", err);
+        setUniprotData(null);
+      });
+    return () => { active = false; controller.abort(); };
+  }, [geneName]);
+
+  // AA-coordinate domains mapped onto the highlighted transcript's coding exons.
+  const domainSegments = useMemo(() => {
+    if (!uniprotData?.domains?.length || !highlightedTx) return [];
+    return mapDomainsToGenomicSegments(uniprotData.domains, highlightedTx, effStrand);
+  }, [uniprotData, highlightedTx, effStrand]);
+
+  // Whether the highlighted transcript is among the Ensembl isoforms UniProt
+  // actually cross-references — null while unknown, so callers can distinguish
+  // "not checked yet" from "checked, no match".
+  const isoformVerified = useMemo(() => {
+    if (!uniprotData?.ensemblIds?.size || !highlightedTx) return null;
+    const enst = stripVersion(highlightedTx.id);
+    const ensp = highlightedTx.translation?.id ? stripVersion(highlightedTx.translation.id) : null;
+    return uniprotData.ensemblIds.has(enst) || (ensp != null && uniprotData.ensemblIds.has(ensp));
+  }, [uniprotData, highlightedTx]);
+
+  const domainMouseMove = (e, d) => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setHoveredExon(null);
+    setHoveredDomain({
+      description: d.description,
+      aaStart: d.aaStart,
+      aaEnd: d.aaEnd,
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+    });
+  };
+
+  const renderDomainRow = () => {
+    if (!domainSegments.length) return null;
+    const trackH = 14;
+    const W = 1000;
+    const domain = zoomed && zoomDomain ? zoomDomain : coordDomain;
+    if (!domain) return null;
+
+    // One solid rect per domain, spanning from the start of its first coding
+    // segment to the end of its last — covering any introns in between — rather
+    // than a separate rect per exon the domain touches. A domain is a contiguous
+    // stretch of the protein, so this reads as a single cohesive block.
+    const items = domainSegments
+      .map((d, i) => {
+        const gStart = Math.min(...d.segments.map(s => s.start));
+        const gEnd   = Math.max(...d.segments.map(s => s.end));
+        const l = ((gStart - domain.min) / domain.span) * W;
+        const r = ((gEnd   - domain.min) / domain.span) * W;
+        const left = effStrand === "-" ? W - r : l;
+        const rects = [{ left, width: Math.max(2, r - l) }]
+          .filter(rect => rect.left + rect.width > 0 && rect.left < W);
+        return { ...d, colour: colourForDomainIndex(i), rects };
+      })
+      .filter(d => d.rects.length > 0);
+
+    if (items.length === 0) return null;
+
+    return (
+      <Box sx={{ display: "flex", alignItems: "center", mt: 0.5 }}>
+        <Typography
+          variant="caption"
+          sx={{ fontSize: 11, color: "text.secondary", minWidth: 200, mr: 1 }}
+          title={isoformVerified === false ? "UniProt's canonical isoform doesn't cross-reference this transcript — domain positions may not align exactly." : undefined}
+        >
+          Domains{isoformVerified === false ? " *" : ""}
+        </Typography>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <svg width="100%" height={trackH} viewBox={`0 0 ${W} ${trackH}`} preserveAspectRatio="none">
+            {items.flatMap((d, di) =>
+              d.rects.map((r, ri) => (
+                <rect
+                  key={`${di}-${ri}`}
+                  x={r.left}
+                  y={0}
+                  width={r.width}
+                  height={trackH}
+                  rx={2}
+                  ry={2}
+                  fill={d.colour}
+                  style={{ cursor: "pointer" }}
+                  onMouseMove={(ev) => domainMouseMove(ev, d)}
+                  onMouseLeave={() => setHoveredDomain(null)}
+                />
+              ))
+            )}
+          </svg>
+        </Box>
+      </Box>
+    );
+  };
 
   const renderArcRow = (t) => {
     const TRACK_H = 18;
@@ -612,6 +742,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
       ) : highlightedTx ? (
         <Box sx={{ mb: 1.5 }}>
           {renderArcRow(highlightedTx)}
+          {renderDomainRow()}
         </Box>
       ) : null}
 
@@ -698,6 +829,32 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
           start: {hoveredExon.chromStart.toLocaleString()}<br />
           end: {hoveredExon.chromEnd.toLocaleString()}<br />
           length: {hoveredExon.length.toLocaleString()} bp
+        </Box>
+      )}
+
+      {hoveredDomain && (
+        <Box
+          sx={{
+            position: "absolute",
+            left: hoveredDomain.x,
+            top: hoveredDomain.y,
+            transform: "translate(12px, -12px)",
+            pointerEvents: "none",
+            bgcolor: "background.paper",
+            color: "text.primary",
+            border: "1px solid",
+            borderColor: "divider",
+            borderRadius: 1,
+            px: 1,
+            py: 0.5,
+            fontSize: 12,
+            boxShadow: 2,
+            whiteSpace: "nowrap",
+            zIndex: 1,
+          }}
+        >
+          <b>{hoveredDomain.description}</b><br />
+          aa {hoveredDomain.aaStart.toLocaleString()}–{hoveredDomain.aaEnd.toLocaleString()}
         </Box>
       )}
     </Box>
