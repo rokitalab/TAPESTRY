@@ -1,9 +1,10 @@
 // TAPESTRY release history (newest first).
-// `date` is optional; omit it until the release date is confirmed.
+// `date` is optional. NOTE: the v1.0.0 date (2026-10-02) is provisional.
 
 export const RELEASES = [
   {
     version: "v1.0.0",
+    date: "2026-10-02",
     current: true,
     summary:
       "Updated oncofetal definition, new rare CNS tumor histology groups, and expanded documentation.",
@@ -15,6 +16,7 @@ export const RELEASES = [
   },
   {
     version: "v0.9.0",
+    date: "2026-06-30",
     summary:
       "Initial release of TAPESTRY, a web app for exploring tumor-enriched and oncofetal splice junctions (TEJs) in pediatric CNS tumors.",
     changes: [
