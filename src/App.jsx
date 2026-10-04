@@ -7,6 +7,7 @@ import Explore from "./pages/Explore";
 import JunctionExpression from "./pages/JunctionExpression";
 import Docs from "./pages/Docs";
 import About from "./pages/About";
+import ReleaseNotes from "./pages/ReleaseNotes";
 
 export default function App({ mode, setMode }) {
   const location = useLocation();
@@ -24,6 +25,7 @@ export default function App({ mode, setMode }) {
           <Route path="/explore" element={<Explore />} />
           <Route path="/junction-expression" element={<JunctionExpression />} />
           <Route path="/docs" element={<Docs />} />
+          <Route path="/release-notes" element={<ReleaseNotes />} />
           <Route path="/about" element={<About />} />
         </Routes>
       </Container>

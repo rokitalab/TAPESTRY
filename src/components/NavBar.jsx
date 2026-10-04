@@ -70,6 +70,15 @@ export default function NavBar({ mode, setMode }) {
         </Button>
         <Button
           component={NavLink}
+          to="/release-notes"
+          style={linkStyle}
+          color="inherit"
+          sx={{ opacity: 0.9, "&.active": { opacity: 1, fontWeight: 700 } }}
+        >
+          Release Notes
+        </Button>
+        <Button
+          component={NavLink}
           to="/about"
           style={linkStyle}
           color="inherit"
