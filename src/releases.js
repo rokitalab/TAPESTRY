@@ -10,7 +10,7 @@ export const RELEASES = [
       "Updated oncofetal definition, new rare CNS tumor histology groups, and expanded documentation.",
     changes: [
       "Oncofetal definition updated. A tumor-enriched junction is now called oncofetal when at least one prenatal evo-devo region/week-bin group has a minimum prenatal-to-postnatal fold change greater than 2 and a minimum SNR greater than 2 against every postnatal region/stage group. Tumor-enriched junctions that do not meet this are shown as Tumor-specific. The call is made per junction.",
-      "Rare CNS tumors added to the cohort as separate histology groups: Rare CNS tumor (48 samples), Other CNS embryonal tumor (27), and Pineoblastoma (12). Samples previously grouped as \"Other tumor\" were removed. The cohort now has 1,962 PBTA RNA-seq specimens across 19 histology groups.",
+      "Rare CNS tumors added to the cohort as separate histology groups: Rare CNS tumor (48 samples), Other CNS embryonal tumor (27), and Pineoblastoma (12). Samples previously grouped as \"Other tumor\" were removed. The cohort now has 1,902 PBTA RNA-seq specimens across 18 histology groups.",
       "Docs: updated glossary and methods text for the new definition, added a table of contents, a link to the pbta-tumor-enriched-junctions repository, and this release notes page.",
     ],
   },
