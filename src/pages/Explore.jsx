@@ -33,7 +33,7 @@ import {
 import DownloadIcon from "@mui/icons-material/Download";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import writeXlsxFile from "write-excel-file/universal";
-import { HISTOLOGY_COLORS } from "../histologyColors";
+import { HISTOLOGIES, histologyLabel } from "../histologyColors";
 import PlotArea from "../components/PlotArea";
 import TranscriptVis from "../components/TranscriptVis";
 import JunctionExpressionHeatmap from "../components/JunctionExpressionHeatmap";
@@ -41,12 +41,11 @@ import GeneModelGtex from "../components/GeneModelGtex";
 
 const API_BASE = (import.meta.env.VITE_API_BASE || "/tapestry-api").replace(/\/$/, "");
 
-const HISTOLOGIES = Object.keys(HISTOLOGY_COLORS).sort();
 
-// Slider bounds for the tumor-enrichment metrics. Defaults span the full
-// bounds (no filtering applied).
-const FC_BOUNDS = [0, 50];
-const SNR_BOUNDS = [0, 50];
+// Slider bounds for the tumor-enrichment metrics. FC and SNR can't go below
+// the minimum threshold of 5; defaults sit at the lower bounds.
+const FC_BOUNDS = [5, 50];
+const SNR_BOUNDS = [5, 50];
 const MAX_MEAN_CPM_BOUNDS = [0, 10];
 
 // Shrinks the TableSortLabel arrow so it doesn't crowd out header text on
@@ -146,8 +145,6 @@ export default function Explore() {
 
   const filtered = useMemo(() => {
     const g = geneFilter.trim().toUpperCase();
-    const fcActive = isMinActive(fcMin, FC_BOUNDS);
-    const snrActive = isMinActive(snrMin, SNR_BOUNDS);
     const maxMeanCpmActive = isMaxActive(maxMeanCpmMax, MAX_MEAN_CPM_BOUNDS);
 
     return rows.filter((r) => {
@@ -156,18 +153,10 @@ export default function Explore() {
       if (statusFilter && r.status !== statusFilter) return false;
       if (eventTypeFilter && r.event_type !== eventTypeFilter) return false;
       if (specificityFilter && r.junction_preference !== specificityFilter) return false;
-      if (fcActive) {
-        // null means the reference cohort has zero expression, i.e. an
-        // infinite (maximally specific) fold-change, so it always passes.
-        const v = r.min_cpm_fc_postnatal;
-        if (v != null && v < fcMin) return false;
-      }
-      if (snrActive) {
-        // null means the reference cohort has zero noise, i.e. an infinite
-        // (maximally specific) SNR, so it always passes.
-        const v = r.min_cpm_snr_postnatal;
-        if (v != null && v < snrMin) return false;
-      }
+      // null means the reference cohort has zero expression (or noise), i.e.
+      // an infinite (maximally specific) fold-change or SNR, so it always passes.
+      if (r.min_cpm_fc_postnatal != null && r.min_cpm_fc_postnatal < fcMin) return false;
+      if (r.min_cpm_snr_postnatal != null && r.min_cpm_snr_postnatal < snrMin) return false;
       if (maxMeanCpmActive) {
         const v = r.max_mean_cpm_postnatal;
         if (v == null || v > maxMeanCpmMax) return false;
@@ -332,7 +321,7 @@ export default function Explore() {
 
   const activeChips = useMemo(() => {
     const chips = [];
-    if (histology) chips.push({ key: "histology", label: `Histology: ${histology}` });
+    if (histology) chips.push({ key: "histology", label: `Histology: ${histologyLabel(histology)}` });
     if (geneFilter.trim()) {
       chips.push({
         key: "gene",
@@ -480,7 +469,7 @@ export default function Explore() {
                 >
                   <MenuItem value="">All histologies</MenuItem>
                   {HISTOLOGIES.map((h) => (
-                    <MenuItem key={h} value={h}>{h}</MenuItem>
+                    <MenuItem key={h} value={h}>{histologyLabel(h)}</MenuItem>
                   ))}
                 </Select>
               </FormControl>
