@@ -8,6 +8,7 @@ import {
   Chip,
   Divider,
   FormControl,
+  FormControlLabel,
   IconButton,
   InputAdornment,
   InputLabel,
@@ -17,6 +18,7 @@ import {
   Select,
   Slider,
   Stack,
+  Switch,
   TextField,
   Button,
   Tooltip,
@@ -57,6 +59,14 @@ const isMaxActive = (v, bounds) => v !== bounds[1];
 const fmtNum = (n) => (Number.isInteger(n) ? n : n.toFixed(1));
 const fmt2 = (n) => (n == null ? "—" : n.toFixed(2));
 
+// Every TEJ is tumor-enriched; oncofetal is the subset also expressed in at
+// least one prenatal evo-devo group (semicolon-separated in the API).
+const isOncofetal = (r) => r.junction_preference?.toLowerCase() === "oncofetal";
+const prenatalGroups = (r) =>
+  isOncofetal(r) && r.oncofetal_prenatal_group
+    ? r.oncofetal_prenatal_group.split(";").map((g) => g.trim()).filter(Boolean)
+    : [];
+
 function triggerDownload(href, filename) {
   const link = document.createElement("a");
   link.href = href;
@@ -85,7 +95,7 @@ export default function Explore() {
   const [geneExact, setGeneExact] = useState(initialGeneExact);
   const [statusFilter, setStatusFilter] = useState("");
   const [eventTypeFilter, setEventTypeFilter] = useState("");
-  const [specificityFilter, setSpecificityFilter] = useState("");
+  const [oncofetalOnly, setOncofetalOnly] = useState(false);
   const [fcMin, setFcMin] = useState(FC_BOUNDS[0]);
   const [snrMin, setSnrMin] = useState(SNR_BOUNDS[0]);
   const [maxMeanCpmMax, setMaxMeanCpmMax] = useState(MAX_MEAN_CPM_BOUNDS[1]);
@@ -138,11 +148,6 @@ export default function Explore() {
     () => Array.from(new Set(rows.map((r) => r.event_type).filter(Boolean))).sort(),
     [rows]
   );
-  const specificityOptions = useMemo(
-    () => Array.from(new Set(rows.map((r) => r.junction_preference).filter(Boolean))).sort(),
-    [rows]
-  );
-
   const filtered = useMemo(() => {
     const g = geneFilter.trim().toUpperCase();
     const maxMeanCpmActive = isMaxActive(maxMeanCpmMax, MAX_MEAN_CPM_BOUNDS);
@@ -152,7 +157,7 @@ export default function Explore() {
       if (g && (geneExact ? rowGene !== g : !rowGene.includes(g))) return false;
       if (statusFilter && r.status !== statusFilter) return false;
       if (eventTypeFilter && r.event_type !== eventTypeFilter) return false;
-      if (specificityFilter && r.junction_preference !== specificityFilter) return false;
+      if (oncofetalOnly && !isOncofetal(r)) return false;
       // null means the reference cohort has zero expression (or noise), i.e.
       // an infinite (maximally specific) fold-change or SNR, so it always passes.
       if (r.min_cpm_fc_postnatal != null && r.min_cpm_fc_postnatal < fcMin) return false;
@@ -169,7 +174,7 @@ export default function Explore() {
     geneExact,
     statusFilter,
     eventTypeFilter,
-    specificityFilter,
+    oncofetalOnly,
     fcMin,
     snrMin,
     maxMeanCpmMax,
@@ -189,9 +194,10 @@ export default function Explore() {
   const getSortValue = useCallback((row, key) => {
     switch (key) {
       case "gene_symbol":
-      case "junction_preference":
       case "event_type":
         return row[key];
+      case "oncofetal":
+        return prenatalGroups(row).length;
       case "fc":
         return row.min_cpm_fc_postnatal;
       case "snr":
@@ -283,7 +289,7 @@ export default function Explore() {
     if (geneFilter.trim()) parts.push(slug(geneFilter.trim()));
     if (statusFilter) parts.push(slug(statusFilter));
     if (eventTypeFilter) parts.push(slug(eventTypeFilter));
-    if (specificityFilter) parts.push(slug(specificityFilter));
+    if (oncofetalOnly) parts.push("Oncofetal");
     if (isMinActive(fcMin, FC_BOUNDS)) parts.push(`FC${slug(fmtNum(fcMin))}`);
     if (isMinActive(snrMin, SNR_BOUNDS)) parts.push(`SNR${slug(fmtNum(snrMin))}`);
     if (isMaxActive(maxMeanCpmMax, MAX_MEAN_CPM_BOUNDS)) parts.push(`MaxCPM${slug(fmtNum(maxMeanCpmMax))}`);
@@ -292,7 +298,7 @@ export default function Explore() {
     const shown = parts.slice(0, MAX_PARTS);
     if (parts.length > MAX_PARTS) shown.push(`+${parts.length - MAX_PARTS}more`);
     return shown.map((p) => `_${p}`).join("");
-  }, [histology, geneFilter, statusFilter, eventTypeFilter, specificityFilter, fcMin, snrMin, maxMeanCpmMax]);
+  }, [histology, geneFilter, statusFilter, eventTypeFilter, oncofetalOnly, fcMin, snrMin, maxMeanCpmMax]);
 
   const exportFilename = (ext) => {
     const date = new Date().toISOString().slice(0, 10);
@@ -330,7 +336,7 @@ export default function Explore() {
     }
     if (statusFilter) chips.push({ key: "status", label: `Status: ${statusFilter}` });
     if (eventTypeFilter) chips.push({ key: "eventType", label: `Event type: ${eventTypeFilter}` });
-    if (specificityFilter) chips.push({ key: "specificity", label: `Specificity: ${specificityFilter}` });
+    if (oncofetalOnly) chips.push({ key: "oncofetal", label: "Oncofetal only" });
     if (isMinActive(fcMin, FC_BOUNDS)) {
       chips.push({ key: "fc", label: `Fold-change ≥ ${fmtNum(fcMin)}` });
     }
@@ -347,7 +353,7 @@ export default function Explore() {
     geneExact,
     statusFilter,
     eventTypeFilter,
-    specificityFilter,
+    oncofetalOnly,
     fcMin,
     snrMin,
     maxMeanCpmMax,
@@ -361,7 +367,7 @@ export default function Explore() {
     }
     if (key === "status") setStatusFilter("");
     if (key === "eventType") setEventTypeFilter("");
-    if (key === "specificity") setSpecificityFilter("");
+    if (key === "oncofetal") setOncofetalOnly(false);
     if (key === "fc") setFcMin(FC_BOUNDS[0]);
     if (key === "snr") setSnrMin(SNR_BOUNDS[0]);
     if (key === "maxMeanCpm") setMaxMeanCpmMax(MAX_MEAN_CPM_BOUNDS[1]);
@@ -539,20 +545,17 @@ export default function Explore() {
                 </Select>
               </FormControl>
 
-              <FormControl fullWidth size="small">
-                <InputLabel id="specificity-label">Specificity</InputLabel>
-                <Select
-                  labelId="specificity-label"
-                  label="Specificity"
-                  value={specificityFilter}
-                  onChange={(e) => setSpecificityFilter(e.target.value)}
-                >
-                  <MenuItem value="">All specificities</MenuItem>
-                  {specificityOptions.map((s) => (
-                    <MenuItem key={s} value={s}>{s}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
+              <FormControlLabel
+                control={
+                  <Switch
+                    id="oncofetal-only"
+                    size="small"
+                    checked={oncofetalOnly}
+                    onChange={(e) => setOncofetalOnly(e.target.checked)}
+                  />
+                }
+                label={<Typography variant="body2">Oncofetal only</Typography>}
+              />
             </Stack>
           </Paper>
 
@@ -647,7 +650,7 @@ export default function Explore() {
                   setGeneExact(false);
                   setStatusFilter("");
                   setEventTypeFilter("");
-                  setSpecificityFilter("");
+                  setOncofetalOnly(false);
                   setFcMin(FC_BOUNDS[0]);
                   setSnrMin(SNR_BOUNDS[0]);
                   setMaxMeanCpmMax(MAX_MEAN_CPM_BOUNDS[1]);
@@ -657,7 +660,7 @@ export default function Explore() {
                   !geneFilter.trim() &&
                   !statusFilter &&
                   !eventTypeFilter &&
-                  !specificityFilter &&
+                  !oncofetalOnly &&
                   !isMinActive(fcMin, FC_BOUNDS) &&
                   !isMinActive(snrMin, SNR_BOUNDS) &&
                   !isMaxActive(maxMeanCpmMax, MAX_MEAN_CPM_BOUNDS)
@@ -725,11 +728,11 @@ export default function Explore() {
                       <TableCell sx={{ fontWeight: 700 }}>
                         <TableSortLabel
                           sx={sortLabelSx}
-                          active={sortKey === "junction_preference"}
-                          direction={sortKey === "junction_preference" ? sortDir : "asc"}
-                          onClick={() => handleSort("junction_preference")}
+                          active={sortKey === "oncofetal"}
+                          direction={sortKey === "oncofetal" ? sortDir : "asc"}
+                          onClick={() => handleSort("oncofetal")}
                         >
-                          Specificity
+                          Oncofetal
                         </TableSortLabel>
                       </TableCell>
                       <TableCell sx={{ fontWeight: 700 }}>
@@ -817,7 +820,33 @@ export default function Explore() {
                             </Typography>
                           </TableCell>
                           <TableCell sx={{ fontWeight: 600 }}>{row.gene_symbol ?? "—"}</TableCell>
-                          <TableCell>{row.junction_preference ?? "—"}</TableCell>
+                          <TableCell>
+                            {(() => {
+                              const groups = prenatalGroups(row);
+                              if (!groups.length) return null;
+                              return (
+                                <Tooltip
+                                  arrow
+                                  title={groups.map((g) => (
+                                    <Box key={g}>{g.replace(/_/g, " ")}</Box>
+                                  ))}
+                                >
+                                  <Typography
+                                    variant="body2"
+                                    component="span"
+                                    sx={{
+                                      cursor: "help",
+                                      textDecoration: "underline dotted",
+                                      textUnderlineOffset: 3,
+                                      whiteSpace: "nowrap",
+                                    }}
+                                  >
+                                    {groups.length} {groups.length === 1 ? "group" : "groups"}
+                                  </Typography>
+                                </Tooltip>
+                              );
+                            })()}
+                          </TableCell>
                           <TableCell>{row.event_type ?? "—"}</TableCell>
                           <TableCell align="right">{fmt2(row.min_cpm_fc_postnatal)}</TableCell>
                           <TableCell align="right">{fmt2(row.min_cpm_snr_postnatal)}</TableCell>
