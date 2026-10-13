@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Box, Paper, Skeleton, Tooltip, Typography, Stack } from "@mui/material";
 import { alpha } from "@mui/material/styles";
-import { HISTOLOGY_COLORS } from "../histologyColors";
+import { HISTOLOGY_COLORS, histologyLabel } from "../histologyColors";
 
 const API_BASE = (import.meta.env.VITE_API_BASE || "/tapestry-api").replace(/\/$/, "");
 
@@ -380,7 +380,7 @@ export default function HistologySummary() {
       [...histologyData]
         .sort((a, b) => b.num_samples - a.num_samples)
         .map((r) => ({
-          label: r.plot_group,
+          label: histologyLabel(r.plot_group),
           value: r.num_samples,
           tejs: r.num_junctions,
           color: HISTOLOGY_COLORS[r.plot_group] ?? "#b5b5b5",
@@ -414,7 +414,7 @@ export default function HistologySummary() {
       [...histologyData]
         .filter((r) => r.num_samples > 0)
         .map((r) => ({
-          label: r.plot_group,
+          label: histologyLabel(r.plot_group),
           value: r.num_junctions / r.num_samples,
           color: HISTOLOGY_COLORS[r.plot_group] ?? "#b5b5b5",
         }))
@@ -491,7 +491,7 @@ export default function HistologySummary() {
           />
         </BarChartCard>
         <BarChartCard title="Top Genes by TEJ Count">
-          <Box sx={{ overflowY: "auto", maxHeight: 400 }}>
+          <Box sx={{ overflowY: "auto", maxHeight: 456 }}>
             <HorizBarChart data={topGenes} labelWidth={80} labelSx={{ fontStyle: "italic" }} />
           </Box>
         </BarChartCard>
