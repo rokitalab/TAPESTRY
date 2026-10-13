@@ -408,7 +408,6 @@ export default function Explore() {
   useEffect(() => {
     if (!txGene) return;
     let active = true;
-    setEnsgError(null);
     fetch(
       `https://rest.ensembl.org/xrefs/symbol/homo_sapiens/${encodeURIComponent(txGene)}?content-type=application/json`,
       { headers: { Accept: "application/json" } }
