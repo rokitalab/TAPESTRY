@@ -214,8 +214,7 @@ export default function Docs() {
               then compared with the evo-devo cohort: those that are higher in
               at least one <em>prenatal</em> region/week-bin group than in
               every <em>postnatal</em> region/stage group (fold-change above 2
-              and SNR above 2) are called <strong>Oncofetal</strong>; the
-              rest are called <strong>Tumor-specific</strong>.
+              and SNR above 2) are called <strong>Oncofetal</strong>.
             </Typography>
           </ListItem>
           <ListItem sx={{ display: "list-item", py: 0.5, pl: 0 }}>
@@ -278,7 +277,7 @@ export default function Docs() {
             [
               <Code>junction_preference</Code>,
               <>
-                The specificity call for a junction, with values <Code>Tumor-enriched</Code> (tumor-enriched, without prenatal-specific expression; shown as Tumor-specific in the app) or <Code>Oncofetal</Code> (tumor-enriched and meeting the prenatal-versus-postnatal evo-devo criteria). The oncofetal call is made per junction from evo-devo expression, so every sample carrying a junction has the same call.
+                The specificity call for a junction, with values <Code>Tumor-enriched</Code> (tumor-enriched, without prenatal-specific expression) or <Code>Oncofetal</Code> (tumor-enriched and meeting the prenatal-versus-postnatal evo-devo criteria). The oncofetal call is made per junction from evo-devo expression, so every sample carrying a junction has the same call.
               </>,
             ],
             [
@@ -425,10 +424,10 @@ export default function Docs() {
           goal="for a junction (or set of junctions), determine whether it's reactivated fetal/developmental splicing (oncofetal) or splicing that has no normal-tissue counterpart at all (tumor-specific) — a distinction that matters for predicting on-target/off-tumor toxicity risk."
           steps={[
             <>
-              On Explore, use the Specificity filter to restrict the table to <Code>Oncofetal</Code> or <Code>Tumor-specific</Code> directly — this reflects the call already made by the pipeline.
+              On Explore, use the Specificity filter to restrict the table to <Code>Oncofetal</Code> or <Code>Tumor-enriched</Code> directly — this reflects the call already made by the pipeline.
             </>,
             <>
-              To see why a junction was called one way or the other, toggle Reference cohorts between All and Postnatal: a junction called Oncofetal will show enrichment against the Postnatal reference (low/no signal in postnatal controls) but a weaker or absent fold-change/SNR against All controls, because prenatal tissue does express it. A junction called Tumor-specific will show strong enrichment under both scopes — there's no control cohort, prenatal or postnatal, where it shows up.
+              To see why a junction was called one way or the other, toggle Reference cohorts between All and Postnatal: a junction called Oncofetal will show enrichment against the Postnatal reference (low/no signal in postnatal controls) but a weaker or absent fold-change/SNR against All controls, because prenatal tissue does express it. A junction called Tumor-enriched will show strong enrichment under both scopes — there's no control cohort, prenatal or postnatal, where it shows up.
             </>,
             "Select the junction and open the Evo-devo tab in the plot panel. This is the most direct visual confirmation: an oncofetal junction's CPM trace will be elevated in one or more fetal timepoints and drop to near-zero through postnatal development, while a tumor-specific junction's trace will stay flat/near-zero across all developmental timepoints.",
             "The Controls tab (faceted by cohort: GTEx, Evo-devo, Pediatric brain, etc.) gives a side-by-side view across all normal reference cohorts at once, useful for a final sanity check before treating a junction as a clean tumor-specific candidate.",

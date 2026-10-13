@@ -53,7 +53,7 @@ export default function About() {
         <Typography sx={{ mb: 2 }}>By the numbers, right now:</Typography>
         <List sx={{ listStyleType: "disc", pl: 4, py: 0 }}>
           <Stat>
-            1,902 PBTA tumor RNA-seq specimens across 18 histologies,
+            1,902 PBTA tumor RNA-seq specimens across 19 histologies,
             including 82 patient-derived cell lines (from{" "}
             <Link
               href="https://cbtn.org"
@@ -65,12 +65,11 @@ export default function About() {
             ).
           </Stat>
           <Stat>
-            1,285 of those are independent primary tumors — the set used to
+            1,272 of those are independent primary tumors — the set used to
             call which junctions recur within a histology.
           </Stat>
           <Stat>
-            45,430 recurrent tumor-enriched junctions (TEJs): 41,502
-            tumor-specific and 3,928 oncofetal (about 9%).
+            45,430 recurrent tumor-enriched junctions (TEJs), 3,928 of which are oncofetal (about 9%).
           </Stat>
           <Stat>
             241 normal/control RNA-seq samples across four reference
