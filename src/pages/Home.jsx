@@ -19,9 +19,8 @@ import {
 } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
 import HistologySummary from "../components/HistologySummary";
-import { HISTOLOGY_COLORS } from "../histologyColors";
+import { HISTOLOGIES, histologyLabel } from "../histologyColors";
 
-const HISTOLOGIES = Object.keys(HISTOLOGY_COLORS).sort();
 
 function SearchCard({ title, subtitle, onSubmit, submitDisabled, children }) {
   return (
@@ -159,7 +158,7 @@ export default function Home() {
                 onChange={(e) => setHistology(e.target.value)}
               >
                 {HISTOLOGIES.map((h) => (
-                  <MenuItem key={h} value={h}>{h}</MenuItem>
+                  <MenuItem key={h} value={h}>{histologyLabel(h)}</MenuItem>
                 ))}
               </Select>
             </FormControl>

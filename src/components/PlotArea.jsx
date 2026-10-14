@@ -6,7 +6,7 @@ import {
 } from "@mui/material";
 import SettingsIcon from "@mui/icons-material/Settings";
 import * as d3 from "d3";
-import { controlCohortColor, histologyColor } from "../histologyColors";
+import { controlCohortColor, histologyColor, histologyLabel } from "../histologyColors";
 import { triggerDownload } from "./lib/svgExport";
 import PlotDownloadMenu from "./PlotDownloadMenu";
 
@@ -280,7 +280,7 @@ const EMPTY_SET = new Set();
 // Controls are colored by source cohort (GTEx, Evo-devo, etc.) since they
 // don't have per-histology colors; tumor/cell-line groups use histologyColor.
 function groupColor(g) {
-  return g.isControl ? controlCohortColor(g.cohort) : histologyColor(g.label);
+  return g.isControl ? controlCohortColor(g.cohort) : histologyColor(g.name);
 }
 
 // Box-plot groups are split into side-by-side facet panels by tumor/control
@@ -306,15 +306,34 @@ function facetName(g) {
   return COHORT_FACET_NAMES[g.cohort] ?? "Other";
 }
 
+// The CPM value plotted for a sample. With `corrected`, tumor samples use their
+// ComBat batch-corrected CPM; samples without one (controls, and cells where
+// the junction wasn't detected) fall back to raw CPM.
+function cpmValue(d, corrected) {
+  return corrected ? (d.cpmCorrected ?? d.cpm) : d.cpm;
+}
+
+function makeXform(log2Scale, corrected) {
+  return (d) => {
+    const v = cpmValue(d, corrected);
+    return log2Scale ? Math.log2(v + 1) : v;
+  };
+}
+
+function cpmAxisLabel(log2Scale, corrected) {
+  const cpm = corrected ? "batch-corrected CPM" : "CPM";
+  return log2Scale ? `log₂(${cpm} + 1)` : cpm.charAt(0).toUpperCase() + cpm.slice(1);
+}
+
 // Renders the per-histology box plot into `svg`, sized to `width` x `height`.
 // Shared by the on-screen chart and off-screen export rendering.
-function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightIds, enrichedIds = highlightIds, textColor = "#333", onHover, onBoxHover = onHover, onMove, onLeave }) {
+function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, corrected = true, highlightIds, enrichedIds = highlightIds, textColor = "#333", onHover, onBoxHover = onHover, onMove, onLeave }) {
   svg.selectAll("*").remove();
 
   const iW = width - MARGIN.left - MARGIN.right;
   const iH = height - MARGIN.top - MARGIN.bottom;
 
-  const xform = (d) => log2Scale ? (d.log2CpmCorrected ?? Math.log2(d.cpm + 1)) : d.cpm;
+  const xform = makeXform(log2Scale, corrected);
 
   const allCpms = visibleGroups.flatMap((g) => g.values.map(xform));
   const yMax = d3.max(allCpms) ?? 1;
@@ -390,7 +409,7 @@ function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightId
     .attr("font-size", 16)
     .attr("font-family", "sans-serif")
     .attr("fill", "#666")
-    .text(log2Scale ? "log₂(CPM + 1)" : "CPM");
+    .text(cpmAxisLabel(log2Scale, corrected));
 
   visibleGroups.forEach((g) => {
     const { key, label, values } = g;
@@ -401,7 +420,7 @@ function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightId
     const bw = scale.bandwidth() * 0.7;
     const color = groupColor(g);
     const fmt = (v) => v.toFixed(3);
-    const axisLabel = log2Scale ? "log₂(CPM+1)" : "CPM";
+    const axisLabel = cpmAxisLabel(log2Scale, corrected);
 
     const boxTip = `<strong>${label}</strong><br/>n=${values.length}<br/>Median: ${fmt(median)}<br/>IQR: [${fmt(q1)}, ${fmt(q3)}]<br/>Whiskers: [${fmt(lo)}, ${fmt(hi)}]`;
 
@@ -459,7 +478,7 @@ function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightId
 
 // Renders the EvoDevo timepoint plot into `svg`, sized to `width` x `height`.
 // Shared by the on-screen chart and off-screen export rendering.
-function drawEvoDevoPlot(svg, { width, height, evodevoPoints, log2Scale, textColor = "#333", onHover, onMove, onLeave }) {
+function drawEvoDevoPlot(svg, { width, height, evodevoPoints, log2Scale, corrected = true, textColor = "#333", onHover, onMove, onLeave }) {
   svg.selectAll("*").remove();
 
   const presentTimepoints = EVODEVO_TIMEPOINTS.filter((t) =>
@@ -467,7 +486,7 @@ function drawEvoDevoPlot(svg, { width, height, evodevoPoints, log2Scale, textCol
   );
   if (presentTimepoints.length === 0) return;
 
-  const xform = (d) => log2Scale ? (d.log2CpmCorrected ?? Math.log2(d.cpm + 1)) : d.cpm;
+  const xform = makeXform(log2Scale, corrected);
 
   const iW = width - MARGIN.left - MARGIN.right;
   const iH = height - MARGIN.top - MARGIN.bottom;
@@ -511,7 +530,7 @@ function drawEvoDevoPlot(svg, { width, height, evodevoPoints, log2Scale, textCol
     .attr("font-size", 16)
     .attr("font-family", "sans-serif")
     .attr("fill", "#666")
-    .text(log2Scale ? "log₂(CPM + 1)" : "CPM");
+    .text(cpmAxisLabel(log2Scale, corrected));
 
   ["Forebrain", "Hindbrain"].forEach((region) => {
     const color = EVODEVO_COLORS[region];
@@ -581,7 +600,7 @@ function drawEvoDevoPlot(svg, { width, height, evodevoPoints, log2Scale, textCol
 
 // Renders tumor box plots on the left and the evo-devo line plot on the right
 // as two adjacent facets sharing a continuous y-scale and grid lines.
-function drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleGroups, log2Scale, highlightIds, enrichedIds = highlightIds, textColor = "#333", onHover, onBoxHover = onHover, onMove, onLeave }) {
+function drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleGroups, log2Scale, corrected = true, highlightIds, enrichedIds = highlightIds, textColor = "#333", onHover, onBoxHover = onHover, onMove, onLeave }) {
   svg.selectAll("*").remove();
 
   const presentTimepoints = EVODEVO_TIMEPOINTS.filter((t) =>
@@ -589,7 +608,7 @@ function drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleG
   );
   if (presentTimepoints.length === 0) return;
 
-  const xform = (d) => log2Scale ? (d.log2CpmCorrected ?? Math.log2(d.cpm + 1)) : d.cpm;
+  const xform = makeXform(log2Scale, corrected);
 
   const iW = width - MARGIN.left - MARGIN.right;
   const iH = height - MARGIN.top - MARGIN.bottom;
@@ -657,7 +676,7 @@ function drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleG
     const bw = xTumor.bandwidth() * 0.7;
     const color = groupColor(g);
     const fmt = (v) => v.toFixed(3);
-    const axisLabel = log2Scale ? "log₂(CPM+1)" : "CPM";
+    const axisLabel = cpmAxisLabel(log2Scale, corrected);
     const boxTip = `<strong>${label}</strong><br/>n=${values.length}<br/>Median: ${fmt(median)}<br/>IQR: [${fmt(q1)}, ${fmt(q3)}]<br/>Whiskers: [${fmt(lo)}, ${fmt(hi)}]`;
 
     root.append("line").attr("x1", cx).attr("x2", cx)
@@ -722,7 +741,7 @@ function drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleG
     .attr("transform", "rotate(-90)").attr("x", -iH / 2).attr("y", -52)
     .attr("text-anchor", "middle").attr("font-size", 16)
     .attr("font-family", "sans-serif").attr("fill", "#666")
-    .text(log2Scale ? "log₂(CPM + 1)" : "CPM");
+    .text(cpmAxisLabel(log2Scale, corrected));
 
   ["Forebrain", "Hindbrain"].forEach((region) => {
     const color = EVODEVO_COLORS[region];
@@ -781,19 +800,19 @@ const NO_TOOLTIP = { onHover: () => {}, onMove: () => {}, onLeave: () => {} };
 
 // Builds a detached <svg> at the requested export dimensions, drawn with the
 // same logic as the on-screen chart for the active tab.
-function buildExportSvg({ width, height, activeTab, visibleGroups, evodevoPoints, log2Scale, highlightIds }) {
+function buildExportSvg({ width, height, activeTab, visibleGroups, evodevoPoints, log2Scale, corrected, highlightIds }) {
   const svgEl = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svgEl.setAttribute("width", width);
   svgEl.setAttribute("height", height);
   const svg = d3.select(svgEl);
   if (activeTab === TAB_EVO_DEVO) {
     if (visibleGroups.length > 0) {
-      drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleGroups, log2Scale, highlightIds, ...NO_TOOLTIP });
+      drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleGroups, log2Scale, corrected, highlightIds, ...NO_TOOLTIP });
     } else {
-      drawEvoDevoPlot(svg, { width, height, evodevoPoints, log2Scale, ...NO_TOOLTIP });
+      drawEvoDevoPlot(svg, { width, height, evodevoPoints, log2Scale, corrected, ...NO_TOOLTIP });
     }
   } else {
-    drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, highlightIds, ...NO_TOOLTIP });
+    drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, corrected, highlightIds, ...NO_TOOLTIP });
   }
   return svgEl;
 }
@@ -825,6 +844,7 @@ export default function PlotArea({
   const [tooltip, setTooltip] = useState({ visible: false, x: 0, y: 0, html: "" });
   const [activeTab, setActiveTab] = useState(0);
   const [log2Scale, setLog2Scale] = useState(false);
+  const [corrected, setCorrected] = useState(true);
   const [sortMode, setSortMode] = useState("alpha");
   const [showHighlight, setShowHighlight] = useState(false);
   const [expandedFacets, setExpandedFacets] = useState(new Set());
@@ -861,9 +881,8 @@ export default function PlotArea({
         id,
         sampleId: r.sample_id ?? null,
         cpm: Number(r.cpm),
-        log2CpmCorrected: r.log2_cpm_corrected ?? null,
+        cpmCorrected: r.cpm_corrected ?? null,
         histology: collapseControlGroup(r.plot_group ?? "Unknown"),
-        cancerGroup: r.cancer_group ?? null,
         molecularSubtype: r.molecular_subtype ?? null,
         cohort: r.cohort ?? null,
         isCellLine: r.composition === "Derived Cell Line",
@@ -880,15 +899,13 @@ export default function PlotArea({
     const groupByHistology = (src, isCellLineGroup) =>
       Array.from(d3.group(src, (d) => `${d.cohort ?? ""}::${d.histology}`), ([groupKey, values]) => {
         const histology = values[0].histology;
-        const hasCancerGroup = values.some((d) => d.cancerGroup != null);
-        const isNonNeoplastic = !isCellLineGroup && histology.toLowerCase().includes("non-neoplastic");
-        const isTumor = !isCellLineGroup && (hasCancerGroup || isNonNeoplastic);
+        const isTumor = !isCellLineGroup && values[0].cohort === "PBTA";
         const isControl = !isCellLineGroup && !isTumor;
         return {
-          key: groupKey, label: histology, values, isTumor, isControl,
+          key: groupKey, name: histology, label: histologyLabel(histology), values, isTumor, isControl,
           isCellLine: isCellLineGroup,
           cohort: values[0]?.cohort ?? null,
-          stats: boxStats(values.map((d) => d.cpm)),
+          stats: boxStats(values.map((d) => cpmValue(d, corrected))),
         };
       });
 
@@ -899,9 +916,9 @@ export default function PlotArea({
     const cellLineGroups = groupByHistology(cellLinePts, true);
 
     // Cell-line groups can share a histology name with a tumor/control group
-    // (e.g. "Diffuse midline glioma"). Disambiguate the key in that case so the two stay
+    // (e.g. "DIPG or DMG"). Disambiguate the key in that case so the two stay
     // distinct for selectedGroups, React list keys, and the scaleBand domain;
-    // `label` keeps the plain histology name for display and color lookup.
+    // `name` keeps the plain plot_group for color lookup, `label` its display name.
     const tumorAndControlKeys = new Set(tumorAndControlGroups.map((g) => g.key));
     cellLineGroups.forEach((g) => {
       if (tumorAndControlKeys.has(g.key)) g.key = `${g.key} (Cell Line)`;
@@ -916,7 +933,7 @@ export default function PlotArea({
       if (sortMode === "desc") return b.stats.median - a.stats.median;
       return evoDevoLabelSort(a.label, b.label);
     });
-  }, [junction, fetchedRows, rows, sortMode]);
+  }, [junction, fetchedRows, rows, sortMode, corrected]);
 
   const evodevoPoints = useMemo(() => {
     const src = junction ? fetchedRows : rows;
@@ -929,7 +946,7 @@ export default function PlotArea({
           id: r.biospecimen_id ?? `S${i}`,
           sampleId: r.sample_id ?? null,
           cpm: Number(r.cpm),
-          log2CpmCorrected: r.log2_cpm_corrected ?? null,
+          cpmCorrected: r.cpm_corrected ?? null,
           region: dash >= 0 ? pg.slice(0, dash) : pg,
           timepoint: dash >= 0 ? pg.slice(dash + 1) : pg,
           rnaLibrary: r.rna_library ?? null,
@@ -992,6 +1009,7 @@ export default function PlotArea({
       height,
       visibleGroups,
       log2Scale,
+      corrected,
       highlightIds: activeHighlightIds,
       enrichedIds: highlightIds,
       textColor: theme.palette.text.primary,
@@ -1000,7 +1018,7 @@ export default function PlotArea({
       onMove: (e) => { cancelHide(); setTooltip((prev) => ({ ...prev, x: e.clientX + 14, y: e.clientY - 32 })); },
       onLeave: scheduleHide,
     });
-  }, [visibleGroups, containerWidth, height, activeTab, activeHighlightIds, highlightIds, log2Scale, theme.palette.text.primary]);
+  }, [visibleGroups, containerWidth, height, activeTab, activeHighlightIds, highlightIds, log2Scale, corrected, theme.palette.text.primary]);
 
   useEffect(() => {
     if (!svgRef.current || activeTab !== TAB_EVO_DEVO) return;
@@ -1011,16 +1029,16 @@ export default function PlotArea({
     if (visibleGroups.length > 0) {
       drawEvoDevoWithTumorsPlot(d3.select(svgRef.current), {
         width: containerWidth, height, evodevoPoints: filteredEvodevoPoints,
-        visibleGroups, log2Scale, highlightIds: activeHighlightIds, enrichedIds: highlightIds,
+        visibleGroups, log2Scale, corrected, highlightIds: activeHighlightIds, enrichedIds: highlightIds,
         textColor: theme.palette.text.primary, onHover, onBoxHover, onMove, onLeave,
       });
     } else {
       drawEvoDevoPlot(d3.select(svgRef.current), {
         width: containerWidth, height, evodevoPoints: filteredEvodevoPoints,
-        log2Scale, textColor: theme.palette.text.primary, onHover, onMove, onLeave,
+        log2Scale, corrected, textColor: theme.palette.text.primary, onHover, onMove, onLeave,
       });
     }
-  }, [filteredEvodevoPoints, activeTab, containerWidth, height, log2Scale, theme.palette.text.primary,
+  }, [filteredEvodevoPoints, activeTab, containerWidth, height, log2Scale, corrected, theme.palette.text.primary,
       visibleGroups, activeHighlightIds, highlightIds]);
 
   function exportFilename(ext) {
@@ -1035,6 +1053,7 @@ export default function PlotArea({
       visibleGroups,
       evodevoPoints: filteredEvodevoPoints,
       log2Scale,
+      corrected,
       highlightIds: activeHighlightIds,
     });
   }
@@ -1053,7 +1072,7 @@ export default function PlotArea({
       ["rna_library", (r) => r.rna_library],
       ["is_independent_primary", (r) => r.is_independent_primary],
       ["cpm", (r) => r.cpm],
-      ["log2_cpm_corrected", (r) => r.log2_cpm_corrected],
+      ["cpm_corrected", (r) => r.cpm_corrected],
       ["tumor_enriched", (r) => highlightIds.has(r.biospecimen_id)],
     ];
     const escape = (v) => (v === null || v === undefined ? "" : String(v).replace(/[\t\n\r]/g, " "));
@@ -1092,6 +1111,19 @@ export default function PlotArea({
           )}
         </Box>
         <Stack direction="row" spacing={1.5} alignItems="center">
+          <Tooltip title="Plot ComBat batch-corrected CPM (corrects for RNA library type). Samples without a corrected value, including all controls, show raw CPM.">
+            <FormControlLabel
+              control={
+                <Switch
+                  size="small"
+                  checked={corrected}
+                  onChange={(e) => setCorrected(e.target.checked)}
+                />
+              }
+              label={<Typography variant="body2">Batch-corrected</Typography>}
+              sx={{ mr: 0 }}
+            />
+          </Tooltip>
           <FormControlLabel
             control={
               <Switch
