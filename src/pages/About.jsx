@@ -53,7 +53,7 @@ export default function About() {
         <Typography sx={{ mb: 2 }}>By the numbers, right now:</Typography>
         <List sx={{ listStyleType: "disc", pl: 4, py: 0 }}>
           <Stat>
-            1,902 PBTA tumor RNA-seq specimens across 19 histologies,
+            1,962 PBTA tumor RNA-seq specimens across 19 histologies,
             including 82 patient-derived cell lines (from{" "}
             <Link
               href="https://cbtn.org"

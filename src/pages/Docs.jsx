@@ -346,7 +346,7 @@ export default function Docs() {
             ],
             [
               "TPM (Transcripts Per Million)",
-              "Gene/isoform-level expression metric, length-normalized. Used as a secondary filter (e.g., requiring the host gene have TPM > 10) rather than as the main junction metric.",
+              "Gene/isoform-level expression metric, length-normalized. Used as a secondary filter (e.g., requiring the host gene have TPM ≥ 10) rather than as the main junction metric.",
             ],
             [
               "Fold-change (FC)",
