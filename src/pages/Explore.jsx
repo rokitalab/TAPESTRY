@@ -8,6 +8,7 @@ import {
   Chip,
   Divider,
   FormControl,
+  FormControlLabel,
   IconButton,
   InputAdornment,
   InputLabel,
@@ -17,10 +18,9 @@ import {
   Select,
   Slider,
   Stack,
+  Switch,
   TextField,
   Button,
-  ToggleButton,
-  ToggleButtonGroup,
   Tooltip,
   Typography,
   Table,
@@ -35,7 +35,7 @@ import {
 import DownloadIcon from "@mui/icons-material/Download";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import writeXlsxFile from "write-excel-file/universal";
-import { HISTOLOGY_COLORS } from "../histologyColors";
+import { HISTOLOGIES, histologyLabel } from "../histologyColors";
 import PlotArea from "../components/PlotArea";
 import TranscriptVis from "../components/TranscriptVis";
 import JunctionExpressionHeatmap from "../components/JunctionExpressionHeatmap";
@@ -43,12 +43,11 @@ import GeneModelGtex from "../components/GeneModelGtex";
 
 const API_BASE = (import.meta.env.VITE_API_BASE || "/tapestry-api").replace(/\/$/, "");
 
-const HISTOLOGIES = Object.keys(HISTOLOGY_COLORS).sort();
 
-// Slider bounds for the tumor-enrichment metrics. Defaults span the full
-// bounds (no filtering applied).
-const FC_BOUNDS = [0, 50];
-const SNR_BOUNDS = [0, 50];
+// Slider bounds for the tumor-enrichment metrics. FC and SNR can't go below
+// the minimum threshold of 5; defaults sit at the lower bounds.
+const FC_BOUNDS = [5, 50];
+const SNR_BOUNDS = [5, 50];
 const MAX_MEAN_CPM_BOUNDS = [0, 10];
 
 // Shrinks the TableSortLabel arrow so it doesn't crowd out header text on
@@ -59,6 +58,14 @@ const isMinActive = (v, bounds) => v !== bounds[0];
 const isMaxActive = (v, bounds) => v !== bounds[1];
 const fmtNum = (n) => (Number.isInteger(n) ? n : n.toFixed(1));
 const fmt2 = (n) => (n == null ? "—" : n.toFixed(2));
+
+// Every TEJ is tumor-enriched; oncofetal is the subset also expressed in at
+// least one prenatal evo-devo group (semicolon-separated in the API).
+const isOncofetal = (r) => r.junction_preference?.toLowerCase() === "oncofetal";
+const prenatalGroups = (r) =>
+  isOncofetal(r) && r.oncofetal_prenatal_group
+    ? r.oncofetal_prenatal_group.split(";").map((g) => g.trim()).filter(Boolean)
+    : [];
 
 function triggerDownload(href, filename) {
   const link = document.createElement("a");
@@ -88,8 +95,7 @@ export default function Explore() {
   const [geneExact, setGeneExact] = useState(initialGeneExact);
   const [statusFilter, setStatusFilter] = useState("");
   const [eventTypeFilter, setEventTypeFilter] = useState("");
-  const [specificityFilter, setSpecificityFilter] = useState("");
-  const [cohortScope, setCohortScope] = useState("all"); // "all" | "postnatal"
+  const [oncofetalOnly, setOncofetalOnly] = useState(false);
   const [fcMin, setFcMin] = useState(FC_BOUNDS[0]);
   const [snrMin, setSnrMin] = useState(SNR_BOUNDS[0]);
   const [maxMeanCpmMax, setMaxMeanCpmMax] = useState(MAX_MEAN_CPM_BOUNDS[1]);
@@ -142,18 +148,8 @@ export default function Explore() {
     () => Array.from(new Set(rows.map((r) => r.event_type).filter(Boolean))).sort(),
     [rows]
   );
-  const specificityOptions = useMemo(
-    () => Array.from(new Set(rows.map((r) => r.consensus_specificity).filter(Boolean))).sort(),
-    [rows]
-  );
-
   const filtered = useMemo(() => {
     const g = geneFilter.trim().toUpperCase();
-    const fcField = `min_cpm_fc_${cohortScope}`;
-    const snrField = `min_cpm_snr_${cohortScope}`;
-    const maxMeanCpmField = `max_mean_cpm_${cohortScope}`;
-    const fcActive = isMinActive(fcMin, FC_BOUNDS);
-    const snrActive = isMinActive(snrMin, SNR_BOUNDS);
     const maxMeanCpmActive = isMaxActive(maxMeanCpmMax, MAX_MEAN_CPM_BOUNDS);
 
     return rows.filter((r) => {
@@ -161,21 +157,13 @@ export default function Explore() {
       if (g && (geneExact ? rowGene !== g : !rowGene.includes(g))) return false;
       if (statusFilter && r.status !== statusFilter) return false;
       if (eventTypeFilter && r.event_type !== eventTypeFilter) return false;
-      if (specificityFilter && r.consensus_specificity !== specificityFilter) return false;
-      if (fcActive) {
-        // null means the reference cohort has zero expression, i.e. an
-        // infinite (maximally specific) fold-change, so it always passes.
-        const v = r[fcField];
-        if (v != null && v < fcMin) return false;
-      }
-      if (snrActive) {
-        // null means the reference cohort has zero noise, i.e. an infinite
-        // (maximally specific) SNR, so it always passes.
-        const v = r[snrField];
-        if (v != null && v < snrMin) return false;
-      }
+      if (oncofetalOnly && !isOncofetal(r)) return false;
+      // null means the reference cohort has zero expression (or noise), i.e.
+      // an infinite (maximally specific) fold-change or SNR, so it always passes.
+      if (r.min_cpm_fc_postnatal != null && r.min_cpm_fc_postnatal < fcMin) return false;
+      if (r.min_cpm_snr_postnatal != null && r.min_cpm_snr_postnatal < snrMin) return false;
       if (maxMeanCpmActive) {
-        const v = r[maxMeanCpmField];
+        const v = r.max_mean_cpm_postnatal;
         if (v == null || v > maxMeanCpmMax) return false;
       }
       return true;
@@ -186,8 +174,7 @@ export default function Explore() {
     geneExact,
     statusFilter,
     eventTypeFilter,
-    specificityFilter,
-    cohortScope,
+    oncofetalOnly,
     fcMin,
     snrMin,
     maxMeanCpmMax,
@@ -202,33 +189,27 @@ export default function Explore() {
     setPage(0);
   }
 
-  const scopeLabel = cohortScope === "postnatal" ? "postnatal" : "all";
-
-  // Looks up the sort value for a row/column, reading from the
-  // cohort-scoped field (min_cpm_fc_all vs. min_cpm_fc_postnatal, etc.)
-  // for the metric columns. Memoized so `sorted` depends on the function
-  // reference rather than on `cohortScope` directly.
-  const getSortValue = useCallback(
-    (row, key) => {
-      switch (key) {
-        case "gene_symbol":
-        case "consensus_specificity":
-        case "event_type":
-          return row[key];
-        case "fc":
-          return row[`min_cpm_fc_${cohortScope}`];
-        case "snr":
-          return row[`min_cpm_snr_${cohortScope}`];
-        case "maxMeanCpm":
-          return row[`max_mean_cpm_${cohortScope}`];
-        case "num_samples":
-          return row.num_samples;
-        default:
-          return null;
-      }
-    },
-    [cohortScope]
-  );
+  // Looks up the sort value for a row/column. The metric columns are
+  // computed against postnatal reference cohorts.
+  const getSortValue = useCallback((row, key) => {
+    switch (key) {
+      case "gene_symbol":
+      case "event_type":
+        return row[key];
+      case "oncofetal":
+        return prenatalGroups(row).length;
+      case "fc":
+        return row.min_cpm_fc_postnatal;
+      case "snr":
+        return row.min_cpm_snr_postnatal;
+      case "maxMeanCpm":
+        return row.max_mean_cpm_postnatal;
+      case "num_samples":
+        return row.num_samples;
+      default:
+        return null;
+    }
+  }, []);
 
   const sorted = useMemo(() => {
     if (!sortKey) return filtered;
@@ -282,15 +263,17 @@ export default function Explore() {
     { header: "chr", get: (r) => r.chr },
     { header: "strand", get: (r) => r.strand },
     { header: "gene_symbol", get: (r) => r.gene_symbol },
-    { header: "consensus_specificity", get: (r) => r.consensus_specificity },
+    { header: "junction_preference", get: (r) => r.junction_preference },
     { header: "status", get: (r) => r.status },
     { header: "event_type", get: (r) => r.event_type },
-    { header: "min_cpm_fc_all", get: (r) => r.min_cpm_fc_all },
+    { header: "criteria", get: (r) => r.criteria },
+    { header: "library_bias", get: (r) => r.library_bias },
     { header: "min_cpm_fc_postnatal", get: (r) => r.min_cpm_fc_postnatal },
-    { header: "min_cpm_snr_all", get: (r) => r.min_cpm_snr_all },
     { header: "min_cpm_snr_postnatal", get: (r) => r.min_cpm_snr_postnatal },
-    { header: "max_mean_cpm_all", get: (r) => r.max_mean_cpm_all },
     { header: "max_mean_cpm_postnatal", get: (r) => r.max_mean_cpm_postnatal },
+    { header: "max_prenatal_min_cpm_fc", get: (r) => r.max_prenatal_min_cpm_fc },
+    { header: "max_prenatal_min_cpm_snr", get: (r) => r.max_prenatal_min_cpm_snr },
+    { header: "oncofetal_prenatal_group", get: (r) => r.oncofetal_prenatal_group },
     { header: "num_samples", get: (r) => r.num_samples },
   ];
 
@@ -306,7 +289,7 @@ export default function Explore() {
     if (geneFilter.trim()) parts.push(slug(geneFilter.trim()));
     if (statusFilter) parts.push(slug(statusFilter));
     if (eventTypeFilter) parts.push(slug(eventTypeFilter));
-    if (specificityFilter) parts.push(slug(specificityFilter));
+    if (oncofetalOnly) parts.push("Oncofetal");
     if (isMinActive(fcMin, FC_BOUNDS)) parts.push(`FC${slug(fmtNum(fcMin))}`);
     if (isMinActive(snrMin, SNR_BOUNDS)) parts.push(`SNR${slug(fmtNum(snrMin))}`);
     if (isMaxActive(maxMeanCpmMax, MAX_MEAN_CPM_BOUNDS)) parts.push(`MaxCPM${slug(fmtNum(maxMeanCpmMax))}`);
@@ -315,7 +298,7 @@ export default function Explore() {
     const shown = parts.slice(0, MAX_PARTS);
     if (parts.length > MAX_PARTS) shown.push(`+${parts.length - MAX_PARTS}more`);
     return shown.map((p) => `_${p}`).join("");
-  }, [histology, geneFilter, statusFilter, eventTypeFilter, specificityFilter, fcMin, snrMin, maxMeanCpmMax]);
+  }, [histology, geneFilter, statusFilter, eventTypeFilter, oncofetalOnly, fcMin, snrMin, maxMeanCpmMax]);
 
   const exportFilename = (ext) => {
     const date = new Date().toISOString().slice(0, 10);
@@ -344,7 +327,7 @@ export default function Explore() {
 
   const activeChips = useMemo(() => {
     const chips = [];
-    if (histology) chips.push({ key: "histology", label: `Histology: ${histology}` });
+    if (histology) chips.push({ key: "histology", label: `Histology: ${histologyLabel(histology)}` });
     if (geneFilter.trim()) {
       chips.push({
         key: "gene",
@@ -353,15 +336,15 @@ export default function Explore() {
     }
     if (statusFilter) chips.push({ key: "status", label: `Status: ${statusFilter}` });
     if (eventTypeFilter) chips.push({ key: "eventType", label: `Event type: ${eventTypeFilter}` });
-    if (specificityFilter) chips.push({ key: "specificity", label: `Specificity: ${specificityFilter}` });
+    if (oncofetalOnly) chips.push({ key: "oncofetal", label: "Oncofetal only" });
     if (isMinActive(fcMin, FC_BOUNDS)) {
-      chips.push({ key: "fc", label: `Fold-change (${scopeLabel}) ≥ ${fmtNum(fcMin)}` });
+      chips.push({ key: "fc", label: `Fold-change ≥ ${fmtNum(fcMin)}` });
     }
     if (isMinActive(snrMin, SNR_BOUNDS)) {
-      chips.push({ key: "snr", label: `SNR (${scopeLabel}) ≥ ${fmtNum(snrMin)}` });
+      chips.push({ key: "snr", label: `SNR ≥ ${fmtNum(snrMin)}` });
     }
     if (isMaxActive(maxMeanCpmMax, MAX_MEAN_CPM_BOUNDS)) {
-      chips.push({ key: "maxMeanCpm", label: `Max mean CPM (${scopeLabel}) ≤ ${fmtNum(maxMeanCpmMax)}` });
+      chips.push({ key: "maxMeanCpm", label: `Max mean CPM ≤ ${fmtNum(maxMeanCpmMax)}` });
     }
     return chips;
   }, [
@@ -370,8 +353,7 @@ export default function Explore() {
     geneExact,
     statusFilter,
     eventTypeFilter,
-    specificityFilter,
-    scopeLabel,
+    oncofetalOnly,
     fcMin,
     snrMin,
     maxMeanCpmMax,
@@ -385,7 +367,7 @@ export default function Explore() {
     }
     if (key === "status") setStatusFilter("");
     if (key === "eventType") setEventTypeFilter("");
-    if (key === "specificity") setSpecificityFilter("");
+    if (key === "oncofetal") setOncofetalOnly(false);
     if (key === "fc") setFcMin(FC_BOUNDS[0]);
     if (key === "snr") setSnrMin(SNR_BOUNDS[0]);
     if (key === "maxMeanCpm") setMaxMeanCpmMax(MAX_MEAN_CPM_BOUNDS[1]);
@@ -426,7 +408,6 @@ export default function Explore() {
   useEffect(() => {
     if (!txGene) return;
     let active = true;
-    setEnsgError(null);
     fetch(
       `https://rest.ensembl.org/xrefs/symbol/homo_sapiens/${encodeURIComponent(txGene)}?content-type=application/json`,
       { headers: { Accept: "application/json" } }
@@ -493,7 +474,7 @@ export default function Explore() {
                 >
                   <MenuItem value="">All histologies</MenuItem>
                   {HISTOLOGIES.map((h) => (
-                    <MenuItem key={h} value={h}>{h}</MenuItem>
+                    <MenuItem key={h} value={h}>{histologyLabel(h)}</MenuItem>
                   ))}
                 </Select>
               </FormControl>
@@ -563,20 +544,17 @@ export default function Explore() {
                 </Select>
               </FormControl>
 
-              <FormControl fullWidth size="small">
-                <InputLabel id="specificity-label">Specificity</InputLabel>
-                <Select
-                  labelId="specificity-label"
-                  label="Specificity"
-                  value={specificityFilter}
-                  onChange={(e) => setSpecificityFilter(e.target.value)}
-                >
-                  <MenuItem value="">All specificities</MenuItem>
-                  {specificityOptions.map((s) => (
-                    <MenuItem key={s} value={s}>{s}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
+              <FormControlLabel
+                control={
+                  <Switch
+                    id="oncofetal-only"
+                    size="small"
+                    checked={oncofetalOnly}
+                    onChange={(e) => setOncofetalOnly(e.target.checked)}
+                  />
+                }
+                label={<Typography variant="body2">Oncofetal only</Typography>}
+              />
             </Stack>
           </Paper>
 
@@ -590,22 +568,18 @@ export default function Explore() {
                   title={
                     <Box sx={{ p: 0.5 }}>
                       <Typography variant="body2" sx={{ mb: 1 }}>
-                        <strong>Reference cohorts (All vs. Postnatal):</strong> &ldquo;All&rdquo; compares tumor
-                        signal against every control cohort, including fetal/developmental tissue. &ldquo;Postnatal&rdquo;
-                        excludes fetal tissue, comparing only against adult GTEx, postnatal evo-devo timepoints, and
-                        pediatric normal brain.
+                        <strong>Reference cohorts:</strong> fold-change, SNR and max mean CPM compare tumor signal
+                        against postnatal control cohorts only (adult GTEx, postnatal evo-devo timepoints, and
+                        pediatric normal brain).
                       </Typography>
                       <Typography variant="body2" sx={{ mb: 1 }}>
-                        <strong>Oncofetal vs. Tumor-specific:</strong> a junction is called <strong>Oncofetal</strong>{" "}
-                        if it shows enrichment against the Postnatal reference but weaker/absent enrichment against
-                        All controls (i.e., it looks fetal-like — present in normal fetal development but not after
-                        birth). It's called <strong>Tumor-specific</strong> only if it shows strong enrichment under
-                        both scopes, meaning no control cohort, fetal or postnatal, expresses it.
+                        <strong>Tumor-enriched:</strong> fold-change &gt; 5 and SNR &gt; 5 against every postnatal
+                        control group, with no control group averaging 10 CPM or more.
                       </Typography>
                       <Typography variant="body2">
-                        The rollup is asymmetric: a junction is called Oncofetal if even a single sample carrying it
-                        shows the fetal-like pattern, and Tumor-specific only if every sample independently avoided
-                        it. See the Docs page for full details.
+                        <strong>Oncofetal:</strong> a tumor-enriched junction that is also expressed in at least one
+                        prenatal evo-devo group (fold-change &gt; 2 and SNR &gt; 2 against every postnatal group).
+                        See the Docs page for full details.
                       </Typography>
                     </Box>
                   }
@@ -616,22 +590,6 @@ export default function Explore() {
               </Box>
 
               <Divider />
-
-              <Box>
-                <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
-                  Reference cohorts
-                </Typography>
-                <ToggleButtonGroup
-                  value={cohortScope}
-                  exclusive
-                  onChange={(_, v) => v && setCohortScope(v)}
-                  size="small"
-                  fullWidth
-                >
-                  <ToggleButton value="all">All</ToggleButton>
-                  <ToggleButton value="postnatal">Postnatal</ToggleButton>
-                </ToggleButtonGroup>
-              </Box>
 
               <Box>
                 <Typography variant="body2" sx={{ fontWeight: 600 }}>
@@ -691,8 +649,7 @@ export default function Explore() {
                   setGeneExact(false);
                   setStatusFilter("");
                   setEventTypeFilter("");
-                  setSpecificityFilter("");
-                  setCohortScope("all");
+                  setOncofetalOnly(false);
                   setFcMin(FC_BOUNDS[0]);
                   setSnrMin(SNR_BOUNDS[0]);
                   setMaxMeanCpmMax(MAX_MEAN_CPM_BOUNDS[1]);
@@ -702,7 +659,7 @@ export default function Explore() {
                   !geneFilter.trim() &&
                   !statusFilter &&
                   !eventTypeFilter &&
-                  !specificityFilter &&
+                  !oncofetalOnly &&
                   !isMinActive(fcMin, FC_BOUNDS) &&
                   !isMinActive(snrMin, SNR_BOUNDS) &&
                   !isMaxActive(maxMeanCpmMax, MAX_MEAN_CPM_BOUNDS)
@@ -770,11 +727,11 @@ export default function Explore() {
                       <TableCell sx={{ fontWeight: 700 }}>
                         <TableSortLabel
                           sx={sortLabelSx}
-                          active={sortKey === "consensus_specificity"}
-                          direction={sortKey === "consensus_specificity" ? sortDir : "asc"}
-                          onClick={() => handleSort("consensus_specificity")}
+                          active={sortKey === "oncofetal"}
+                          direction={sortKey === "oncofetal" ? sortDir : "asc"}
+                          onClick={() => handleSort("oncofetal")}
                         >
-                          Specificity
+                          Oncofetal
                         </TableSortLabel>
                       </TableCell>
                       <TableCell sx={{ fontWeight: 700 }}>
@@ -794,7 +751,7 @@ export default function Explore() {
                           direction={sortKey === "fc" ? sortDir : "asc"}
                           onClick={() => handleSort("fc")}
                         >
-                          Fold-change ({scopeLabel})
+                          Fold-change
                         </TableSortLabel>
                       </TableCell>
                       <TableCell sx={{ fontWeight: 700, minWidth: 90 }} align="right">
@@ -804,7 +761,7 @@ export default function Explore() {
                           direction={sortKey === "snr" ? sortDir : "asc"}
                           onClick={() => handleSort("snr")}
                         >
-                          SNR ({scopeLabel})
+                          SNR
                         </TableSortLabel>
                       </TableCell>
                       <TableCell sx={{ fontWeight: 700, minWidth: 116 }} align="right">
@@ -814,7 +771,7 @@ export default function Explore() {
                           direction={sortKey === "maxMeanCpm" ? sortDir : "asc"}
                           onClick={() => handleSort("maxMeanCpm")}
                         >
-                          Max mean CPM ({scopeLabel})
+                          Max mean CPM
                         </TableSortLabel>
                       </TableCell>
                       <TableCell sx={{ fontWeight: 700 }} align="right">
@@ -862,11 +819,37 @@ export default function Explore() {
                             </Typography>
                           </TableCell>
                           <TableCell sx={{ fontWeight: 600 }}>{row.gene_symbol ?? "—"}</TableCell>
-                          <TableCell>{row.consensus_specificity ?? "—"}</TableCell>
+                          <TableCell>
+                            {(() => {
+                              const groups = prenatalGroups(row);
+                              if (!groups.length) return null;
+                              return (
+                                <Tooltip
+                                  arrow
+                                  title={groups.map((g) => (
+                                    <Box key={g}>{g.replace(/_/g, " ")}</Box>
+                                  ))}
+                                >
+                                  <Typography
+                                    variant="body2"
+                                    component="span"
+                                    sx={{
+                                      cursor: "help",
+                                      textDecoration: "underline dotted",
+                                      textUnderlineOffset: 3,
+                                      whiteSpace: "nowrap",
+                                    }}
+                                  >
+                                    {groups.length} {groups.length === 1 ? "group" : "groups"}
+                                  </Typography>
+                                </Tooltip>
+                              );
+                            })()}
+                          </TableCell>
                           <TableCell>{row.event_type ?? "—"}</TableCell>
-                          <TableCell align="right">{fmt2(row[`min_cpm_fc_${cohortScope}`])}</TableCell>
-                          <TableCell align="right">{fmt2(row[`min_cpm_snr_${cohortScope}`])}</TableCell>
-                          <TableCell align="right">{fmt2(row[`max_mean_cpm_${cohortScope}`])}</TableCell>
+                          <TableCell align="right">{fmt2(row.min_cpm_fc_postnatal)}</TableCell>
+                          <TableCell align="right">{fmt2(row.min_cpm_snr_postnatal)}</TableCell>
+                          <TableCell align="right">{fmt2(row.max_mean_cpm_postnatal)}</TableCell>
                           <TableCell align="right">{row.num_samples}</TableCell>
                         </TableRow>
                       ))

@@ -6,7 +6,7 @@ import {
 import { useTheme } from "@mui/material/styles";
 import SettingsIcon from "@mui/icons-material/Settings";
 import * as d3 from "d3";
-import { HISTOLOGY_COLORS, controlCohortColor } from "../histologyColors";
+import { HISTOLOGY_COLORS, controlCohortColor, histologyLabel } from "../histologyColors";
 import {
   MIN_TOTAL_READS, MIN_MEDIAN_CPM, selectExpressedJunctionIds, metricValueGetter, filterHiddenGroups,
 } from "./lib/junctionExpressionFilter";
@@ -116,7 +116,7 @@ function buildGroupOrder(ids, expandedEvoDevo) {
 
   tumors.forEach((id) => {
     order.push(id);
-    meta.set(id, { label: id, swatchColor: HISTOLOGY_COLORS[id], chevron: null, cohort: "Primary tumor" });
+    meta.set(id, { label: histologyLabel(id), swatchColor: HISTOLOGY_COLORS[id], chevron: null, cohort: "Primary tumor" });
   });
 
   ["Prenatal", "Postnatal"].forEach((phase) => {
@@ -196,7 +196,7 @@ function buildSampleFacets(data) {
   if (tumors.length > 0) {
     sections.push({
       key: "Primary Tumors",
-      items: tumors.slice().sort((a, b) => a.localeCompare(b)).map((id) => ({ hideKey: id, label: id })),
+      items: tumors.slice().sort((a, b) => a.localeCompare(b)).map((id) => ({ hideKey: id, label: histologyLabel(id) })),
     });
   }
 
