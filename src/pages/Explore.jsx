@@ -822,7 +822,7 @@ export default function Explore() {
                           <TableCell>
                             {(() => {
                               const groups = prenatalGroups(row);
-                              if (!groups.length) return null;
+                              if (!groups.length) return "—";
                               return (
                                 <Tooltip
                                   arrow
