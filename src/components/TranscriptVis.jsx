@@ -4,15 +4,17 @@ import { useTheme } from "@mui/material/styles";
 import { colourForBiotype, hexToRgba } from "./lib/biotypeColors";
 import { fetchUniProtDomains, mapDomainsToGenomicSegments, stripVersion, colourForDomainIndex } from "./lib/proteinDomains";
 
-// Genomic CDS bounds (always ascending, regardless of strand) + protein
-// stable ID from Ensembl's Translation object, used to place UniProt domains.
+// Genomic CDS bounds (always ascending, regardless of strand), protein
+// stable ID and protein length (AA) from Ensembl's Translation object, used to
+// place UniProt domains and check they belong to this protein.
 function parseTranslation(raw) {
   if (!raw) return null;
   const s = Number(raw.start ?? raw.seq_region_start);
   const en = Number(raw.end ?? raw.seq_region_end);
   if (!Number.isFinite(s) || !Number.isFinite(en)) return null;
   const id = raw.id || raw.stable_id || null;
-  return { id, start: Math.min(s, en), end: Math.max(s, en) };
+  const length = Number(raw.length);
+  return { id, start: Math.min(s, en), end: Math.max(s, en), length: Number.isFinite(length) ? length : null };
 }
 
 export default function TranscriptVis({ geneID, geneName = null, strand = "+", highlightedTranscript = null, junctionCoords = null, junctionName = null, junctionString = null }) {
@@ -363,14 +365,19 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
     return mapDomainsToGenomicSegments(uniprotData.domains, highlightedTx, effStrand);
   }, [uniprotData, highlightedTx, effStrand]);
 
-  // Whether the highlighted transcript is among the Ensembl isoforms UniProt
-  // actually cross-references — null while unknown, so callers can distinguish
-  // "not checked yet" from "checked, no match".
+  // Whether the highlighted transcript encodes UniProt's canonical isoform (the
+  // sequence the domain coordinates refer to): UniProt must map it to the
+  // canonical isoform, and the protein lengths must agree when both are known.
+  // null while unknown, so callers can distinguish "not checked yet" from
+  // "checked, no match".
   const isoformVerified = useMemo(() => {
-    if (!uniprotData?.ensemblIds?.size || !highlightedTx) return null;
+    if (!uniprotData?.hasEnsemblXrefs || !highlightedTx) return null;
     const enst = stripVersion(highlightedTx.id);
     const ensp = highlightedTx.translation?.id ? stripVersion(highlightedTx.translation.id) : null;
-    return uniprotData.ensemblIds.has(enst) || (ensp != null && uniprotData.ensemblIds.has(ensp));
+    const xrefMatch = uniprotData.ensemblIds.has(enst) || (ensp != null && uniprotData.ensemblIds.has(ensp));
+    const txLength = highlightedTx.translation?.length;
+    const lengthMatch = txLength == null || uniprotData.length == null || txLength === uniprotData.length;
+    return xrefMatch && lengthMatch;
   }, [uniprotData, highlightedTx]);
 
   const domainMouseMove = (e, d) => {
@@ -417,7 +424,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
         <Typography
           variant="caption"
           sx={{ fontSize: 11, color: "text.secondary", minWidth: 200, mr: 1 }}
-          title={isoformVerified === false ? "UniProt's canonical isoform doesn't cross-reference this transcript — domain positions may not align exactly." : undefined}
+          title={isoformVerified === false ? "This transcript doesn't match UniProt's canonical isoform — domain positions may not align exactly." : undefined}
         >
           Domains{isoformVerified === false ? " *" : ""}
         </Typography>

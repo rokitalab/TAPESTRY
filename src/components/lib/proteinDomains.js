@@ -15,14 +15,15 @@ export function stripVersion(id) {
 }
 
 // Fetches the reviewed UniProt entry for a gene (human) and returns its
-// Domain-type features (1-based, inclusive AA coordinates) plus the set of
-// Ensembl transcript/protein IDs UniProt cross-references, so callers can
-// tell whether a given Ensembl transcript is one of the isoforms UniProt
-// actually annotated.
+// Domain-type features (1-based, inclusive AA coordinates, on the canonical
+// isoform), the canonical isoform's length, and the set of Ensembl
+// transcript/protein IDs UniProt maps to the canonical isoform, so callers can
+// tell whether a given Ensembl transcript encodes the sequence the domain
+// coordinates refer to.
 export async function fetchUniProtDomains(geneName, { signal } = {}) {
   if (!geneName) return null;
   const query = `organism_id:9606 AND gene:${geneName} AND reviewed:true`;
-  const url = `https://rest.uniprot.org/uniprotkb/search?query=${encodeURIComponent(query)}&fields=accession,ft_domain,xref_ensembl&format=json`;
+  const url = `https://rest.uniprot.org/uniprotkb/search?query=${encodeURIComponent(query)}&fields=accession,length,ft_domain,xref_ensembl,cc_alternative_products&format=json`;
   const res = await fetch(url, { signal, headers: { Accept: "application/json" } });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
@@ -39,16 +40,36 @@ export async function fetchUniProtDomains(geneName, { signal } = {}) {
     })
     .filter(Boolean);
 
+  // UniProt cross-references Ensembl transcripts for every isoform, tagging
+  // each with an isoformId; domain coordinates are on the "Displayed"
+  // (canonical) isoform only. Xrefs without an isoformId belong to entries
+  // with a single isoform.
+  const canonicalIsoforms = new Set();
+  (entry.comments || [])
+    .filter(c => c?.commentType === "ALTERNATIVE PRODUCTS")
+    .forEach(c => (c.isoforms || [])
+      .filter(iso => iso?.isoformSequenceStatus === "Displayed")
+      .forEach(iso => (iso.isoformIds || []).forEach(id => canonicalIsoforms.add(id))));
+
+  const ensemblXrefs = (entry.uniProtKBCrossReferences || []).filter(x => x?.database === "Ensembl");
   const ensemblIds = new Set();
-  (entry.uniProtKBCrossReferences || [])
-    .filter(x => x?.database === "Ensembl")
+  ensemblXrefs
+    .filter(x => !x.isoformId || canonicalIsoforms.has(x.isoformId))
     .forEach(x => {
       if (x.id) ensemblIds.add(stripVersion(x.id));
       const proteinId = (x.properties || []).find(p => p?.key === "ProteinId")?.value;
       if (proteinId) ensemblIds.add(stripVersion(proteinId));
     });
 
-  return { accession: entry.primaryAccession || null, domains, ensemblIds };
+  const length = Number(entry.sequence?.length);
+
+  return {
+    accession: entry.primaryAccession || null,
+    domains,
+    length: Number.isFinite(length) ? length : null,
+    ensemblIds,
+    hasEnsemblXrefs: ensemblXrefs.length > 0,
+  };
 }
 
 // Maps UniProt AA-coordinate domains onto a transcript's coding exons,
@@ -56,6 +77,7 @@ export async function fetchUniProtDomains(geneName, { signal } = {}) {
 // one segment if it straddles an exon boundary).
 //
 // transcript: { exons: [{start,end}] (genomic, ascending), translation: {start,end} (genomic CDS bounds) }
+// All genomic coordinates are 1-based and inclusive, as Ensembl returns them.
 export function mapDomainsToGenomicSegments(domains, transcript, strand) {
   if (!domains?.length || !transcript?.exons?.length || !transcript?.translation) return [];
   const { start: cdsStart, end: cdsEnd } = transcript.translation;
@@ -63,7 +85,7 @@ export function mapDomainsToGenomicSegments(domains, transcript, strand) {
 
   const codingSegments = transcript.exons
     .map(e => ({ start: Math.max(e.start, cdsStart), end: Math.min(e.end, cdsEnd) }))
-    .filter(s => s.end > s.start)
+    .filter(s => s.end >= s.start)
     .sort((a, b) => a.start - b.start);
   if (codingSegments.length === 0) return [];
 
@@ -72,7 +94,7 @@ export function mapDomainsToGenomicSegments(domains, transcript, strand) {
 
   let cum = 0;
   const table = ordered.map(seg => {
-    const len = seg.end - seg.start;
+    const len = seg.end - seg.start + 1;
     const withCum = { ...seg, cumStart: cum, cumEnd: cum + len };
     cum += len;
     return withCum;
@@ -93,10 +115,10 @@ export function mapDomainsToGenomicSegments(domains, transcript, strand) {
       if (strand === "-") {
         // 5' end of this segment is the higher genomic coordinate (seg.end).
         gEnd = seg.end - offsetStart;
-        gStart = seg.end - offsetEnd;
+        gStart = seg.end - offsetEnd + 1;
       } else {
         gStart = seg.start + offsetStart;
-        gEnd = seg.start + offsetEnd;
+        gEnd = seg.start + offsetEnd - 1;
       }
       segments.push({ start: Math.min(gStart, gEnd), end: Math.max(gStart, gEnd) });
     });
