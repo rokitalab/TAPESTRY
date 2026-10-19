@@ -502,6 +502,7 @@ export default function Docs() {
               From Home or the Explore page, set the Histology dropdown to your histology of interest (e.g., <Code>Medulloblastoma</Code>, <Code>Low-grade glioma</Code>.
             </>,
             "The table now lists every TEJ recurrent in that histology. Use the min fold-change, min SNR, and max mean CPM sliders (computed against postnatal controls) to tighten or loosen what counts as \"enriched.\"",
+            "Turn off \"Include no control expression\" to hide junctions with zero expression in every prenatal and postnatal control cohort. These are the most tumor-specific, but most use a novel splice site and some may be technical artifacts.",
             "Sort by # samples to prioritize junctions that recur across many patients within the histology (more likely to generalize as a target), or by fold-change/SNR to prioritize the cleanest signal.",
             "Click through interesting rows to inspect their CPM distribution and confirm the signal is concentrated in your histology of interest, rather than showing up broadly across tumor types, which would make it a less histology-specific target.",
             "Export the histology-level table as a working candidate list.",

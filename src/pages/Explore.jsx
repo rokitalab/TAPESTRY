@@ -67,6 +67,10 @@ const prenatalGroups = (r) =>
     ? r.oncofetal_prenatal_group.split(";").map((g) => g.trim()).filter(Boolean)
     : [];
 
+// No expression in any reference control cohort, prenatal or postnatal: the
+// junction is absent from every control matrix ("No ctrl expr" criteria).
+const hasNoControlExpr = (r) => Boolean(r.criteria?.startsWith("No ctrl expr"));
+
 function triggerDownload(href, filename) {
   const link = document.createElement("a");
   link.href = href;
@@ -96,6 +100,7 @@ export default function Explore() {
   const [statusFilter, setStatusFilter] = useState("");
   const [eventTypeFilter, setEventTypeFilter] = useState("");
   const [oncofetalOnly, setOncofetalOnly] = useState(false);
+  const [includeNoCtrlExpr, setIncludeNoCtrlExpr] = useState(true);
   const [fcMin, setFcMin] = useState(FC_BOUNDS[0]);
   const [snrMin, setSnrMin] = useState(SNR_BOUNDS[0]);
   const [maxMeanCpmMax, setMaxMeanCpmMax] = useState(MAX_MEAN_CPM_BOUNDS[1]);
@@ -158,6 +163,7 @@ export default function Explore() {
       if (statusFilter && r.status !== statusFilter) return false;
       if (eventTypeFilter && r.event_type !== eventTypeFilter) return false;
       if (oncofetalOnly && !isOncofetal(r)) return false;
+      if (!includeNoCtrlExpr && hasNoControlExpr(r)) return false;
       // null means the reference cohort has zero expression (or noise), i.e.
       // an infinite (maximally specific) fold-change or SNR, so it always passes.
       if (r.min_cpm_fc_postnatal != null && r.min_cpm_fc_postnatal < fcMin) return false;
@@ -177,6 +183,7 @@ export default function Explore() {
     statusFilter,
     eventTypeFilter,
     oncofetalOnly,
+    includeNoCtrlExpr,
     fcMin,
     snrMin,
     maxMeanCpmMax,
@@ -292,6 +299,7 @@ export default function Explore() {
     if (statusFilter) parts.push(slug(statusFilter));
     if (eventTypeFilter) parts.push(slug(eventTypeFilter));
     if (oncofetalOnly) parts.push("Oncofetal");
+    if (!includeNoCtrlExpr) parts.push("NoCtrlExprExcluded");
     if (isMinActive(fcMin, FC_BOUNDS)) parts.push(`FC${slug(fmtNum(fcMin))}`);
     if (isMinActive(snrMin, SNR_BOUNDS)) parts.push(`SNR${slug(fmtNum(snrMin))}`);
     if (isMaxActive(maxMeanCpmMax, MAX_MEAN_CPM_BOUNDS)) parts.push(`MaxCPM${slug(fmtNum(maxMeanCpmMax))}`);
@@ -300,7 +308,7 @@ export default function Explore() {
     const shown = parts.slice(0, MAX_PARTS);
     if (parts.length > MAX_PARTS) shown.push(`+${parts.length - MAX_PARTS}more`);
     return shown.map((p) => `_${p}`).join("");
-  }, [histology, geneFilter, statusFilter, eventTypeFilter, oncofetalOnly, fcMin, snrMin, maxMeanCpmMax]);
+  }, [histology, geneFilter, statusFilter, eventTypeFilter, oncofetalOnly, includeNoCtrlExpr, fcMin, snrMin, maxMeanCpmMax]);
 
   const exportFilename = (ext) => {
     const date = new Date().toISOString().slice(0, 10);
@@ -339,6 +347,7 @@ export default function Explore() {
     if (statusFilter) chips.push({ key: "status", label: `Status: ${statusFilter}` });
     if (eventTypeFilter) chips.push({ key: "eventType", label: `Event type: ${eventTypeFilter}` });
     if (oncofetalOnly) chips.push({ key: "oncofetal", label: "Oncofetal only" });
+    if (!includeNoCtrlExpr) chips.push({ key: "noCtrlExpr", label: "No control expression: excluded" });
     if (isMinActive(fcMin, FC_BOUNDS)) {
       chips.push({ key: "fc", label: `Fold-change ≥ ${fmtNum(fcMin)}` });
     }
@@ -356,6 +365,7 @@ export default function Explore() {
     statusFilter,
     eventTypeFilter,
     oncofetalOnly,
+    includeNoCtrlExpr,
     fcMin,
     snrMin,
     maxMeanCpmMax,
@@ -370,6 +380,7 @@ export default function Explore() {
     if (key === "status") setStatusFilter("");
     if (key === "eventType") setEventTypeFilter("");
     if (key === "oncofetal") setOncofetalOnly(false);
+    if (key === "noCtrlExpr") setIncludeNoCtrlExpr(true);
     if (key === "fc") setFcMin(FC_BOUNDS[0]);
     if (key === "snr") setSnrMin(SNR_BOUNDS[0]);
     if (key === "maxMeanCpm") setMaxMeanCpmMax(MAX_MEAN_CPM_BOUNDS[1]);
@@ -555,7 +566,29 @@ export default function Explore() {
                     onChange={(e) => setOncofetalOnly(e.target.checked)}
                   />
                 }
-                label={<Typography variant="body2">Oncofetal only</Typography>}
+                label={<Typography variant="body2" sx={{ fontSize: "0.79rem" }}>Oncofetal only</Typography>}
+              />
+
+              <FormControlLabel
+                control={
+                  <Switch
+                    id="include-no-ctrl-expr"
+                    size="small"
+                    checked={includeNoCtrlExpr}
+                    onChange={(e) => setIncludeNoCtrlExpr(e.target.checked)}
+                  />
+                }
+                label={
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                    <Typography variant="body2" sx={{ fontSize: "0.79rem" }}>Include no control expression</Typography>
+                    <Tooltip
+                      arrow
+                      title="Junctions with no expression in any control cohort, prenatal or postnatal (GTEx <40, evo-devo, pediatric normal brain and brain cell types). They are the most tumor-specific junctions, but most use a novel splice site and some may be technical artifacts, such as alignment errors, so check recurrence before relying on one. Turn off to exclude them."
+                    >
+                      <InfoOutlinedIcon fontSize="small" sx={{ color: "text.secondary", cursor: "help" }} />
+                    </Tooltip>
+                  </Box>
+                }
               />
             </Stack>
           </Paper>
@@ -652,6 +685,7 @@ export default function Explore() {
                   setStatusFilter("");
                   setEventTypeFilter("");
                   setOncofetalOnly(false);
+                  setIncludeNoCtrlExpr(true);
                   setFcMin(FC_BOUNDS[0]);
                   setSnrMin(SNR_BOUNDS[0]);
                   setMaxMeanCpmMax(MAX_MEAN_CPM_BOUNDS[1]);
@@ -662,6 +696,7 @@ export default function Explore() {
                   !statusFilter &&
                   !eventTypeFilter &&
                   !oncofetalOnly &&
+                  includeNoCtrlExpr &&
                   !isMinActive(fcMin, FC_BOUNDS) &&
                   !isMinActive(snrMin, SNR_BOUNDS) &&
                   !isMaxActive(maxMeanCpmMax, MAX_MEAN_CPM_BOUNDS)
