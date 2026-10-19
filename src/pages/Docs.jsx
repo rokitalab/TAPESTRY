@@ -14,6 +14,10 @@ import {
   Link,
 } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import { Link as RouterLink } from "react-router-dom";
+import { RELEASES } from "../releases";
+
+const CURRENT = RELEASES[0];
 
 function Code({ children }) {
   return (
@@ -33,9 +37,23 @@ function Code({ children }) {
   );
 }
 
+const TOC = [
+  ["what-is-tapestry", "What is TAPESTRY?"],
+  ["release-information", "Release information"],
+  ["glossary", "Glossary"],
+  ["protein-domains", "Protein domains"],
+  ["use-case-walkthroughs", "Use-case walkthroughs"],
+  ["raw-data-availability", "Raw data availability"],
+  ["resources", "Resources"],
+];
+
+const slugify = (title) =>
+  TOC.find(([, t]) => t === title)?.[0] ??
+  title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+
 function Section({ title, children, mt = 6 }) {
   return (
-    <Box sx={{ mt }}>
+    <Box id={slugify(title)} sx={{ mt, scrollMarginTop: 80 }}>
       <Typography variant="h4" sx={{ fontWeight: 800, mb: 2 }}>
         {title}
       </Typography>
@@ -113,6 +131,23 @@ export default function Docs() {
 
       <Divider sx={{ my: 4 }} />
 
+      <Box component="nav" aria-label="Table of contents">
+        <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>
+          Contents
+        </Typography>
+        <List sx={{ listStyleType: "disc", pl: 4, py: 0 }}>
+          {TOC.map(([id, title]) => (
+            <ListItem key={id} sx={{ display: "list-item", py: 0.25, pl: 0 }}>
+              <Typography variant="body2">
+                <Link href={`#${id}`}>{title}</Link>
+              </Typography>
+            </ListItem>
+          ))}
+        </List>
+      </Box>
+
+      <Divider sx={{ my: 4 }} />
+
       <Section title="What is TAPESTRY?" mt={0}>
         <Typography sx={{ mb: 2 }}>
           <strong>TAPESTRY</strong> (Tumor Alternative PEdiatric Splicing
@@ -131,7 +166,16 @@ export default function Docs() {
           produce. TAPESTRY catalogs these events, called{" "}
           <strong>tumor-enriched junctions (TEJs)</strong>, across the
           Pediatric Brain Tumor Atlas (PBTA) cohort, and lets you search,
-          filter, visualize, and download them.
+          filter, visualize, and download them. The code used to identify and
+          characterize TEJs is available in the{" "}
+          <Link
+            href="https://github.com/rokitalab/pbta-tumor-enriched-junctions"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            pbta-tumor-enriched-junctions
+          </Link>{" "}
+          repository.
         </Typography>
         <Typography sx={{ mb: 3 }}>
           Because TEJs are largely absent from normal tissue, they are
@@ -157,8 +201,9 @@ export default function Docs() {
           <ListItem sx={{ display: "list-item", py: 0.5, pl: 0 }}>
             <Typography variant="body2">
               Each tumor junction&apos;s expression (in CPM) is compared
-              against the matched junction&apos;s expression in every control
-              cohort, yielding a <strong>fold-change</strong> and{" "}
+              against the matched junction&apos;s expression in the normal
+              brain reference cohorts (GTEx, postnatal evo-devo, and normal
+              pediatric brain), yielding a <strong>fold-change</strong> and{" "}
               <strong>signal-to-noise ratio (SNR)</strong> for each junction.
             </Typography>
           </ListItem>
@@ -194,6 +239,24 @@ export default function Docs() {
             </Typography>
           </ListItem>
         </List>
+      </Section>
+
+      <Section title="Release information">
+        <Typography sx={{ mb: 2 }}>
+          This is TAPESTRY <strong>{CURRENT.version}</strong>. Its data comes from the{" "}
+          <Link
+            href="https://github.com/rokitalab/pbta-tumor-enriched-junctions"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            pbta-tumor-enriched-junctions
+          </Link>{" "}
+          repository. See the{" "}
+          <Link component={RouterLink} to="/release-notes">
+            release notes
+          </Link>{" "}
+          for what changed in each release.
+        </Typography>
       </Section>
 
       <Section title="Glossary">
@@ -284,7 +347,7 @@ export default function Docs() {
             ],
             [
               "TPM (Transcripts Per Million)",
-              "Gene/isoform-level expression metric, length-normalized. Used as a secondary filter (e.g., requiring the host gene have TPM > 10) rather than as the main junction metric.",
+              "Gene/isoform-level expression metric, length-normalized. Used as a secondary filter (e.g., requiring the host gene have TPM ≥ 10) rather than as the main junction metric.",
             ],
             [
               "Fold-change (FC)",
@@ -338,6 +401,74 @@ export default function Docs() {
             ],
           ]}
         />
+      </Section>
+
+      <Section title="Protein domains">
+        <Typography sx={{ mb: 2 }}>
+          When you select a junction on the Explore page, the transcript panel
+          below the plots shows the transcript the junction is annotated to
+          (the transcript named in <Code>junction_name</Code>, e.g.{" "}
+          <Code>UBE3A-201</Code>) with the junction drawn on it. Directly
+          underneath is a <strong>Domains</strong> track showing where that
+          gene&apos;s protein domains fall along the transcript, so you can see
+          whether a splicing event lands in, or removes part of, a known
+          domain.
+        </Typography>
+        <List sx={{ listStyleType: "disc", pl: 4, py: 0, mb: 2 }}>
+          <ListItem sx={{ display: "list-item", py: 0.5, pl: 0 }}>
+            <Typography variant="body2">
+              <strong>Source.</strong> Domains are fetched live from{" "}
+              <Link
+                href="https://www.uniprot.org"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                UniProt
+              </Link>
+              : the reviewed (Swiss-Prot) human entry for the gene, using its
+              features of type &ldquo;Domain&rdquo;. Each domain is a colored
+              block; hover over it to see the domain name and its amino-acid
+              range.
+            </Typography>
+          </ListItem>
+          <ListItem sx={{ display: "list-item", py: 0.5, pl: 0 }}>
+            <Typography variant="body2">
+              <strong>Placement.</strong> UniProt gives domain positions in
+              amino acids. TAPESTRY converts them to genomic coordinates by
+              walking the transcript&apos;s coding exons (from Ensembl) from the
+              start codon, three nucleotides per residue. A domain that spans
+              several exons is drawn as one block from its first to its last
+              coding base, including the introns in between.
+            </Typography>
+          </ListItem>
+          <ListItem sx={{ display: "list-item", py: 0.5, pl: 0 }}>
+            <Typography variant="body2">
+              <strong>Isoform check.</strong> UniProt positions refer to
+              UniProt&apos;s own canonical isoform. If the transcript shown
+              isn&apos;t that isoform (UniProt doesn&apos;t map it to the
+              canonical isoform, or the protein lengths differ), the track is
+              labeled{" "}
+              <strong>Domains *</strong> (hover the label for a note) and
+              domain positions may not line up exactly with that transcript.
+            </Typography>
+          </ListItem>
+          <ListItem sx={{ display: "list-item", py: 0.5, pl: 0 }}>
+            <Typography variant="body2">
+              <strong>When there is no track.</strong> The track is hidden when
+              the gene has no reviewed UniProt entry or no annotated domains,
+              when the transcript is non-coding, or when UniProt or Ensembl
+              can&apos;t be reached.
+            </Typography>
+          </ListItem>
+        </List>
+        <Typography sx={{ mb: 2 }}>
+          The track follows the panel&apos;s zoom, so &ldquo;Zoom to area of
+          interest&rdquo; shows the domains around the junction in more detail.
+          It shows only UniProt &ldquo;Domain&rdquo; features. Topological
+          regions such as extracellular or transmembrane segments are not
+          drawn, so check UniProt directly when cell-surface accessibility
+          matters (e.g., for CAR-T or antibody targets).
+        </Typography>
       </Section>
 
       <Section title="Use-case walkthroughs">
