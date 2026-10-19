@@ -17,6 +17,9 @@ function parseTranslation(raw) {
   return { id, start: Math.min(s, en), end: Math.max(s, en), length: Number.isFinite(length) ? length : null };
 }
 
+// Background of the REFERENCE tag on the reference transcript's label.
+const REFERENCE_TAG_COLOR = "#4a5562";
+
 export default function TranscriptVis({ geneID, geneName = null, strand = "+", highlightedTranscript = null, junctionCoords = null, junctionName = null, junctionString = null }) {
   const [txList, setTxList] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -340,7 +343,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
   const otherTx = visible;
 
   // UniProt protein-domain lookup for the gene, used to draw a domain track
-  // under the highlighted transcript.
+  // under the reference transcript (UniProt's canonical isoform).
   const [uniprotData, setUniprotData] = useState(null);
   const [hoveredDomain, setHoveredDomain] = useState(null);
 
@@ -359,26 +362,34 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
     return () => { active = false; controller.abort(); };
   }, [geneName]);
 
-  // AA-coordinate domains mapped onto the highlighted transcript's coding exons.
-  const domainSegments = useMemo(() => {
-    if (!uniprotData?.domains?.length || !highlightedTx) return [];
-    return mapDomainsToGenomicSegments(uniprotData.domains, highlightedTx, effStrand);
-  }, [uniprotData, highlightedTx, effStrand]);
+  // UniProt's canonical isoform among this gene's Ensembl transcripts: a
+  // transcript UniProt maps to the canonical isoform (by ENST or ENSP). Domain
+  // coordinates refer to this isoform, so the domain track is drawn on it.
+  // When several transcripts match, prefers one whose protein length matches
+  // UniProt's, then Ensembl's canonical transcript. null when none match.
+  const referenceTx = useMemo(() => {
+    if (!uniprotData?.ensemblIds?.size) return null;
+    const matches = txList.filter(t =>
+      uniprotData.ensemblIds.has(stripVersion(t.id)) ||
+      (t.translation?.id != null && uniprotData.ensemblIds.has(stripVersion(t.translation.id))));
+    if (!matches.length) return null;
+    const lengthOk = (t) => t.translation?.length == null || uniprotData.length == null || t.translation.length === uniprotData.length;
+    return [...matches].sort((a, b) => (lengthOk(b) - lengthOk(a)) || (b.isCanonical - a.isCanonical))[0];
+  }, [uniprotData, txList]);
 
-  // Whether the highlighted transcript encodes UniProt's canonical isoform (the
-  // sequence the domain coordinates refer to): UniProt must map it to the
-  // canonical isoform, and the protein lengths must agree when both are known.
-  // null while unknown, so callers can distinguish "not checked yet" from
-  // "checked, no match".
+  // AA-coordinate domains mapped onto the reference transcript's coding exons.
+  const domainSegments = useMemo(() => {
+    if (!uniprotData?.domains?.length || !referenceTx) return [];
+    return mapDomainsToGenomicSegments(uniprotData.domains, referenceTx, effStrand);
+  }, [uniprotData, referenceTx, effStrand]);
+
+  // Whether the reference transcript's protein length matches UniProt's
+  // canonical isoform (true when either length is unknown); null with no reference.
   const isoformVerified = useMemo(() => {
-    if (!uniprotData?.hasEnsemblXrefs || !highlightedTx) return null;
-    const enst = stripVersion(highlightedTx.id);
-    const ensp = highlightedTx.translation?.id ? stripVersion(highlightedTx.translation.id) : null;
-    const xrefMatch = uniprotData.ensemblIds.has(enst) || (ensp != null && uniprotData.ensemblIds.has(ensp));
-    const txLength = highlightedTx.translation?.length;
-    const lengthMatch = txLength == null || uniprotData.length == null || txLength === uniprotData.length;
-    return xrefMatch && lengthMatch;
-  }, [uniprotData, highlightedTx]);
+    if (!referenceTx) return null;
+    const txLength = referenceTx.translation?.length;
+    return txLength == null || uniprotData?.length == null || txLength === uniprotData.length;
+  }, [uniprotData, referenceTx]);
 
   const domainMouseMove = (e, d) => {
     const rect = containerRef.current?.getBoundingClientRect();
@@ -424,7 +435,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
         <Typography
           variant="caption"
           sx={{ fontSize: 11, color: "text.secondary", minWidth: 200, mr: 1 }}
-          title={isoformVerified === false ? "This transcript doesn't match UniProt's canonical isoform — domain positions may not align exactly." : undefined}
+          title={isoformVerified === false ? "This transcript's protein length differs from UniProt's canonical isoform — domain positions may not align exactly." : undefined}
         >
           Domains{isoformVerified === false ? " *" : ""}
         </Typography>
@@ -453,7 +464,10 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
     );
   };
 
-  const renderArcRow = (t) => {
+  // roles: "reference" and/or "junction", shown as tags on the label. The
+  // junction is only drawn on rows with the "junction" role.
+  const renderArcRow = (t, roles = ["junction"]) => {
+    const jc = roles.includes("junction") ? junctionCoords : null;
     const TRACK_H = 18;
     const W = 1000;
     const hlColour = theme.palette.error.main;
@@ -471,23 +485,23 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
     // Match junction donor/acceptor to nearest exon boundary (within 2000 bp)
     let leftExonIdx = -1;
     let rightExonIdx = -1;
-    if (junctionCoords && t.exons?.length) {
+    if (jc && t.exons?.length) {
       const MAX_DIST = 2000;
-      const lm = t.exons.reduce((b, e, i) => { const d = Math.abs(e.end   - junctionCoords.donorSite);    return d < b.d ? { idx: i, d } : b; }, { idx: -1, d: Infinity });
-      const rm = t.exons.reduce((b, e, i) => { const d = Math.abs(e.start - junctionCoords.acceptorSite); return d < b.d ? { idx: i, d } : b; }, { idx: -1, d: Infinity });
+      const lm = t.exons.reduce((b, e, i) => { const d = Math.abs(e.end   - jc.donorSite);    return d < b.d ? { idx: i, d } : b; }, { idx: -1, d: Infinity });
+      const rm = t.exons.reduce((b, e, i) => { const d = Math.abs(e.start - jc.acceptorSite); return d < b.d ? { idx: i, d } : b; }, { idx: -1, d: Infinity });
       leftExonIdx  = lm.d <= MAX_DIST ? lm.idx : -1;
       rightExonIdx = rm.d <= MAX_DIST ? rm.idx : -1;
     }
     const hasJunction = leftExonIdx >= 0 && rightExonIdx >= 0;
-    const isIR = junctionCoords?.eventType === "intron retention";
-    const isSE = junctionCoords?.eventType === "exon skipping";
+    const isIR = jc?.eventType === "intron retention";
+    const isSE = jc?.eventType === "exon skipping";
 
     // Coordinate-based junction positions derived directly from the junction string —
     // used as a fallback when exon boundary matching fails (non-annotated junctions).
     let junctionX1 = null, junctionX2 = null;
-    if (junctionCoords && domain) {
-      const rawDonor    = ((junctionCoords.donorSite    - domain.min) / domain.span) * W;
-      const rawAcceptor = ((junctionCoords.acceptorSite - domain.min) / domain.span) * W;
+    if (jc && domain) {
+      const rawDonor    = ((jc.donorSite    - domain.min) / domain.span) * W;
+      const rawAcceptor = ((jc.acceptorSite - domain.min) / domain.span) * W;
       junctionX1 = effStrand === "-" ? W - rawAcceptor : rawDonor;
       junctionX2 = effStrand === "-" ? W - rawDonor    : rawAcceptor;
     }
@@ -517,24 +531,41 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
     if (hasJunction && !isIR && domain) {
       const canonEnd   = t.exons[leftExonIdx]?.end;
       const canonStart = t.exons[rightExonIdx]?.start;
-      if (canonEnd != null && junctionCoords.donorSite > canonEnd + 5) {
+      if (canonEnd != null && jc.donorSite > canonEnd + 5) {
         const r1 = ((canonEnd - domain.min) / domain.span) * W;
-        const r2 = ((junctionCoords.donorSite - domain.min) / domain.span) * W;
+        const r2 = ((jc.donorSite - domain.min) / domain.span) * W;
         intronicRects.push({ x: effStrand === "-" ? W - r2 : r1, width: Math.max(2, r2 - r1) });
       }
-      if (canonStart != null && junctionCoords.acceptorSite < canonStart - 5) {
-        const r1 = ((junctionCoords.acceptorSite - domain.min) / domain.span) * W;
+      if (canonStart != null && jc.acceptorSite < canonStart - 5) {
+        const r1 = ((jc.acceptorSite - domain.min) / domain.span) * W;
         const r2 = ((canonStart - domain.min) / domain.span) * W;
         intronicRects.push({ x: effStrand === "-" ? W - r2 : r1, width: Math.max(2, r2 - r1) });
       }
     }
 
     const displayColor = t.isCanonical ? canonicalColor : t.colour;
+    const isReference = roles.includes("reference");
+    const aaLength = isReference ? (t.translation?.length ?? uniprotData?.length) : t.translation?.length;
+    const subtitle = [isReference ? "UniProt canonical" : t.biotype, aaLength ? `${aaLength.toLocaleString()} aa` : null]
+      .filter(Boolean)
+      .join(" · ");
     return (
       <Box key={t.id} sx={{ display: "flex", alignItems: "center" }}>
-        <Typography variant="caption" sx={{ fontSize: 12, color: displayColor, fontWeight: 700, minWidth: 200, mr: 1, overflow: "hidden", textOverflow: "ellipsis" }} title={`${t.displayName} (${t.id})`}>
-          {t.displayName} ({t.id})
-        </Typography>
+        <Box sx={{ minWidth: 200, mr: 1 }}>
+          <Stack direction="row" spacing={0.5}>
+            {roles.map(role => (
+              <Box key={role} component="span" sx={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", lineHeight: 1.5, color: "common.white", bgcolor: role === "reference" ? REFERENCE_TAG_COLOR : "error.main", borderRadius: 0.5, px: 0.625 }}>
+                {role === "reference" ? "REFERENCE" : "JUNCTION"}
+              </Box>
+            ))}
+          </Stack>
+          <Typography variant="caption" sx={{ display: "block", fontSize: 12, lineHeight: 1.3, mt: 0.25, color: displayColor, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis" }} title={`${t.displayName} (${t.id})`}>
+            {t.displayName} ({t.id})
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", fontSize: 11, lineHeight: 1.3 }}>
+            {subtitle}
+          </Typography>
+        </Box>
         {exonsSvg.length > 0 ? (
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <svg width="100%" height={svgH} viewBox={`0 0 ${W} ${svgH}`} preserveAspectRatio="none">
@@ -743,10 +774,13 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
         <Box sx={{ display: "flex", justifyContent: "center", p: 3 }}>
           <CircularProgress size={24} />
         </Box>
-      ) : highlightedTx ? (
+      ) : (referenceTx || highlightedTx) ? (
         <Box sx={{ mb: 1.5 }}>
-          {renderArcRow(highlightedTx)}
-          {renderDomainRow()}
+          {referenceTx && renderArcRow(referenceTx, referenceTx.id === highlightedTx?.id ? ["reference", "junction"] : ["reference"])}
+          {referenceTx && renderDomainRow()}
+          {highlightedTx && highlightedTx.id !== referenceTx?.id && (
+            <Box sx={{ mt: referenceTx ? 1.5 : 0 }}>{renderArcRow(highlightedTx, ["junction"])}</Box>
+          )}
         </Box>
       ) : null}
 

@@ -1,5 +1,5 @@
 // UniProt protein-domain lookup + AA-to-genomic coordinate mapping, used by
-// TranscriptVis.jsx to draw a domain track under the highlighted transcript.
+// TranscriptVis.jsx to draw a domain track under the reference transcript.
 
 const DOMAIN_COLOURS = [
   "#D55E00", "#009E73", "#0072B2", "#CC79A7",

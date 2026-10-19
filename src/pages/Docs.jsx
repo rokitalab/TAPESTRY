@@ -405,13 +405,17 @@ export default function Docs() {
 
       <Section title="Protein domains">
         <Typography sx={{ mb: 2 }}>
-          When you select a junction on the Explore page, the transcript panel
-          below the plots shows the transcript the junction is annotated to
-          (the transcript named in <Code>junction_name</Code>, e.g.{" "}
-          <Code>UBE3A-201</Code>) with the junction drawn on it. Directly
-          underneath is a <strong>Domains</strong> track showing where that
-          gene&apos;s protein domains fall along the transcript, so you can see
-          whether a splicing event lands in, or removes part of, a known
+          When you select a junction on the Explore page, the top of the
+          transcript panel below the plots shows two rows. The{" "}
+          <strong>Reference</strong> row is the transcript that encodes
+          UniProt&apos;s canonical protein isoform, the sequence UniProt&apos;s
+          domain positions refer to, with a <strong>Domains</strong> track
+          directly underneath. The <strong>Junction</strong> row is the
+          transcript the junction is annotated to (the transcript named in{" "}
+          <Code>junction_name</Code>, e.g. <Code>UBE3A-201</Code>) with the
+          junction drawn on it in red. When the junction is annotated to the
+          reference transcript, one row carries both tags. Comparing the rows
+          shows whether a splicing event lands in, or removes part of, a known
           domain.
         </Typography>
         <List sx={{ listStyleType: "disc", pl: 4, py: 0, mb: 2 }}>
@@ -435,7 +439,7 @@ export default function Docs() {
             <Typography variant="body2">
               <strong>Placement.</strong> UniProt gives domain positions in
               amino acids. TAPESTRY converts them to genomic coordinates by
-              walking the transcript&apos;s coding exons (from Ensembl) from the
+              walking the reference transcript&apos;s coding exons (from Ensembl) from the
               start codon, three nucleotides per residue. A domain that spans
               several exons is drawn as one block from its first to its last
               coding base, including the introns in between.
@@ -443,21 +447,25 @@ export default function Docs() {
           </ListItem>
           <ListItem sx={{ display: "list-item", py: 0.5, pl: 0 }}>
             <Typography variant="body2">
-              <strong>Isoform check.</strong> UniProt positions refer to
-              UniProt&apos;s own canonical isoform. If the transcript shown
-              isn&apos;t that isoform (UniProt doesn&apos;t map it to the
-              canonical isoform, or the protein lengths differ), the track is
-              labeled{" "}
+              <strong>Isoform check.</strong> The reference row is the Ensembl
+              transcript that UniProt maps to its canonical isoform. If that
+              transcript&apos;s protein length differs from UniProt&apos;s, the
+              track is labeled{" "}
               <strong>Domains *</strong> (hover the label for a note) and
-              domain positions may not line up exactly with that transcript.
+              domain positions may not line up exactly.
             </Typography>
           </ListItem>
           <ListItem sx={{ display: "list-item", py: 0.5, pl: 0 }}>
             <Typography variant="body2">
-              <strong>When there is no track.</strong> The track is hidden when
-              the gene has no reviewed UniProt entry or no annotated domains,
-              when the transcript is non-coding, or when UniProt or Ensembl
-              can&apos;t be reached.
+              <strong>When there is no track.</strong> The reference row is
+              shown whenever UniProt maps its canonical isoform to one of the
+              gene&apos;s current Ensembl transcripts; the Domains track under
+              it is hidden when UniProt has no annotated domains for the gene.
+              Without a reviewed UniProt entry, without a mapped transcript, or
+              when UniProt or Ensembl can&apos;t be reached, there is no
+              reference row and the junction row is shown alone. Domains are
+              not drawn on the junction row, because UniProt&apos;s positions
+              only apply to the canonical isoform.
             </Typography>
           </ListItem>
         </List>
