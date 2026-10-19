@@ -162,9 +162,11 @@ export default function Explore() {
       // an infinite (maximally specific) fold-change or SNR, so it always passes.
       if (r.min_cpm_fc_postnatal != null && r.min_cpm_fc_postnatal < fcMin) return false;
       if (r.min_cpm_snr_postnatal != null && r.min_cpm_snr_postnatal < snrMin) return false;
+      // null means the junction is absent from every control matrix (no
+      // control expression), so it always passes the maximum.
       if (maxMeanCpmActive) {
         const v = r.max_mean_cpm_postnatal;
-        if (v == null || v > maxMeanCpmMax) return false;
+        if (v != null && v > maxMeanCpmMax) return false;
       }
       return true;
     });
