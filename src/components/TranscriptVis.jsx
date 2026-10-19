@@ -628,8 +628,6 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
                     y={ARC_H}
                     width={e.width}
                     height={TRACK_H}
-                    rx={4}
-                    ry={4}
                     fill={(isJunctionExon || isSkippedExon) ? hlColour : displayColor}
                     opacity={1}
                     style={{ cursor: "pointer" }}
@@ -650,7 +648,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
   };
 
   const renderCssRow = (t) => {
-    const trackH = 20;
+    const trackH = 14;
     const W = 1000;
     const domain = zoomed && zoomDomain ? zoomDomain : coordDomain;
 
@@ -666,7 +664,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
 
     return (
       <Box key={t.id} sx={{ display: "flex", alignItems: "center" }}>
-        <Typography variant="caption" sx={{ fontSize: 12, color: displayColor, minWidth: 200, mr: 1, overflow: "hidden", textOverflow: "ellipsis" }} title={`${t.displayName} (${t.id})`}>
+        <Typography variant="caption" sx={{ fontSize: 12, lineHeight: 1.2, color: displayColor, minWidth: 200, mr: 1, overflow: "hidden", textOverflow: "ellipsis" }} title={`${t.displayName} (${t.id})`}>
           {t.displayName} ({t.id})
         </Typography>
         {exonsSvg.length > 0 ? (
@@ -690,7 +688,6 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
                   x={e.left} y={1}
                   width={e.width}
                   height={trackH - 2}
-                  rx={3} ry={3}
                   fill={hexToRgba(displayColor, 0.9)}
                   style={{ cursor: "pointer" }}
                   onMouseMove={(ev) => exonMouseMove(ev, t, idx)}
@@ -803,7 +800,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
             )}
           </Box>
           {!loading && (
-            <Stack direction="column" spacing={0.5}>
+            <Stack direction="column" spacing={0.25}>
               {otherTx.map(renderCssRow)}
             </Stack>
           )}
