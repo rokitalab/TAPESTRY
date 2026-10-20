@@ -29,6 +29,18 @@ const CHEVRON_SIZE_PX = 8;
 const CHEVRON_PAD_PX = 3;
 const ROW_LABEL_PX = 208;
 
+// Intron retention junctions ("chr:s1-e1_s2-e2" with e1 === s2) pair an exon
+// piece with the retained intron, meeting at one exon boundary b. Returns the
+// indices of the exons flanking that intron (exons sorted ascending), or -1s
+// when b is not an annotated boundary of this transcript.
+function retainedIntronExons(exons, b) {
+  const endIdx = exons.findIndex(e => e.end === b);
+  if (endIdx >= 0 && endIdx + 1 < exons.length) return { leftExonIdx: endIdx, rightExonIdx: endIdx + 1 };
+  const startIdx = exons.findIndex(e => e.start === b);
+  if (startIdx > 0) return { leftExonIdx: startIdx - 1, rightExonIdx: startIdx };
+  return { leftExonIdx: -1, rightExonIdx: -1 };
+}
+
 export default function TranscriptVis({ geneID, geneName = null, strand = "+", highlightedTranscript = null, highlightedTranscriptId = null, junctionCoords = null, junctionName = null, junctionString = null }) {
   const [txList, setTxList] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -290,6 +302,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
   const junctionExonIndices = useMemo(() => {
     const ht = junctionTx;
     if (!ht?.exons?.length || !junctionCoords) return { leftExonIdx: -1, rightExonIdx: -1 };
+    if (junctionCoords.eventType === "intron retention") return retainedIntronExons(ht.exons, junctionCoords.donorSite);
     const MAX_DIST = 2000;
     const lm = ht.exons.reduce((b, e, i) => { const d = Math.abs(e.end   - junctionCoords.donorSite);    return d < b.d ? { idx: i, d } : b; }, { idx: -1, d: Infinity });
     const rm = ht.exons.reduce((b, e, i) => { const d = Math.abs(e.start - junctionCoords.acceptorSite); return d < b.d ? { idx: i, d } : b; }, { idx: -1, d: Infinity });
@@ -517,7 +530,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
   // ‹ on the minus strand, › on the plus strand.
   const renderChevrons = (xs, centerY, colour) => xs.map(x => (
     <Box key={x} component="svg" aria-hidden="true" viewBox="0 0 8 8"
-      sx={{ position: "absolute", left: x, top: centerY - CHEVRON_SIZE_PX / 2, width: CHEVRON_SIZE_PX, height: CHEVRON_SIZE_PX, pointerEvents: "none" }}>
+      sx={{ position: "absolute", left: x, top: centerY - CHEVRON_SIZE_PX / 2, width: CHEVRON_SIZE_PX, height: CHEVRON_SIZE_PX, opacity: 0.6, pointerEvents: "none" }}>
       <path d={effStrand === "-" ? "M6 1L3 4l3 3" : "M2 1l3 3-3 3"} fill="none" stroke={colour}
         strokeWidth={1.3} strokeLinecap="round" strokeLinejoin="round" />
     </Box>
@@ -544,7 +557,9 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
     // Match junction donor/acceptor to nearest exon boundary (within 2000 bp)
     let leftExonIdx = -1;
     let rightExonIdx = -1;
-    if (jc && t.exons?.length) {
+    if (jc?.eventType === "intron retention" && t.exons?.length) {
+      ({ leftExonIdx, rightExonIdx } = retainedIntronExons(t.exons, jc.donorSite));
+    } else if (jc && t.exons?.length) {
       const MAX_DIST = 2000;
       const lm = t.exons.reduce((b, e, i) => { const d = Math.abs(e.end   - jc.donorSite);    return d < b.d ? { idx: i, d } : b; }, { idx: -1, d: Infinity });
       const rm = t.exons.reduce((b, e, i) => { const d = Math.abs(e.start - jc.acceptorSite); return d < b.d ? { idx: i, d } : b; }, { idx: -1, d: Infinity });
@@ -780,7 +795,8 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
                 />
               ))}
             </svg>
-            {renderChevrons(chevronPositions(exonsSvg, W), trackH / 2, displayColor)}
+            {/* The inline svg sits ~3px below the Box top (text baseline); offset to match. */}
+            {renderChevrons(chevronPositions(exonsSvg, W), trackH / 2 + 3, displayColor)}
           </Box>
         ) : (
           <Box sx={{ display: "inline-block", ml: 1, px: 0.5, border: "1px solid", borderColor: "divider", borderRadius: 0.5, fontSize: 11, lineHeight: 1.4, color: "text.secondary", bgcolor: "background.paper" }}>
