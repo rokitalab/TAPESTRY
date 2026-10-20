@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Box, Button, CircularProgress, Divider, Typography, Stack, Chip, Tooltip } from "@mui/material";
-import { useTheme } from "@mui/material/styles";
+import { alpha, useTheme } from "@mui/material/styles";
 import { colourForBiotype, hexToRgba } from "./lib/biotypeColors";
 import { fetchUniProtDomains, mapDomainsToGenomicSegments, stripVersion, colourForDomainIndex } from "./lib/proteinDomains";
 
@@ -540,6 +540,9 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
     const jc = roles.includes("junction") ? junctionCoords : null;
     const TRACK_H = 18;
     const W = 1000;
+    // 2 px expressed in viewBox units, the minimum width of a kept-intron or
+    // spliced-out mark so short ones stay visible at full-gene zoom.
+    const minMarkW = trackPx ? (2 * W) / trackPx : 2;
     const hlColour = theme.palette.error.main;
     const domain = zoomed && zoomDomain ? zoomDomain : coordDomain;
 
@@ -608,12 +611,31 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
       if (canonEnd != null && jc.donorSite > canonEnd + 5) {
         const r1 = ((canonEnd - domain.min) / domain.span) * W;
         const r2 = ((jc.donorSite - domain.min) / domain.span) * W;
-        intronicRects.push({ x: r1, width: Math.max(2, r2 - r1) });
+        intronicRects.push({ x: r1, width: Math.max(minMarkW, r2 - r1) });
       }
       if (canonStart != null && jc.acceptorSite < canonStart - 5) {
         const r1 = ((jc.acceptorSite - domain.min) / domain.span) * W;
         const r2 = ((canonStart - domain.min) / domain.span) * W;
-        intronicRects.push({ x: r1, width: Math.max(2, r2 - r1) });
+        intronicRects.push({ x: r1, width: Math.max(minMarkW, r2 - r1) });
+      }
+    }
+
+    // Exonic material the junction splices out: a site more than 5 bp inside a
+    // flanking exon (exon shortened). Hatched over the exon, from the site to the
+    // annotated edge; at least 2 px wide, growing from the exon edge into the exon.
+    const shortenedMarks = [];
+    if (hasJunction && !isIR && rightExonIdx > leftExonIdx && domain && trackPx) {
+      const scale = trackPx / W;
+      const toPx = (pos) => ((pos - domain.min) / domain.span) * W * scale;
+      const canonEnd   = t.exons[leftExonIdx]?.end;
+      const canonStart = t.exons[rightExonIdx]?.start;
+      if (canonEnd != null && jc.donorSite < canonEnd - 5 && jc.donorSite >= t.exons[leftExonIdx].start) {
+        const edge = toPx(canonEnd), w = Math.max(2, edge - toPx(jc.donorSite));
+        shortenedMarks.push({ left: edge - w, width: w });
+      }
+      if (canonStart != null && jc.acceptorSite > canonStart + 5 && jc.acceptorSite <= t.exons[rightExonIdx].end) {
+        const edge = toPx(canonStart), w = Math.max(2, toPx(jc.acceptorSite) - edge);
+        shortenedMarks.push({ left: edge, width: w });
       }
     }
 
@@ -669,11 +691,12 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
               {/* Junction arcs (skipped for intron retention) — all visible, junction-of-interest in red. */}
               {!isIR && exonsSvg.slice(0, -1).map((e, i) => {
                 const next = exonsSvg[i + 1];
-                const x1 = e.left + e.width;
-                const x2 = next.left;
-                if (Math.abs(x2 - x1) < 2) return null;
-                // For SE the skipping arc is drawn separately below; adjacent arcs use normal colour
+                // For SE the skipping arc is drawn separately below; adjacent arcs use normal colour.
+                // The junction's own arc runs between its real splice sites.
                 const isJunctionArc = hasJunction && !isSE && i === leftExonIdx && i + 1 === rightExonIdx;
+                const x1 = isJunctionArc ? junctionX1 : e.left + e.width;
+                const x2 = isJunctionArc ? junctionX2 : next.left;
+                if (Math.abs(x2 - x1) < 2) return null;
                 const midX = (x1 + x2) / 2;
                 const peakY = isJunctionArc ? ARC_H * 0.2 : ARC_H * 0.6;
                 const d = `M ${x1},${ARC_H} Q ${midX},${peakY} ${x2},${ARC_H}`;
@@ -693,8 +716,8 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
 
               {/* Exon-skipping arc — endpoints, peaks near the top of the taller arc area */}
               {isSE && hasJunction && exonsSvg[leftExonIdx] && exonsSvg[rightExonIdx] && (() => {
-                const x1 = exonsSvg[leftExonIdx].left + exonsSvg[leftExonIdx].width;
-                const x2 = exonsSvg[rightExonIdx].left;
+                const x1 = junctionX1;
+                const x2 = junctionX2;
                 if (Math.abs(x2 - x1) < 2) return null;
                 const midX = (x1 + x2) / 2;
                 const d = `M ${x1},${ARC_H} Q ${midX},${ARC_H * 0.1} ${x2},${ARC_H}`;
@@ -737,6 +760,12 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
               })}
             </svg>
             {renderChevrons(chevronPositions(exonsSvg, W), ARC_H + TRACK_H / 2, displayColor)}
+            {/* Spliced-out part of a shortened exon — white stripes over the exon */}
+            {shortenedMarks.map((m, i) => (
+              <Box key={`short-${i}`} aria-hidden="true"
+                sx={{ position: "absolute", left: m.left, width: m.width, top: ARC_H, height: TRACK_H, pointerEvents: "none",
+                  background: `repeating-linear-gradient(135deg, ${alpha(theme.palette.background.paper, 0.85)} 0 3px, transparent 3px 6px)` }} />
+            ))}
           </Box>
         ) : (
           <Box sx={{ display: "inline-block", ml: 1, px: 0.5, border: "1px solid", borderColor: "divider", borderRadius: 0.5, fontSize: 11, lineHeight: 1.4, color: "text.secondary", bgcolor: "background.paper" }}>
