@@ -4,6 +4,8 @@
 // a different name in the UI, add it to HISTOLOGY_LABELS rather than renaming
 // a key here.
 // "Oligodendroglioma" uses CSS named color "tan" (#D2B48C) in the source file.
+// "Rare CNS tumor" is #b5b5b5 in the source file; it's overridden here so it
+// doesn't look like the gray fallback used for unknown groups.
 export const HISTOLOGY_COLORS = {
   "Atypical Teratoid Rhabdoid Tumor": "#4d0d85",
   "Choroid plexus tumor":             "#00441B",
@@ -22,7 +24,7 @@ export const HISTOLOGY_COLORS = {
   "Other CNS embryonal tumor":        "#b08ccf",
   "Other high-grade glioma":          "#ffccf5",
   "Pineoblastoma":                    "#FF2900",
-  "Rare CNS tumor":                   "#b5b5b5",
+  "Rare CNS tumor":                   "#9F0B62",
   "Schwannoma/MPNST":                 "#ab7200",
 };
 

@@ -12,6 +12,9 @@ export const RELEASES = [
       "Oncofetal definition updated. A tumor-enriched junction is now called oncofetal when at least one prenatal evo-devo region/week-bin group has a minimum prenatal-to-postnatal fold change greater than 2 and a minimum SNR greater than 2 against every postnatal region/stage group. Tumor-enriched junctions that do not meet this are shown as Tumor-enriched. The call is made per junction.",
       "New histology groups: Rare CNS tumor (48 samples) and Pineoblastoma (12). Other CNS embryonal tumor (now 27 samples) was re-split, Schwannoma is now Schwannoma/MPNST, and the \"Other tumor\" group was removed. The cohort now has 1,962 PBTA RNA-seq specimens across 19 histology groups.",
       "Docs: updated glossary and methods text for the new definition, added a table of contents, a protein domains section, a link to the pbta-tumor-enriched-junctions repository, and this release notes page.",
+      "Explore: new \"Include no control expression\" switch. Turn it off to hide the 13,734 junctions with no expression in any prenatal or postnatal control cohort, which are the most tumor-specific but may include technical artifacts.",
+      "Protein domains: domains are now drawn on the transcript that encodes UniProt's canonical isoform (Reference row), above the transcript the junction is annotated to (Junction row). The junction's transcript is matched by Ensembl transcript ID, so junctions at novel splice sites now show it.",
+      "Fixes: the Max mean CPM filter no longer drops junctions with no control expression, and switching CPM plot tabs no longer leaves the plot empty.",
     ],
   },
   {

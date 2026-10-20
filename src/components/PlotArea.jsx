@@ -973,18 +973,17 @@ export default function PlotArea({
     return groups;
   }, [groups, activeTab]);
 
-  // Reset the sample selection to the tab's defaults when the available group
-  // keys change (new junction data or tab switch). A sort-mode change reorders
-  // groups without adding or removing any, so we compare sorted key fingerprints
-  // and skip the reset when only order changed.
-  const [prevTabGroups, setPrevTabGroups] = useState(tabGroups);
-  if (tabGroups !== prevTabGroups) {
-    setPrevTabGroups(tabGroups);
-    const prevKeys = prevTabGroups.map((g) => g.key).sort().join("\0");
-    const nextKeys = tabGroups.map((g) => g.key).sort().join("\0");
-    if (prevKeys !== nextKeys) {
-      setSelectedGroups(new Set(defaultGroupsForTab(tabGroups, activeTab).map((g) => g.key)));
-    }
+  // Reset the sample selection to the tab's defaults when the tab changes or
+  // the available group keys change (new junction data). A sort-mode change
+  // reorders groups without adding or removing any, so the fingerprint uses
+  // sorted keys and skips the reset when only order changed. The tab is part
+  // of the fingerprint because some tabs list the same groups (Primary Tumors
+  // and Evo-Devo both list only tumor groups) but have different defaults.
+  const selectionKey = `${activeTab}|${tabGroups.map((g) => g.key).sort().join("\0")}`;
+  const [prevSelectionKey, setPrevSelectionKey] = useState(selectionKey);
+  if (selectionKey !== prevSelectionKey) {
+    setPrevSelectionKey(selectionKey);
+    setSelectedGroups(new Set(defaultGroupsForTab(tabGroups, activeTab).map((g) => g.key)));
   }
 
   const visibleGroups = useMemo(
