@@ -342,7 +342,7 @@ function BarChartCard({ title, children }) {
 export default function HistologySummary() {
   const [histologyData, setHistologyData] = useState([]);
   const [geneData, setGeneData] = useState([]);
-  const [tejData, setTejData] = useState([]);
+  const [tejSummary, setTejSummary] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const fetchJson = (path) =>
@@ -355,12 +355,12 @@ export default function HistologySummary() {
     Promise.allSettled([
       fetchJson("/summary-histology-view/"),
       fetchJson("/summary-gene-view/"),
-      fetchJson("/tej-view/"),
+      fetchJson("/summary-tej-view/"),
     ])
       .then(([histResult, geneResult, tejResult]) => {
         if (histResult.status === "fulfilled") setHistologyData(histResult.value);
         if (geneResult.status === "fulfilled") setGeneData(geneResult.value);
-        if (tejResult.status  === "fulfilled") setTejData(tejResult.value);
+        if (tejResult.status  === "fulfilled") setTejSummary(tejResult.value);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -368,11 +368,11 @@ export default function HistologySummary() {
   const totals = useMemo(
     () => ({
       histologies: histologyData.length,
-      junctions: tejData.length,
+      junctions: tejSummary?.num_junctions ?? 0,
       genes: geneData.length,
       samples: histologyData.reduce((s, r) => s + r.num_samples, 0),
     }),
-    [histologyData, geneData]
+    [histologyData, geneData, tejSummary]
   );
 
   const samplesByHistology = useMemo(
@@ -388,26 +388,18 @@ export default function HistologySummary() {
     [histologyData]
   );
 
-  const oncofetalCount = useMemo(
-    () =>
-      tejData.filter((row) => String(row.junction_preference).toLowerCase() === "oncofetal")
-        .length,
-    [tejData]
-  );
+  const oncofetalCount = tejSummary?.num_oncofetal ?? 0;
 
-  const tejByEventType = useMemo(() => {
-    const counts = {};
-    for (const row of tejData) {
-      counts[row.event_type] = (counts[row.event_type] ?? 0) + 1;
-    }
-    return Object.entries(counts)
-      .sort(([, a], [, b]) => b - a)
-      .map(([label, value], i) => ({
-        label: EVENT_TYPE_LABELS[label] ?? label,
-        value,
-        color: EVENT_TYPE_COLORS[label] ?? EVENT_TYPE_FALLBACK[i % EVENT_TYPE_FALLBACK.length],
-      }));
-  }, [tejData]);
+  // Counts arrive sorted largest first from /summary-tej-view/.
+  const tejByEventType = useMemo(
+    () =>
+      (tejSummary?.event_types ?? []).map(({ event_type, num_junctions }, i) => ({
+        label: EVENT_TYPE_LABELS[event_type] ?? event_type,
+        value: num_junctions,
+        color: EVENT_TYPE_COLORS[event_type] ?? EVENT_TYPE_FALLBACK[i % EVENT_TYPE_FALLBACK.length],
+      })),
+    [tejSummary]
+  );
 
   const tejsPerSample = useMemo(
     () =>
