@@ -20,7 +20,7 @@ function parseTranslation(raw) {
 // Background of the REFERENCE tag on the reference transcript's label.
 const REFERENCE_TAG_COLOR = "#4a5562";
 
-export default function TranscriptVis({ geneID, geneName = null, strand = "+", highlightedTranscript = null, junctionCoords = null, junctionName = null, junctionString = null }) {
+export default function TranscriptVis({ geneID, geneName = null, strand = "+", highlightedTranscript = null, highlightedTranscriptId = null, junctionCoords = null, junctionName = null, junctionString = null }) {
   const [txList, setTxList] = useState([]);
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState(null);
@@ -262,10 +262,24 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
     });
   }, [txList, activeBiotypes, canonicalOnly]);
 
+  // The junction's transcript, from all transcripts (not just the visible ones).
+  // Matched by Ensembl ID with the version stripped, which survives renamed or
+  // prefixed names (e.g. "novel_donor:NT5C2-201"); falls back to the display name
+  // parsed from junction_name when there is no ID or Ensembl no longer has it.
+  // For a junction spanning two transcripts ("A;B"), the first ID found is used.
+  const junctionTx = useMemo(() => {
+    const ids = (highlightedTranscriptId ?? "").split(";").map(stripVersion).filter(Boolean);
+    for (const id of ids) {
+      const t = txList.find(t => stripVersion(t.id) === id);
+      if (t) return t;
+    }
+    return highlightedTranscript ? txList.find(t => t.displayName === highlightedTranscript) ?? null : null;
+  }, [txList, highlightedTranscriptId, highlightedTranscript]);
+
   // Exon indices in the highlighted transcript that bracket the junction of interest,
   // computed here so zoomDomain can be derived without re-running inside renderArcRow.
   const junctionExonIndices = useMemo(() => {
-    const ht = highlightedTranscript ? txList.find(t => t.displayName === highlightedTranscript) ?? null : null;
+    const ht = junctionTx;
     if (!ht?.exons?.length || !junctionCoords) return { leftExonIdx: -1, rightExonIdx: -1 };
     const MAX_DIST = 2000;
     const lm = ht.exons.reduce((b, e, i) => { const d = Math.abs(e.end   - junctionCoords.donorSite);    return d < b.d ? { idx: i, d } : b; }, { idx: -1, d: Infinity });
@@ -274,7 +288,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
       leftExonIdx:  lm.d <= MAX_DIST ? lm.idx : -1,
       rightExonIdx: rm.d <= MAX_DIST ? rm.idx : -1,
     };
-  }, [txList, highlightedTranscript, junctionCoords]);
+  }, [junctionTx, junctionCoords]);
 
   // Genomic window covering the red region (flanking exons + padding) used for zoom mode.
   // Falls back to raw junction coordinates when exon boundary matching fails (non-annotated
@@ -284,7 +298,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
 
     const { leftExonIdx, rightExonIdx } = junctionExonIndices;
     if (leftExonIdx >= 0 && rightExonIdx >= 0) {
-      const ht = txList.find(t => t.displayName === highlightedTranscript) ?? null;
+      const ht = junctionTx;
       const leftExon  = ht?.exons?.[leftExonIdx];
       const rightExon = ht?.exons?.[rightExonIdx];
       if (leftExon && rightExon) {
@@ -303,7 +317,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
     const max = Math.min(coordDomain.max, hi + pad);
     if (max <= min) return null;
     return { min, max, span: max - min };
-  }, [junctionExonIndices, coordDomain, txList, highlightedTranscript, junctionCoords]);
+  }, [junctionExonIndices, coordDomain, junctionTx, junctionCoords]);
 
   const [zoomed, setZoomed] = useState(false);
 
@@ -337,9 +351,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
       y: e.clientY - rect.top,
     });
   };
-  const highlightedTx = highlightedTranscript
-    ? visible.find((t) => t.displayName === highlightedTranscript) ?? null
-    : null;
+  const highlightedTx = junctionTx && visible.includes(junctionTx) ? junctionTx : null;
   const otherTx = visible;
 
   // UniProt protein-domain lookup for the gene, used to draw a domain track

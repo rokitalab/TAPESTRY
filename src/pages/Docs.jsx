@@ -411,8 +411,8 @@ export default function Docs() {
           UniProt&apos;s canonical protein isoform, the sequence UniProt&apos;s
           domain positions refer to, with a <strong>Domains</strong> track
           directly underneath. The <strong>Junction</strong> row is the
-          transcript the junction is annotated to (the transcript named in{" "}
-          <Code>junction_name</Code>, e.g. <Code>UBE3A-201</Code>) with the
+          transcript the junction is annotated to (matched by its Ensembl
+          transcript ID, e.g. <Code>UBE3A-201</Code>, <Code>ENST00000566215</Code>) with the
           junction drawn on it in red. When the junction is annotated to the
           reference transcript, one row carries both tags. Comparing the rows
           shows whether a splicing event lands in, or removes part of, a known

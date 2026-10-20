@@ -928,6 +928,7 @@ export default function Explore() {
             geneName={txGene}
             strand={selectedRow?.strand ?? "+"}
             highlightedTranscript={highlightedTranscript}
+            highlightedTranscriptId={selectedRow?.transcript_id ?? null}
             junctionCoords={junctionCoords}
             junctionName={selectedRow?.junction_name ?? null}
             junctionString={selectedRow?.junction ?? null}
