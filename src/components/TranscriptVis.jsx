@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Box, Button, CircularProgress, Divider, Typography, Stack, Chip } from "@mui/material";
+import { Alert, Box, Button, CircularProgress, Divider, Typography, Stack, Chip, Tooltip } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import { colourForBiotype, hexToRgba } from "./lib/biotypeColors";
 import { fetchUniProtDomains, mapDomainsToGenomicSegments, stripVersion, colourForDomainIndex } from "./lib/proteinDomains";
@@ -19,6 +19,15 @@ function parseTranslation(raw) {
 
 // Background of the REFERENCE tag on the reference transcript's label.
 const REFERENCE_TAG_COLOR = "#4a5562";
+
+// Direction chevrons on intron lines: one shared column every CHEVRON_STEP_PX
+// across the track so they line up between rows, skipped wherever a chevron
+// would come within CHEVRON_PAD_PX of an exon. ROW_LABEL_PX is the fixed row
+// label width (200) plus its right margin (8), so every track is the same width.
+const CHEVRON_STEP_PX = 40;
+const CHEVRON_SIZE_PX = 8;
+const CHEVRON_PAD_PX = 3;
+const ROW_LABEL_PX = 208;
 
 export default function TranscriptVis({ geneID, geneName = null, strand = "+", highlightedTranscript = null, highlightedTranscriptId = null, junctionCoords = null, junctionName = null, junctionString = null }) {
   const [txList, setTxList] = useState([]);
@@ -331,6 +340,17 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
   const theme = useTheme();
   const canonicalColor = theme.palette.mode === "dark" ? "#ffffff" : "#000000";
   const containerRef = useRef(null);
+
+  // Track width in px (the panel minus the row label), for placing fixed-size
+  // chevrons over the tracks' stretched SVGs.
+  const [trackPx, setTrackPx] = useState(0);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(([entry]) => setTrackPx(Math.max(0, entry.contentRect.width - ROW_LABEL_PX)));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const [hoveredExon, setHoveredExon] = useState(null);
 
   const effStrand = apiStrand ?? strand ?? "+";
@@ -433,7 +453,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
         const gEnd   = Math.max(...d.segments.map(s => s.end));
         const l = ((gStart - domain.min) / domain.span) * W;
         const r = ((gEnd   - domain.min) / domain.span) * W;
-        const left = effStrand === "-" ? W - r : l;
+        const left = l;
         const rects = [{ left, width: Math.max(2, r - l) }]
           .filter(rect => rect.left + rect.width > 0 && rect.left < W);
         return { ...d, colour: colourForDomainIndex(i), rects };
@@ -446,7 +466,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
       <Box sx={{ display: "flex", alignItems: "center", mt: 0.5 }}>
         <Typography
           variant="caption"
-          sx={{ fontSize: 11, color: "text.secondary", minWidth: 200, mr: 1 }}
+          sx={{ fontSize: 11, color: "text.secondary", width: 200, flexShrink: 0, mr: 1 }}
           title={isoformVerified === false ? "This transcript's protein length differs from UniProt's canonical isoform — domain positions may not align exactly." : undefined}
         >
           Domains{isoformVerified === false ? " *" : ""}
@@ -478,6 +498,31 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
 
   // roles: "reference" and/or "junction", shown as tags on the label. The
   // junction is only drawn on rows with the "junction" role.
+  // Chevron positions (px from the track's left edge) for one row: the shared
+  // columns that lie on the row's intron line and clear of all its exons.
+  const chevronPositions = (exonsSvg, W) => {
+    if (!trackPx || strandLabel === "?" || exonsSvg.length < 2) return [];
+    const scale = trackPx / W;
+    const ex = exonsSvg.map(e => ({ l: e.left * scale, r: (e.left + e.width) * scale }));
+    const lo = Math.min(...ex.map(e => e.l));
+    const hi = Math.max(...ex.map(e => e.r));
+    const xs = [];
+    for (let x = CHEVRON_STEP_PX / 2; x + CHEVRON_SIZE_PX <= trackPx; x += CHEVRON_STEP_PX) {
+      if (x < lo || x + CHEVRON_SIZE_PX > hi) continue;
+      if (ex.some(e => x + CHEVRON_SIZE_PX + CHEVRON_PAD_PX > e.l && x - CHEVRON_PAD_PX < e.r)) continue;
+      xs.push(x);
+    }
+    return xs;
+  };
+  // ‹ on the minus strand, › on the plus strand.
+  const renderChevrons = (xs, centerY, colour) => xs.map(x => (
+    <Box key={x} component="svg" aria-hidden="true" viewBox="0 0 8 8"
+      sx={{ position: "absolute", left: x, top: centerY - CHEVRON_SIZE_PX / 2, width: CHEVRON_SIZE_PX, height: CHEVRON_SIZE_PX, pointerEvents: "none" }}>
+      <path d={effStrand === "-" ? "M6 1L3 4l3 3" : "M2 1l3 3-3 3"} fill="none" stroke={colour}
+        strokeWidth={1.3} strokeLinecap="round" strokeLinejoin="round" />
+    </Box>
+  ));
+
   const renderArcRow = (t, roles = ["junction"]) => {
     const jc = roles.includes("junction") ? junctionCoords : null;
     const TRACK_H = 18;
@@ -485,11 +530,13 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
     const hlColour = theme.palette.error.main;
     const domain = zoomed && zoomDomain ? zoomDomain : coordDomain;
 
+    // Drawn in genomic order (coordinates increase left to right) on both
+    // strands, matching junction_name and the Junction Expression gene model.
     const exonsSvg = domain && t.exons?.length
       ? t.exons.map((e) => {
           const l = ((e.start - domain.min) / domain.span) * W;
           const r = ((e.end   - domain.min) / domain.span) * W;
-          const left = effStrand === "-" ? W - r : l;
+          const left = l;
           return { left, width: Math.max(2, r - l) };
         })
       : [];
@@ -514,8 +561,8 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
     if (jc && domain) {
       const rawDonor    = ((jc.donorSite    - domain.min) / domain.span) * W;
       const rawAcceptor = ((jc.acceptorSite - domain.min) / domain.span) * W;
-      junctionX1 = effStrand === "-" ? W - rawAcceptor : rawDonor;
-      junctionX2 = effStrand === "-" ? W - rawDonor    : rawAcceptor;
+      junctionX1 = rawDonor;
+      junctionX2 = rawAcceptor;
     }
     const hasCoordJunction = junctionX1 !== null && Math.abs(junctionX2 - junctionX1) >= 2;
 
@@ -534,7 +581,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
       if (canonEnd != null && canonStart != null) {
         const r1 = ((canonEnd   - domain.min) / domain.span) * W;
         const r2 = ((canonStart - domain.min) / domain.span) * W;
-        irX = effStrand === "-" ? W - r2 : r1;
+        irX = r1;
         irW = Math.max(2, r2 - r1);
       }
     }
@@ -546,12 +593,12 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
       if (canonEnd != null && jc.donorSite > canonEnd + 5) {
         const r1 = ((canonEnd - domain.min) / domain.span) * W;
         const r2 = ((jc.donorSite - domain.min) / domain.span) * W;
-        intronicRects.push({ x: effStrand === "-" ? W - r2 : r1, width: Math.max(2, r2 - r1) });
+        intronicRects.push({ x: r1, width: Math.max(2, r2 - r1) });
       }
       if (canonStart != null && jc.acceptorSite < canonStart - 5) {
         const r1 = ((jc.acceptorSite - domain.min) / domain.span) * W;
         const r2 = ((canonStart - domain.min) / domain.span) * W;
-        intronicRects.push({ x: effStrand === "-" ? W - r2 : r1, width: Math.max(2, r2 - r1) });
+        intronicRects.push({ x: r1, width: Math.max(2, r2 - r1) });
       }
     }
 
@@ -563,7 +610,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
       .join(" · ");
     return (
       <Box key={t.id} sx={{ display: "flex", alignItems: "center" }}>
-        <Box sx={{ minWidth: 200, mr: 1 }}>
+        <Box sx={{ width: 200, flexShrink: 0, mr: 1 }}>
           <Stack direction="row" spacing={0.5}>
             {roles.map(role => (
               <Box key={role} component="span" sx={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", lineHeight: 1.5, color: "common.white", bgcolor: role === "reference" ? REFERENCE_TAG_COLOR : "error.main", borderRadius: 0.5, px: 0.625 }}>
@@ -579,7 +626,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
           </Typography>
         </Box>
         {exonsSvg.length > 0 ? (
-          <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Box sx={{ flex: 1, minWidth: 0, position: "relative" }}>
             <svg width="100%" height={svgH} viewBox={`0 0 ${W} ${svgH}`} preserveAspectRatio="none">
 
               {/* Intron backbone line — drawn first so everything renders on top */}
@@ -604,13 +651,11 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
                 <rect key={`intron-${i}`} x={r.x} y={ARC_H} width={r.width} height={TRACK_H} fill={hlColour} opacity={0.3} />
               ))}
 
-              {/* Junction arcs (skipped for intron retention) — all visible, junction-of-interest in red.
-                  On - strand exonsSvg[i] is the genomically-lower exon (rightmost visually) so the
-                  intron-facing edges are left of [i] and right of [i+1], not right of [i] and left of [i+1]. */}
+              {/* Junction arcs (skipped for intron retention) — all visible, junction-of-interest in red. */}
               {!isIR && exonsSvg.slice(0, -1).map((e, i) => {
                 const next = exonsSvg[i + 1];
-                const x1 = effStrand === "-" ? next.left + next.width : e.left + e.width;
-                const x2 = effStrand === "-" ? e.left : next.left;
+                const x1 = e.left + e.width;
+                const x2 = next.left;
                 if (Math.abs(x2 - x1) < 2) return null;
                 // For SE the skipping arc is drawn separately below; adjacent arcs use normal colour
                 const isJunctionArc = hasJunction && !isSE && i === leftExonIdx && i + 1 === rightExonIdx;
@@ -631,14 +676,10 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
                 );
               })}
 
-              {/* Exon-skipping arc — strand-aware endpoints, peaks near the top of the taller arc area */}
+              {/* Exon-skipping arc — endpoints, peaks near the top of the taller arc area */}
               {isSE && hasJunction && exonsSvg[leftExonIdx] && exonsSvg[rightExonIdx] && (() => {
-                const x1 = effStrand === "-"
-                  ? exonsSvg[rightExonIdx].left + exonsSvg[rightExonIdx].width
-                  : exonsSvg[leftExonIdx].left  + exonsSvg[leftExonIdx].width;
-                const x2 = effStrand === "-"
-                  ? exonsSvg[leftExonIdx].left
-                  : exonsSvg[rightExonIdx].left;
+                const x1 = exonsSvg[leftExonIdx].left + exonsSvg[leftExonIdx].width;
+                const x2 = exonsSvg[rightExonIdx].left;
                 if (Math.abs(x2 - x1) < 2) return null;
                 const midX = (x1 + x2) / 2;
                 const d = `M ${x1},${ARC_H} Q ${midX},${ARC_H * 0.1} ${x2},${ARC_H}`;
@@ -680,6 +721,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
                 );
               })}
             </svg>
+            {renderChevrons(chevronPositions(exonsSvg, W), ARC_H + TRACK_H / 2, displayColor)}
           </Box>
         ) : (
           <Box sx={{ display: "inline-block", ml: 1, px: 0.5, border: "1px solid", borderColor: "divider", borderRadius: 0.5, fontSize: 11, lineHeight: 1.4, color: "text.secondary", bgcolor: "background.paper" }}>
@@ -700,18 +742,18 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
       ? t.exons.map(e => {
           const l = ((e.start - domain.min) / domain.span) * W;
           const r = ((e.end   - domain.min) / domain.span) * W;
-          const left = effStrand === "-" ? W - r : l;
+          const left = l;
           return { left, width: Math.max(2, r - l) };
         })
       : [];
 
     return (
       <Box key={t.id} sx={{ display: "flex", alignItems: "center" }}>
-        <Typography variant="caption" sx={{ fontSize: 12, lineHeight: 1.2, color: displayColor, minWidth: 200, mr: 1, overflow: "hidden", textOverflow: "ellipsis" }} title={`${t.displayName} (${t.id})`}>
+        <Typography variant="caption" sx={{ fontSize: 12, lineHeight: 1.2, color: displayColor, width: 200, flexShrink: 0, mr: 1, overflow: "hidden", textOverflow: "ellipsis" }} title={`${t.displayName} (${t.id})`}>
           {t.displayName} ({t.id})
         </Typography>
         {exonsSvg.length > 0 ? (
-          <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Box sx={{ flex: 1, minWidth: 0, position: "relative" }}>
             <svg width="100%" height={trackH} viewBox={`0 0 ${W} ${trackH}`} preserveAspectRatio="none">
               {exonsSvg.length >= 2 && (() => {
                 const minLeft = Math.min(...exonsSvg.map(e => e.left));
@@ -738,6 +780,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
                 />
               ))}
             </svg>
+            {renderChevrons(chevronPositions(exonsSvg, W), trackH / 2, displayColor)}
           </Box>
         ) : (
           <Box sx={{ display: "inline-block", ml: 1, px: 0.5, border: "1px solid", borderColor: "divider", borderRadius: 0.5, fontSize: 11, lineHeight: 1.4, color: "text.secondary", bgcolor: "background.paper" }}>
@@ -765,6 +808,14 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
                 <Typography variant="body2" color="text.secondary">
                   {junctionCoords.eventType}
                 </Typography>
+              )}
+              {strandLabel !== "?" && (
+                <Tooltip arrow title={effStrand === "-"
+                  ? "Minus strand: transcribed right to left in this view, so exon 1 is on the right."
+                  : "Plus strand: transcribed left to right, so exon 1 is on the left."}>
+                  <Chip size="small" label={`strand: ${strandLabel}`}
+                    sx={{ alignSelf: "center", fontWeight: 500, bgcolor: hexToRgba(theme.palette.primary.main, 0.12), color: theme.palette.mode === "dark" ? "primary.light" : "primary.dark", cursor: "help" }} />
+                </Tooltip>
               )}
             </Stack>
             {junctionString && (
@@ -813,7 +864,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
             </Typography>
             {geneID && (
               <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.25 }}>
-                {geneID} (strand: {strandLabel})
+                {geneID}{!(junctionName || junctionCoords?.eventType) && ` (strand: ${strandLabel})`}
               </Typography>
             )}
             {(legendItems.length > 0 || txList.some(t => t.isCanonical)) && (
