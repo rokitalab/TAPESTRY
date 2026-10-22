@@ -43,6 +43,10 @@ import GeneModelGtex from "../components/GeneModelGtex";
 
 const API_BASE = (import.meta.env.VITE_API_BASE || "/tapestry-api").replace(/\/$/, "");
 
+// Gene symbol → Ensembl gene ID, kept for the page session so reselecting a
+// gene (or returning to Explore) doesn't repeat the xrefs lookup.
+const ensgCache = new Map();
+
 
 // Slider bounds for the tumor-enrichment metrics. FC and SNR can't go below
 // the minimum threshold of 5; defaults sit at the lower bounds.
@@ -407,23 +411,25 @@ export default function Explore() {
     [tumorSamples]
   );
 
-  // Resolve gene symbol → Ensembl gene ID for TranscriptVis
-  const [ensgId, setEnsgId] = useState(null);
-  const [ensgError, setEnsgError] = useState(null);
+  // Resolve gene symbol → Ensembl gene ID for TranscriptVis. Cached IDs are
+  // applied during render; only uncached symbols hit Ensembl.
   const txGene = selectedRow?.gene_symbol ?? null;
+  const [ensgId, setEnsgId] = useState(() => ensgCache.get(txGene) ?? null);
+  const [ensgError, setEnsgError] = useState(null);
   const [prevTxGene, setPrevTxGene] = useState(txGene);
   if (txGene !== prevTxGene) {
     setPrevTxGene(txGene);
-    setEnsgId(null);
+    setEnsgId(ensgCache.get(txGene) ?? null);
     setEnsgError(null);
   }
 
   useEffect(() => {
-    if (!txGene) return;
+    if (!txGene || ensgCache.has(txGene)) return;
+    const controller = new AbortController();
     let active = true;
     fetch(
       `https://rest.ensembl.org/xrefs/symbol/homo_sapiens/${encodeURIComponent(txGene)}?content-type=application/json`,
-      { headers: { Accept: "application/json" } }
+      { signal: controller.signal, headers: { Accept: "application/json" } }
     )
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -432,12 +438,15 @@ export default function Explore() {
       .then((data) => {
         if (!active || !Array.isArray(data)) return;
         const ensg = data.find((e) => e.type === "gene" && e.id?.startsWith("ENSG"))?.id;
-        if (ensg) setEnsgId(ensg);
+        if (ensg) {
+          ensgCache.set(txGene, ensg);
+          setEnsgId(ensg);
+        }
       })
       .catch((err) => {
-        if (active) setEnsgError(err.message);
+        if (active && err.name !== "AbortError") setEnsgError(err.message);
       });
-    return () => { active = false; };
+    return () => { active = false; controller.abort(); };
   }, [txGene]);
 
   // Parse transcript name from junction_name, e.g. "UBE3A-201, exon5:exon4" → "UBE3A-201"
