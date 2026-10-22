@@ -54,6 +54,9 @@ const FC_BOUNDS = [5, 50];
 const SNR_BOUNDS = [5, 50];
 const MAX_MEAN_CPM_BOUNDS = [0, 10];
 
+// Pause before the plots follow a filter-driven selection change.
+const PLOT_SELECTION_DELAY_MS = 300;
+
 // Shrinks the TableSortLabel arrow so it doesn't crowd out header text on
 // the narrower numeric columns.
 const sortLabelSx = { "& .MuiTableSortLabel-icon": { fontSize: "0.85rem" } };
@@ -255,6 +258,19 @@ export default function Explore() {
     }
   }
 
+  // The row the plots and Ensembl/UniProt lookups show. Follows selectedRow
+  // after a short pause, so filtering (typing a gene, dragging a slider)
+  // doesn't fetch for every intermediate top row. Row clicks and the first
+  // selection apply immediately.
+  const [plotRow, setPlotRow] = useState(selectedRow);
+  if (!plotRow && selectedRow) setPlotRow(selectedRow);
+
+  useEffect(() => {
+    if (selectedRow === plotRow) return;
+    const t = setTimeout(() => setPlotRow(selectedRow), PLOT_SELECTION_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [selectedRow, plotRow]);
+
   const handleSort = (key) => {
     if (sortKey === key) {
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -393,10 +409,10 @@ export default function Explore() {
   const [tumorSamples, setTumorSamples] = useState([]);
 
   useEffect(() => {
-    const junction = selectedRow?.junction;
+    const junction = plotRow?.junction;
     // Skips the fetch with no junction selected, leaving tumorSamples as-is.
     // PlotArea (the only consumer of tumorSampleIds) doesn't render without
-    // selectedRow, so the stale value is never shown.
+    // plotRow, so the stale value is never shown.
     if (!junction) return;
     let active = true;
     fetch(`${API_BASE}/junction-sample-view/?junction=${encodeURIComponent(junction)}`)
@@ -404,7 +420,7 @@ export default function Explore() {
       .then((data) => { if (active) setTumorSamples(data); })
       .catch(() => { if (active) setTumorSamples([]); });
     return () => { active = false; };
-  }, [selectedRow]);
+  }, [plotRow]);
 
   const tumorSampleIds = useMemo(
     () => new Set(tumorSamples.map((s) => s.biospecimen_id)),
@@ -413,7 +429,7 @@ export default function Explore() {
 
   // Resolve gene symbol → Ensembl gene ID for TranscriptVis. Cached IDs are
   // applied during render; only uncached symbols hit Ensembl.
-  const txGene = selectedRow?.gene_symbol ?? null;
+  const txGene = plotRow?.gene_symbol ?? null;
   const [ensgId, setEnsgId] = useState(() => ensgCache.get(txGene) ?? null);
   const [ensgError, setEnsgError] = useState(null);
   const [prevTxGene, setPrevTxGene] = useState(txGene);
@@ -451,25 +467,25 @@ export default function Explore() {
 
   // Parse transcript name from junction_name, e.g. "UBE3A-201, exon5:exon4" → "UBE3A-201"
   const highlightedTranscript = useMemo(() => {
-    const name = selectedRow?.junction_name;
+    const name = plotRow?.junction_name;
     if (!name) return null;
     const comma = name.indexOf(",");
     return comma > -1 ? name.slice(0, comma).trim() : null;
-  }, [selectedRow]);
+  }, [plotRow]);
 
   // Parse junction coords from junction field, e.g. "chr10:116862799-116862852_116868650-116868706"
   // Middle two values (end1, start2) are the splice donor and acceptor sites.
   const junctionCoords = useMemo(() => {
-    const j = selectedRow?.junction;
+    const j = plotRow?.junction;
     if (!j) return null;
     const m = j.match(/:(\d+)-(\d+)_(\d+)-(\d+)/);
     if (!m) return null;
     return {
       donorSite:    parseInt(m[2], 10),
       acceptorSite: parseInt(m[3], 10),
-      eventType:    selectedRow?.event_type ?? "",
+      eventType:    plotRow?.event_type ?? "",
     };
-  }, [selectedRow]);
+  }, [plotRow]);
 
   return (
     <>
@@ -850,7 +866,7 @@ export default function Explore() {
                           key={row.junction}
                           hover
                           selected={selectedRow?.junction === row.junction}
-                          onClick={() => setSelectedRow(row)}
+                          onClick={() => { setSelectedRow(row); setPlotRow(row); }}
                           sx={{ cursor: "pointer" }}
                         >
                           <TableCell>
@@ -920,12 +936,12 @@ export default function Explore() {
         </Box>
       </Box>
 
-      {selectedRow && (
+      {plotRow && (
         <Box sx={{ mt: 3 }}>
           <PlotArea
-            junction={selectedRow.junction}
-            gene={selectedRow.gene_symbol}
-            junctionName={selectedRow.junction_name}
+            junction={plotRow.junction}
+            gene={plotRow.gene_symbol}
+            junctionName={plotRow.junction_name}
             highlightIds={tumorSampleIds}
           />
         </Box>
@@ -935,12 +951,12 @@ export default function Explore() {
           <TranscriptVis
             geneID={ensgId}
             geneName={txGene}
-            strand={selectedRow?.strand ?? "+"}
+            strand={plotRow?.strand ?? "+"}
             highlightedTranscript={highlightedTranscript}
-            highlightedTranscriptId={selectedRow?.transcript_id ?? null}
+            highlightedTranscriptId={plotRow?.transcript_id ?? null}
             junctionCoords={junctionCoords}
-            junctionName={selectedRow?.junction_name ?? null}
-            junctionString={selectedRow?.junction ?? null}
+            junctionName={plotRow?.junction_name ?? null}
+            junctionString={plotRow?.junction ?? null}
           />
         </Paper>
       )}
