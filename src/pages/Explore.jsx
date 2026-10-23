@@ -43,12 +43,19 @@ import GeneModelGtex from "../components/GeneModelGtex";
 
 const API_BASE = (import.meta.env.VITE_API_BASE || "/tapestry-api").replace(/\/$/, "");
 
+// Gene symbol → Ensembl gene ID, kept for the page session so reselecting a
+// gene (or returning to Explore) doesn't repeat the xrefs lookup.
+const ensgCache = new Map();
+
 
 // Slider bounds for the tumor-enrichment metrics. FC and SNR can't go below
 // the minimum threshold of 5; defaults sit at the lower bounds.
 const FC_BOUNDS = [5, 50];
 const SNR_BOUNDS = [5, 50];
 const MAX_MEAN_CPM_BOUNDS = [0, 10];
+
+// Pause before the plots follow a filter-driven selection change.
+const PLOT_SELECTION_DELAY_MS = 300;
 
 // Shrinks the TableSortLabel arrow so it doesn't crowd out header text on
 // the narrower numeric columns.
@@ -251,6 +258,19 @@ export default function Explore() {
     }
   }
 
+  // The row the plots and Ensembl/UniProt lookups show. Follows selectedRow
+  // after a short pause, so filtering (typing a gene, dragging a slider)
+  // doesn't fetch for every intermediate top row. Row clicks and the first
+  // selection apply immediately.
+  const [plotRow, setPlotRow] = useState(selectedRow);
+  if (!plotRow && selectedRow) setPlotRow(selectedRow);
+
+  useEffect(() => {
+    if (selectedRow === plotRow) return;
+    const t = setTimeout(() => setPlotRow(selectedRow), PLOT_SELECTION_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [selectedRow, plotRow]);
+
   const handleSort = (key) => {
     if (sortKey === key) {
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -389,10 +409,10 @@ export default function Explore() {
   const [tumorSamples, setTumorSamples] = useState([]);
 
   useEffect(() => {
-    const junction = selectedRow?.junction;
+    const junction = plotRow?.junction;
     // Skips the fetch with no junction selected, leaving tumorSamples as-is.
     // PlotArea (the only consumer of tumorSampleIds) doesn't render without
-    // selectedRow, so the stale value is never shown.
+    // plotRow, so the stale value is never shown.
     if (!junction) return;
     let active = true;
     fetch(`${API_BASE}/junction-sample-view/?junction=${encodeURIComponent(junction)}`)
@@ -400,30 +420,32 @@ export default function Explore() {
       .then((data) => { if (active) setTumorSamples(data); })
       .catch(() => { if (active) setTumorSamples([]); });
     return () => { active = false; };
-  }, [selectedRow]);
+  }, [plotRow]);
 
   const tumorSampleIds = useMemo(
     () => new Set(tumorSamples.map((s) => s.biospecimen_id)),
     [tumorSamples]
   );
 
-  // Resolve gene symbol → Ensembl gene ID for TranscriptVis
-  const [ensgId, setEnsgId] = useState(null);
+  // Resolve gene symbol → Ensembl gene ID for TranscriptVis. Cached IDs are
+  // applied during render; only uncached symbols hit Ensembl.
+  const txGene = plotRow?.gene_symbol ?? null;
+  const [ensgId, setEnsgId] = useState(() => ensgCache.get(txGene) ?? null);
   const [ensgError, setEnsgError] = useState(null);
-  const txGene = selectedRow?.gene_symbol ?? null;
   const [prevTxGene, setPrevTxGene] = useState(txGene);
   if (txGene !== prevTxGene) {
     setPrevTxGene(txGene);
-    setEnsgId(null);
+    setEnsgId(ensgCache.get(txGene) ?? null);
     setEnsgError(null);
   }
 
   useEffect(() => {
-    if (!txGene) return;
+    if (!txGene || ensgCache.has(txGene)) return;
+    const controller = new AbortController();
     let active = true;
     fetch(
       `https://rest.ensembl.org/xrefs/symbol/homo_sapiens/${encodeURIComponent(txGene)}?content-type=application/json`,
-      { headers: { Accept: "application/json" } }
+      { signal: controller.signal, headers: { Accept: "application/json" } }
     )
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -432,35 +454,38 @@ export default function Explore() {
       .then((data) => {
         if (!active || !Array.isArray(data)) return;
         const ensg = data.find((e) => e.type === "gene" && e.id?.startsWith("ENSG"))?.id;
-        if (ensg) setEnsgId(ensg);
+        if (ensg) {
+          ensgCache.set(txGene, ensg);
+          setEnsgId(ensg);
+        }
       })
       .catch((err) => {
-        if (active) setEnsgError(err.message);
+        if (active && err.name !== "AbortError") setEnsgError(err.message);
       });
-    return () => { active = false; };
+    return () => { active = false; controller.abort(); };
   }, [txGene]);
 
   // Parse transcript name from junction_name, e.g. "UBE3A-201, exon5:exon4" → "UBE3A-201"
   const highlightedTranscript = useMemo(() => {
-    const name = selectedRow?.junction_name;
+    const name = plotRow?.junction_name;
     if (!name) return null;
     const comma = name.indexOf(",");
     return comma > -1 ? name.slice(0, comma).trim() : null;
-  }, [selectedRow]);
+  }, [plotRow]);
 
   // Parse junction coords from junction field, e.g. "chr10:116862799-116862852_116868650-116868706"
   // Middle two values (end1, start2) are the splice donor and acceptor sites.
   const junctionCoords = useMemo(() => {
-    const j = selectedRow?.junction;
+    const j = plotRow?.junction;
     if (!j) return null;
     const m = j.match(/:(\d+)-(\d+)_(\d+)-(\d+)/);
     if (!m) return null;
     return {
       donorSite:    parseInt(m[2], 10),
       acceptorSite: parseInt(m[3], 10),
-      eventType:    selectedRow?.event_type ?? "",
+      eventType:    plotRow?.event_type ?? "",
     };
-  }, [selectedRow]);
+  }, [plotRow]);
 
   return (
     <>
@@ -841,7 +866,7 @@ export default function Explore() {
                           key={row.junction}
                           hover
                           selected={selectedRow?.junction === row.junction}
-                          onClick={() => setSelectedRow(row)}
+                          onClick={() => { setSelectedRow(row); setPlotRow(row); }}
                           sx={{ cursor: "pointer" }}
                         >
                           <TableCell>
@@ -911,12 +936,12 @@ export default function Explore() {
         </Box>
       </Box>
 
-      {selectedRow && (
+      {plotRow && (
         <Box sx={{ mt: 3 }}>
           <PlotArea
-            junction={selectedRow.junction}
-            gene={selectedRow.gene_symbol}
-            junctionName={selectedRow.junction_name}
+            junction={plotRow.junction}
+            gene={plotRow.gene_symbol}
+            junctionName={plotRow.junction_name}
             highlightIds={tumorSampleIds}
           />
         </Box>
@@ -926,12 +951,12 @@ export default function Explore() {
           <TranscriptVis
             geneID={ensgId}
             geneName={txGene}
-            strand={selectedRow?.strand ?? "+"}
+            strand={plotRow?.strand ?? "+"}
             highlightedTranscript={highlightedTranscript}
-            highlightedTranscriptId={selectedRow?.transcript_id ?? null}
+            highlightedTranscriptId={plotRow?.transcript_id ?? null}
             junctionCoords={junctionCoords}
-            junctionName={selectedRow?.junction_name ?? null}
-            junctionString={selectedRow?.junction ?? null}
+            junctionName={plotRow?.junction_name ?? null}
+            junctionString={plotRow?.junction ?? null}
           />
         </Paper>
       )}
