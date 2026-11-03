@@ -4,6 +4,7 @@ import { useTheme } from "@mui/material/styles";
 import * as d3 from "d3";
 import GtexGeneModel from "./lib/GtexGeneModel";
 import { colourForBiotype, hexToRgba } from "./lib/biotypeColors";
+import { fetchEnsemblGeneId, fetchEnsemblGene } from "./lib/ensembl";
 import { selectExpressedJunctionIds, metricValueGetter, filterHiddenGroups } from "./lib/junctionExpressionFilter";
 
 const SVG_HEIGHT = 200;
@@ -348,35 +349,25 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
       return;
     }
     const controller = new AbortController();
-    const headers = { Accept: "application/json" };
     setLoading(true);
     setFetchError(null);
     setHoveredExon(null);
     (async () => {
       try {
-        const idUrl = `https://rest.ensembl.org/xrefs/symbol/homo_sapiens/${encodeURIComponent(gene)}?content-type=application/json;expand=1`;
-        const idRes = await fetch(idUrl, { signal: controller.signal, headers });
-        if (!idRes.ok) throw new Error(`HTTP ${idRes.status}`);
-        const idData = await idRes.json();
-        const ensg = idData.find((e) => e.type === "gene" && e.id.startsWith("ENSG"))?.id;
+        const ensg = await fetchEnsemblGeneId(gene, controller.signal);
         if (!ensg) throw new Error("No ENSG ID found");
 
-        const lookupUrl = `https://rest.ensembl.org/lookup/id/${encodeURIComponent(ensg)}?content-type=application/json;expand=1`;
-        const res = await fetch(lookupUrl, { signal: controller.signal, headers });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const geneData = await res.json();
+        const geneData = await fetchEnsemblGene(ensg, controller.signal);
+        if (!geneData) throw new Error("Gene not found in Ensembl");
 
-        const strandVal = geneData?.strand === -1 ? "-" : "+";
-        const transcripts = Array.isArray(geneData.Transcript) ? geneData.Transcript : [];
+        const strandVal = geneData.strand === "-" ? "-" : "+";
+        const { transcripts } = geneData;
 
         // Falls back to every transcript if the exclusion would leave none
         // (e.g. a gene whose only annotated transcripts are all flagged) --
         // showing a degraded-transcript exon footprint beats showing none.
-        const exonTranscripts = transcripts.filter((t) => !EXCLUDED_TRANSCRIPT_BIOTYPES.has(t?.biotype));
-        const rawExons = (exonTranscripts.length > 0 ? exonTranscripts : transcripts)
-          .flatMap((t) => (Array.isArray(t?.Exon) ? t.Exon : []))
-          .map((e) => ({ start: Number(e.start), end: Number(e.end), id: e.id }))
-          .filter((e) => Number.isFinite(e.start) && Number.isFinite(e.end));
+        const exonTranscripts = transcripts.filter((t) => !EXCLUDED_TRANSCRIPT_BIOTYPES.has(t.biotype));
+        const rawExons = (exonTranscripts.length > 0 ? exonTranscripts : transcripts).flatMap((t) => t.exons);
         if (rawExons.length === 0) throw new Error("No exon coordinates returned for transcripts");
 
         setStrand(strandVal);
@@ -384,32 +375,19 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
         setGeneId(ensg);
 
         // Per-transcript rows, canonical first then ascending by the
-        // "-201"-style transcript number Ensembl bakes into display_name --
-        // unlike the merged exon union above, every transcript is shown here
-        // (the biotype Chip filter below is the user-facing control for
-        // that). geneData.canonical_transcript carries a version suffix
-        // (e.g. "ENST00000357654.9") that t.id never does, hence the
-        // startsWith check rather than a direct equality.
-        const canonicalId = geneData?.canonical_transcript ?? null;
-        const isCanonicalTranscript = (t) => (
-          Boolean(t?.is_canonical) || t.id === canonicalId || Boolean(canonicalId?.startsWith(`${t.id}.`))
-        );
+        // "-201"-style transcript number Ensembl bakes into the transcript
+        // symbol -- unlike the merged exon union above, every transcript is
+        // shown here (the biotype Chip filter below is the user-facing
+        // control for that).
         const txRows = transcripts
-          .map((t) => {
-            const txExons = (Array.isArray(t?.Exon) ? t.Exon : [])
-              .map((e) => ({ start: Number(e.start), end: Number(e.end) }))
-              .filter((e) => Number.isFinite(e.start) && Number.isFinite(e.end))
-              .sort((a, b) => a.start - b.start);
-            if (txExons.length === 0) return null;
-            return {
-              id: t.id,
-              displayName: t.display_name || t.id,
-              biotype: t?.biotype || "unknown",
-              exons: txExons,
-              isCanonical: isCanonicalTranscript(t),
-            };
-          })
-          .filter(Boolean)
+          .filter((t) => t.exons.length > 0)
+          .map((t) => ({
+            id: t.id,
+            displayName: t.symbol,
+            biotype: t.biotype,
+            exons: t.exons.map(({ start, end }) => ({ start, end })),
+            isCanonical: t.isCanonical,
+          }))
           .sort((a, b) => {
             if (a.isCanonical !== b.isCanonical) return a.isCanonical ? -1 : 1;
             const numA = transcriptNumber(a.displayName);

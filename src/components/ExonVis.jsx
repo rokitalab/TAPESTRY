@@ -2,6 +2,7 @@ import { useRef, useState, useEffect, useMemo } from "react";
 import { Paper, Box, Typography } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import TranscriptVis from "./TranscriptVis";
+import { fetchEnsemblGeneId, fetchEnsemblGene } from "./lib/ensembl";
 
 export default function ExonBlocksSvg({
   gene,
@@ -37,84 +38,28 @@ export default function ExonBlocksSvg({
   }
 
   const controller = new AbortController();
-  const headers = { Accept: "application/json" };
-
-  const parseExons = (raw) => {
-    let arr = raw;
-    if (!arr) return [];
-    if (!Array.isArray(arr) && typeof arr === "object") arr = Object.values(arr);
-    if (!Array.isArray(arr)) return [];
-    return arr
-      .map(e => {
-        const s = Number(e?.start ?? e?.seq_region_start ?? e?.begin);
-        const en = Number(e?.end ?? e?.seq_region_end ?? e?.finish);
-        if (!Number.isFinite(s) || !Number.isFinite(en)) return null;
-        return { start: Math.min(s, en), end: Math.max(s, en) };
-      })
-      .filter(Boolean)
-      .sort((a, b) => a.start - b.start);
-  };
 
   (async () => {
     try {
       /* -------- STEP 1: symbol → ENSG -------- */
-      const idUrl =
-        `https://rest.ensembl.org/xrefs/symbol/homo_sapiens/${encodeURIComponent(gene)}` +
-        `?content-type=application/json;expand=1`;
-
-      const idRes = await fetch(idUrl, { signal: controller.signal, headers });
-      if (!idRes.ok) throw new Error(`HTTP ${idRes.status}`);
-      const idData = await idRes.json();
-
-      const ensg = idData.find(
-        e => e.type === "gene" && e.id.startsWith("ENSG")
-      )?.id;
-
+      const ensg = await fetchEnsemblGeneId(gene, controller.signal);
       if (!ensg) throw new Error("No ENSG ID found");
       setGeneID(ensg);
 
-      /* -------- STEP 2: ENSG → gene lookup -------- */
-      const lookupUrl =
-        `https://rest.ensembl.org/lookup/id/${encodeURIComponent(ensg)}` +
-        `?content-type=application/json;expand=1`;
+      /* -------- STEP 2: ENSG → gene with transcripts and exons (see lib/ensembl.js) -------- */
+      const data = await fetchEnsemblGene(ensg, controller.signal);
+      if (!data) throw new Error("Gene not found in Ensembl");
 
-      const res = await fetch(lookupUrl, { signal: controller.signal, headers });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
+      setApiStrand(data.strand);
 
-      /* -------- strand -------- */
-      const strand =
-        data?.strand === 1 ? "+" :
-        data?.strand === -1 ? "-" :
-        null;
-
-      setApiStrand(strand);
-
-      /* -------- transcripts -------- */
-      const transcripts = Array.isArray(data.Transcript)
-        ? data.Transcript
-        : Array.isArray(data.transcripts)
-        ? data.transcripts
-        : [];
-
-      const canonicalId = data?.canonical_transcript ?? null;
-
-      let canon =
-        transcripts.find(
-          t => (t?.id || t?.stable_id) === canonicalId
-        ) ||
-        transcripts.find(t => t?.is_canonical);
-
-      if (canon) {
-        setCanonExons(parseExons(canon?.Exon ?? canon?.exon));
-      } else {
-        setCanonExons(null);
-      }
+      /* -------- canonical transcript exons (already ascending) -------- */
+      const canon = data.transcripts.find(t => t.isCanonical);
+      setCanonExons(canon ? canon.exons : null);
 
       /* -------- global domain -------- */
       let min = Infinity, max = -Infinity;
-      transcripts.forEach(t => {
-        parseExons(t?.Exon ?? t?.exon).forEach(e => {
+      data.transcripts.forEach(t => {
+        t.exons.forEach(e => {
           min = Math.min(min, e.start);
           max = Math.max(max, e.end);
         });
