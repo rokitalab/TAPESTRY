@@ -40,6 +40,7 @@ import PlotArea from "../components/PlotArea";
 import TranscriptVis from "../components/TranscriptVis";
 import JunctionExpressionHeatmap from "../components/JunctionExpressionHeatmap";
 import GeneModelGtex from "../components/GeneModelGtex";
+import { fetchEnsemblGeneId } from "../components/lib/ensembl";
 
 const API_BASE = (import.meta.env.VITE_API_BASE || "/tapestry-api").replace(/\/$/, "");
 
@@ -443,17 +444,9 @@ export default function Explore() {
     if (!txGene || ensgCache.has(txGene)) return;
     const controller = new AbortController();
     let active = true;
-    fetch(
-      `https://rest.ensembl.org/xrefs/symbol/homo_sapiens/${encodeURIComponent(txGene)}?content-type=application/json`,
-      { signal: controller.signal, headers: { Accept: "application/json" } }
-    )
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then((data) => {
-        if (!active || !Array.isArray(data)) return;
-        const ensg = data.find((e) => e.type === "gene" && e.id?.startsWith("ENSG"))?.id;
+    fetchEnsemblGeneId(txGene, controller.signal)
+      .then((ensg) => {
+        if (!active) return;
         if (ensg) {
           ensgCache.set(txGene, ensg);
           setEnsgId(ensg);

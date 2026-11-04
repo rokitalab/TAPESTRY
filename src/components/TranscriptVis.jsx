@@ -3,19 +3,7 @@ import { Alert, Box, Button, CircularProgress, Divider, Typography, Stack, Chip,
 import { alpha, useTheme } from "@mui/material/styles";
 import { colourForBiotype, hexToRgba } from "./lib/biotypeColors";
 import { fetchUniProtDomains, mapDomainsToGenomicSegments, stripVersion, colourForDomainIndex } from "./lib/proteinDomains";
-
-// Genomic CDS bounds (always ascending, regardless of strand), protein
-// stable ID and protein length (AA) from Ensembl's Translation object, used to
-// place UniProt domains and check they belong to this protein.
-function parseTranslation(raw) {
-  if (!raw) return null;
-  const s = Number(raw.start ?? raw.seq_region_start);
-  const en = Number(raw.end ?? raw.seq_region_end);
-  if (!Number.isFinite(s) || !Number.isFinite(en)) return null;
-  const id = raw.id || raw.stable_id || null;
-  const length = Number(raw.length);
-  return { id, start: Math.min(s, en), end: Math.max(s, en), length: Number.isFinite(length) ? length : null };
-}
+import { fetchEnsemblGene } from "./lib/ensembl";
 
 // Background of the REFERENCE tag on the reference transcript's label.
 const REFERENCE_TAG_COLOR = "#4a5562";
@@ -65,71 +53,24 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
     setLoading(true);
     setTxList([]);
     setFetchError(null);
-    const url = `https://rest.ensembl.org/lookup/id/${encodeURIComponent(geneID)}?content-type=application/json;expand=1`;
-    fetch(url, { signal: controller.signal, headers: { Accept: "application/json" } })
-      .then(r => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
+    fetchEnsemblGene(geneID, controller.signal)
       .then(data => {
         if (!active) return;
-        // Derive strand from gene lookup: 1 => '+', -1 => '-'
-        const s = data?.strand;
-        let sChar = null;
-        if (s === 1 || s === "1") sChar = "+";
-        else if (s === -1 || s === "-1") sChar = "-";
-        setApiStrand(sChar);
-        const arr = Array.isArray(data.Transcript) ? data.Transcript
-                  : Array.isArray(data.transcripts) ? data.transcripts
-                  : [];
-        const canonicalId = data?.canonical_transcript || data?.canonicalTranscript || data?.Canonical_transcript || null;
-        const items = arr.map(t => {
-          const id = t && (t.id || t.stable_id || t.transcript_id);
-          if (!id) return null;
-          const biotype = t?.biotype || t?.BioType || t?.biotype_name || "unknown";
-          const isCanonical = (t?.is_canonical === 1 || t?.is_canonical === true || (canonicalId && id === canonicalId));
-          const displayName = t?.display_name || t?.name || id;
-          const colour = colourForBiotype(biotype);
-          // Robust exon count extraction across potential shapes (arrays or objects, plus numeric fields)
-          let exonCount = null;
-          const candidates = [t?.Exon, t?.exon, t?.exons];
-          for (const c of candidates) {
-            if (Array.isArray(c)) { exonCount = c.length; break; }
-            if (c && typeof c === 'object') {
-              const keys = Object.keys(c);
-              if (keys.length > 0) { exonCount = keys.length; break; }
-            }
-          }
-          if (exonCount == null) {
-            if (Number.isFinite(t?.exon_count)) exonCount = t.exon_count;
-            else if (Number.isFinite(t?.exonCount)) exonCount = t.exonCount;
-            else if (Number.isFinite(t?.exons_count)) exonCount = t.exons_count;
-          }
-          // Extract exon coordinates and normalize to { start, end }. Left as `null`
-          // (rather than []) when the gene-level payload had no Exon/exon/exons key at
-          // all, so the backfill effect below can tell "not fetched yet" apart from
-          // "fetched, genuinely has zero exons" and knows which transcripts to re-fetch.
-          const hasExonSource = candidates.some(c => c != null);
-          let rawExons = [];
-          for (const c of candidates) {
-            if (Array.isArray(c)) { rawExons = c; break; }
-            if (c && typeof c === 'object') { rawExons = Object.values(c); break; }
-          }
-          const exons = hasExonSource
-            ? (rawExons || [])
-                .map(e => {
-                  const s = Number(e?.start ?? e?.seq_region_start ?? e?.begin ?? e?.location_start);
-                  const en = Number(e?.end ?? e?.seq_region_end ?? e?.finish ?? e?.location_end);
-                  if (!Number.isFinite(s) || !Number.isFinite(en)) return null;
-                  return { start: Math.min(s, en), end: Math.max(s, en) };
-                })
-                .filter(Boolean)
-                .sort((a, b) => a.start - b.start)
-            : null;
-          if (exonCount == null) exonCount = exons?.length > 0 ? exons.length : null;
-          const translation = parseTranslation(t?.Translation ?? t?.translation);
-          return { id, displayName, biotype, isCanonical, colour, exonCount, exons, translation };
-        }).filter(Boolean);
+        if (!data) throw new Error("Gene not found in Ensembl");
+        setApiStrand(data.strand);
+        // Exons arrive ascending with start <= end; translation carries the
+        // genomic CDS bounds, protein stable ID and AA length used to place
+        // UniProt domains (see lib/ensembl.js).
+        const items = data.transcripts.map(t => ({
+          id: t.id,
+          displayName: t.symbol,
+          biotype: t.biotype,
+          isCanonical: t.isCanonical,
+          colour: colourForBiotype(t.biotype),
+          exonCount: t.exons.length > 0 ? t.exons.length : null,
+          exons: t.exons.map(({ start, end }) => ({ start, end })),
+          translation: t.translation,
+        }));
         setTxList(items);
         // Ensure all biotypes are selected immediately upon data load
         const allBiotypes = new Set(items.map(it => it.biotype));
@@ -171,68 +112,6 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
     return { min, max, span: Math.max(1, max - min) };
   }, [txList]);
 
-  // Backfill exon coordinates per transcript if gene-level lookup omitted them
-  useEffect(() => {
-    if (!geneID || txList.length === 0) return;
-    const missing = txList
-      .filter(t => t.exons == null)
-      .map(t => t.id);
-    if (missing.length === 0) return;
-
-    const controller = new AbortController();
-    const headers = { Accept: "application/json" };
-
-    const parseExons = (raw) => {
-      let arr = raw;
-      if (!arr) return [];
-      if (!Array.isArray(arr) && typeof arr === "object") arr = Object.values(arr);
-      if (!Array.isArray(arr)) return [];
-      return arr
-        .map(e => {
-          const s = Number(e?.start ?? e?.seq_region_start ?? e?.begin ?? e?.location_start);
-          const en = Number(e?.end ?? e?.seq_region_end ?? e?.finish ?? e?.location_end);
-          if (!Number.isFinite(s) || !Number.isFinite(en)) return null;
-          return { start: Math.min(s, en), end: Math.max(s, en) };
-        })
-        .filter(Boolean)
-        .sort((a, b) => a.start - b.start);
-    };
-
-    Promise.allSettled(
-      missing.map(id =>
-        fetch(`https://rest.ensembl.org/lookup/id/${encodeURIComponent(id)}?content-type=application/json;expand=1`, { signal: controller.signal, headers })
-          .then(r => (r.ok ? r.json() : null))
-          .then(d => {
-            const raw = d?.Exon ?? d?.exon ?? d?.exons;
-            const exons = parseExons(raw);
-            const translation = parseTranslation(d?.Translation ?? d?.translation);
-            return { id, exons, translation };
-          })
-          .catch(() => ({ id, exons: [], translation: null }))
-      )
-    )
-      .then(results => {
-        const byId = new Map();
-        results.forEach((r, i) => {
-          if (r.status === "fulfilled" && r.value) {
-            byId.set(r.value.id, { exons: r.value.exons || [], translation: r.value.translation || null });
-          } else {
-            byId.set(missing[i], { exons: [], translation: null });
-          }
-        });
-        setTxList(prev => prev.map(t => {
-          if (Array.isArray(t.exons) && t.exons.length > 0) return t;
-          const backfilled = byId.get(t.id);
-          if (!backfilled) return t;
-          const exonCount = t.exonCount != null ? t.exonCount : (backfilled.exons.length > 0 ? backfilled.exons.length : null);
-          return { ...t, exons: backfilled.exons, exonCount, translation: t.translation ?? backfilled.translation };
-        }));
-      })
-      .catch(() => {});
-
-    return () => controller.abort();
-  }, [geneID, txList]);
- 
   // Resets the biotype selection to "all" whenever the available legend
   // items change. Done during render, comparing against the legendItems
   // seen on the previous render, rather than as a setState call inside an
