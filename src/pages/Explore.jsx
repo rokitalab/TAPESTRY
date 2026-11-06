@@ -21,7 +21,6 @@ import {
   Paper,
   Select,
   Slider,
-  Snackbar,
   Stack,
   Switch,
   TextField,
@@ -40,6 +39,7 @@ import {
 import DownloadIcon from "@mui/icons-material/Download";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import LinkIcon from "@mui/icons-material/Link";
+import CheckIcon from "@mui/icons-material/Check";
 import writeXlsxFile from "write-excel-file/universal";
 import { HISTOLOGIES, histologyLabel } from "../histologyColors";
 import PlotArea from "../components/PlotArea";
@@ -348,7 +348,18 @@ export default function Explore() {
   // The Clipboard API needs a secure context (HTTPS or localhost); when it
   // is unavailable or refused, the link is shown in a dialog to copy by hand.
   // manualLink is kept after closing so the dialog text doesn't blank mid-fade.
-  const [copyOpen, setCopyOpen] = useState(false);
+  // After a copy the link button briefly shows a check and a "Copied"
+  // tooltip. copiedAt is the time of the last copy (0 = none), so each click
+  // restarts the timer; the tooltip's open state is controlled, so hover is
+  // tracked separately.
+  const [copiedAt, setCopiedAt] = useState(0);
+  const copied = copiedAt !== 0;
+  const [linkTipHover, setLinkTipHover] = useState(false);
+  useEffect(() => {
+    if (!copiedAt) return;
+    const t = setTimeout(() => setCopiedAt(0), 2000);
+    return () => clearTimeout(t);
+  }, [copiedAt]);
   const [manualLink, setManualLink] = useState("");
   const [manualOpen, setManualOpen] = useState(false);
   const copyLink = async () => {
@@ -367,7 +378,7 @@ export default function Explore() {
     const url = `${window.location.origin}${window.location.pathname}${search ? `?${search}` : ""}`;
     try {
       await navigator.clipboard.writeText(url);
-      setCopyOpen(true);
+      setCopiedAt(Date.now());
     } catch {
       setManualLink(url);
       setManualOpen(true);
@@ -833,9 +844,18 @@ export default function Explore() {
             </Stack>
 
             <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0 }}>
-              <Tooltip title="Copy link to these filters">
-                <IconButton size="small" onClick={copyLink}>
-                  <LinkIcon fontSize="small" />
+              <Tooltip
+                title={copied ? "Copied" : "Copy link to these filters"}
+                open={copied || linkTipHover}
+                onOpen={() => setLinkTipHover(true)}
+                onClose={() => setLinkTipHover(false)}
+              >
+                <IconButton
+                  size="small"
+                  onClick={copyLink}
+                  sx={copied ? { color: "success.main" } : undefined}
+                >
+                  {copied ? <CheckIcon fontSize="small" /> : <LinkIcon fontSize="small" />}
                 </IconButton>
               </Tooltip>
               <Tooltip title="Download table">
@@ -852,16 +872,6 @@ export default function Explore() {
               <MenuItem onClick={() => { setDownloadAnchor(null); downloadTsv(); }}>TSV</MenuItem>
               <MenuItem onClick={() => { setDownloadAnchor(null); downloadExcel(); }}>Excel</MenuItem>
             </Menu>
-            <Snackbar
-              open={copyOpen}
-              autoHideDuration={3000}
-              onClose={(_, reason) => { if (reason !== "clickaway") setCopyOpen(false); }}
-              anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
-            >
-              <Alert severity="success" variant="filled" onClose={() => setCopyOpen(false)}>
-                Link copied
-              </Alert>
-            </Snackbar>
             <Dialog open={manualOpen} onClose={() => setManualOpen(false)} fullWidth maxWidth="sm">
               <DialogTitle>Copy link</DialogTitle>
               <DialogContent>
