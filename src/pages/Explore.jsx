@@ -6,6 +6,10 @@ import {
   Checkbox,
   CircularProgress,
   Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Divider,
   FormControl,
   FormControlLabel,
@@ -341,11 +345,12 @@ export default function Explore() {
   const [downloadAnchor, setDownloadAnchor] = useState(null);
 
   // Copies a link that reopens Explore with the current filters applied.
-  // The Clipboard API needs a secure context (HTTPS or localhost), so a
-  // failure is reported rather than silently ignored.
-  // copyStatus is kept after closing so the message doesn't change mid-fade.
-  const [copyStatus, setCopyStatus] = useState("success"); // "success" | "error"
+  // The Clipboard API needs a secure context (HTTPS or localhost); when it
+  // is unavailable or refused, the link is shown in a dialog to copy by hand.
+  // manualLink is kept after closing so the dialog text doesn't blank mid-fade.
   const [copyOpen, setCopyOpen] = useState(false);
+  const [manualLink, setManualLink] = useState("");
+  const [manualOpen, setManualOpen] = useState(false);
   const copyLink = async () => {
     const search = filtersToSearch({
       histology,
@@ -362,11 +367,11 @@ export default function Explore() {
     const url = `${window.location.origin}${window.location.pathname}${search ? `?${search}` : ""}`;
     try {
       await navigator.clipboard.writeText(url);
-      setCopyStatus("success");
+      setCopyOpen(true);
     } catch {
-      setCopyStatus("error");
+      setManualLink(url);
+      setManualOpen(true);
     }
-    setCopyOpen(true);
   };
 
   // Snake-case headers matching the tej-view API fields directly, so the
@@ -853,14 +858,30 @@ export default function Explore() {
               onClose={(_, reason) => { if (reason !== "clickaway") setCopyOpen(false); }}
               anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
             >
-              <Alert
-                severity={copyStatus}
-                variant="filled"
-                onClose={() => setCopyOpen(false)}
-              >
-                {copyStatus === "error" ? "Couldn't copy the link — your browser blocked clipboard access." : "Link copied"}
+              <Alert severity="success" variant="filled" onClose={() => setCopyOpen(false)}>
+                Link copied
               </Alert>
             </Snackbar>
+            <Dialog open={manualOpen} onClose={() => setManualOpen(false)} fullWidth maxWidth="sm">
+              <DialogTitle>Copy link</DialogTitle>
+              <DialogContent>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                  Copy this link to reopen Explore with the current filters.
+                </Typography>
+                <TextField
+                  value={manualLink}
+                  fullWidth
+                  size="small"
+                  autoFocus
+                  onFocus={(e) => e.target.select()}
+                  onClick={(e) => e.target.select()}
+                  slotProps={{ input: { readOnly: true, sx: { fontFamily: "monospace", fontSize: "0.8rem" } } }}
+                />
+              </DialogContent>
+              <DialogActions>
+                <Button onClick={() => setManualOpen(false)}>Close</Button>
+              </DialogActions>
+            </Dialog>
           </Stack>
 
           {loading ? (
