@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   Alert,
   Box,
   Checkbox,
   CircularProgress,
   Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Divider,
   FormControl,
   FormControlLabel,
@@ -34,6 +38,8 @@ import {
 } from "@mui/material";
 import DownloadIcon from "@mui/icons-material/Download";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
+import LinkIcon from "@mui/icons-material/Link";
+import CheckIcon from "@mui/icons-material/Check";
 import writeXlsxFile from "write-excel-file/universal";
 import { HISTOLOGIES, histologyLabel } from "../histologyColors";
 import PlotArea from "../components/PlotArea";
@@ -79,6 +85,64 @@ const prenatalGroups = (r) =>
 // junction is absent from every control matrix ("No ctrl expr" criteria).
 const hasNoControlExpr = (r) => Boolean(r.criteria?.startsWith("No ctrl expr"));
 
+const FILTER_DEFAULTS = {
+  histology: "",
+  gene: "",
+  geneExact: false,
+  status: "",
+  eventType: "",
+  oncofetalOnly: false,
+  includeNoCtrlExpr: true,
+  fcMin: FC_BOUNDS[0],
+  snrMin: SNR_BOUNDS[0],
+  maxMeanCpmMax: MAX_MEAN_CPM_BOUNDS[1],
+};
+
+// Reads a numeric query param, clamped to the slider bounds; missing or
+// unparseable values fall back to the default.
+const numParam = (sp, key, bounds, fallback) => {
+  const raw = sp.get(key);
+  if (raw == null || raw.trim() === "") return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(bounds[1], Math.max(bounds[0], n));
+};
+
+// Explore's filters <-> URL query string. Defaults are omitted from the URL,
+// so an unfiltered page is plain /explore. `histology`, `gene` and `exact`
+// match the links built by the Home page search.
+function filtersFromSearch(search) {
+  const sp = new URLSearchParams(search);
+  return {
+    histology: sp.get("histology") || "",
+    gene: (sp.get("gene") || "").trim().toUpperCase(),
+    geneExact: sp.get("exact") === "1",
+    status: sp.get("status") || "",
+    eventType: sp.get("event_type") || "",
+    oncofetalOnly: sp.get("oncofetal") === "1",
+    includeNoCtrlExpr: sp.get("exclude_no_ctrl") !== "1",
+    fcMin: numParam(sp, "fc", FC_BOUNDS, FILTER_DEFAULTS.fcMin),
+    snrMin: numParam(sp, "snr", SNR_BOUNDS, FILTER_DEFAULTS.snrMin),
+    maxMeanCpmMax: numParam(sp, "max_cpm", MAX_MEAN_CPM_BOUNDS, FILTER_DEFAULTS.maxMeanCpmMax),
+  };
+}
+
+function filtersToSearch(f) {
+  const sp = new URLSearchParams();
+  const gene = f.gene.trim();
+  if (f.histology) sp.set("histology", f.histology);
+  if (gene) sp.set("gene", gene);
+  if (gene && f.geneExact) sp.set("exact", "1");
+  if (f.status) sp.set("status", f.status);
+  if (f.eventType) sp.set("event_type", f.eventType);
+  if (f.oncofetalOnly) sp.set("oncofetal", "1");
+  if (!f.includeNoCtrlExpr) sp.set("exclude_no_ctrl", "1");
+  if (isMinActive(f.fcMin, FC_BOUNDS)) sp.set("fc", String(f.fcMin));
+  if (isMinActive(f.snrMin, SNR_BOUNDS)) sp.set("snr", String(f.snrMin));
+  if (isMaxActive(f.maxMeanCpmMax, MAX_MEAN_CPM_BOUNDS)) sp.set("max_cpm", String(f.maxMeanCpmMax));
+  return sp.toString();
+}
+
 function triggerDownload(href, filename) {
   const link = document.createElement("a");
   link.href = href;
@@ -89,29 +153,26 @@ function triggerDownload(href, filename) {
 
 export default function Explore() {
   const location = useLocation();
-  const initialGene = useMemo(
-    () => new URLSearchParams(location.search).get("gene") || "",
-    [location.search]
-  );
-  const initialHistology = useMemo(
-    () => new URLSearchParams(location.search).get("histology") || "",
-    [location.search]
-  );
-  const initialGeneExact = useMemo(
-    () => new URLSearchParams(location.search).get("exact") === "1",
-    [location.search]
-  );
+  const navigate = useNavigate();
+  // Filters start from the URL (a Home search or a copied link) and are then
+  // held in state only; the effect below clears the query string so the
+  // address bar never shows filters that have since changed.
+  const [initialFilters] = useState(() => filtersFromSearch(location.search));
 
-  const [histology, setHistology] = useState(initialHistology);
-  const [geneFilter, setGeneFilter] = useState(initialGene);
-  const [geneExact, setGeneExact] = useState(initialGeneExact);
-  const [statusFilter, setStatusFilter] = useState("");
-  const [eventTypeFilter, setEventTypeFilter] = useState("");
-  const [oncofetalOnly, setOncofetalOnly] = useState(false);
-  const [includeNoCtrlExpr, setIncludeNoCtrlExpr] = useState(true);
-  const [fcMin, setFcMin] = useState(FC_BOUNDS[0]);
-  const [snrMin, setSnrMin] = useState(SNR_BOUNDS[0]);
-  const [maxMeanCpmMax, setMaxMeanCpmMax] = useState(MAX_MEAN_CPM_BOUNDS[1]);
+  const [histology, setHistology] = useState(initialFilters.histology);
+  const [geneFilter, setGeneFilter] = useState(initialFilters.gene);
+  const [geneExact, setGeneExact] = useState(initialFilters.geneExact);
+  const [statusFilter, setStatusFilter] = useState(initialFilters.status);
+  const [eventTypeFilter, setEventTypeFilter] = useState(initialFilters.eventType);
+  const [oncofetalOnly, setOncofetalOnly] = useState(initialFilters.oncofetalOnly);
+  const [includeNoCtrlExpr, setIncludeNoCtrlExpr] = useState(initialFilters.includeNoCtrlExpr);
+  const [fcMin, setFcMin] = useState(initialFilters.fcMin);
+  const [snrMin, setSnrMin] = useState(initialFilters.snrMin);
+  const [maxMeanCpmMax, setMaxMeanCpmMax] = useState(initialFilters.maxMeanCpmMax);
+
+  useEffect(() => {
+    if (location.search) navigate({ search: "" }, { replace: true });
+  }, [location.search, navigate]);
 
   const [sortKey, setSortKey] = useState(null);
   const [sortDir, setSortDir] = useState("asc");
@@ -282,6 +343,47 @@ export default function Explore() {
   };
 
   const [downloadAnchor, setDownloadAnchor] = useState(null);
+
+  // Copies a link that reopens Explore with the current filters applied.
+  // The Clipboard API needs a secure context (HTTPS or localhost); when it
+  // is unavailable or refused, the link is shown in a dialog to copy by hand.
+  // manualLink is kept after closing so the dialog text doesn't blank mid-fade.
+  // After a copy the link button briefly shows a check and a "Copied"
+  // tooltip. copiedAt is the time of the last copy (0 = none), so each click
+  // restarts the timer; the tooltip's open state is controlled, so hover is
+  // tracked separately.
+  const [copiedAt, setCopiedAt] = useState(0);
+  const copied = copiedAt !== 0;
+  const [linkTipHover, setLinkTipHover] = useState(false);
+  useEffect(() => {
+    if (!copiedAt) return;
+    const t = setTimeout(() => setCopiedAt(0), 2000);
+    return () => clearTimeout(t);
+  }, [copiedAt]);
+  const [manualLink, setManualLink] = useState("");
+  const [manualOpen, setManualOpen] = useState(false);
+  const copyLink = async () => {
+    const search = filtersToSearch({
+      histology,
+      gene: geneFilter,
+      geneExact,
+      status: statusFilter,
+      eventType: eventTypeFilter,
+      oncofetalOnly,
+      includeNoCtrlExpr,
+      fcMin,
+      snrMin,
+      maxMeanCpmMax,
+    });
+    const url = `${window.location.origin}${window.location.pathname}${search ? `?${search}` : ""}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedAt(Date.now());
+    } catch {
+      setManualLink(url);
+      setManualOpen(true);
+    }
+  };
 
   // Snake-case headers matching the tej-view API fields directly, so the
   // export can be loaded/joined programmatically (e.g. pandas) without
@@ -741,19 +843,55 @@ export default function Explore() {
               )}
             </Stack>
 
-            <Tooltip title="Download table">
-              <IconButton
-                size="small"
-                disabled={sorted.length === 0}
-                onClick={(e) => setDownloadAnchor(e.currentTarget)}
+            <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0 }}>
+              <Tooltip
+                title={copied ? "Copied" : "Copy link to these filters"}
+                open={copied || linkTipHover}
+                onOpen={() => setLinkTipHover(true)}
+                onClose={() => setLinkTipHover(false)}
               >
-                <DownloadIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
+                <IconButton
+                  size="small"
+                  onClick={copyLink}
+                  sx={copied ? { color: "success.main" } : undefined}
+                >
+                  {copied ? <CheckIcon fontSize="small" /> : <LinkIcon fontSize="small" />}
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Download table">
+                <IconButton
+                  size="small"
+                  disabled={sorted.length === 0}
+                  onClick={(e) => setDownloadAnchor(e.currentTarget)}
+                >
+                  <DownloadIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Stack>
             <Menu anchorEl={downloadAnchor} open={Boolean(downloadAnchor)} onClose={() => setDownloadAnchor(null)}>
               <MenuItem onClick={() => { setDownloadAnchor(null); downloadTsv(); }}>TSV</MenuItem>
               <MenuItem onClick={() => { setDownloadAnchor(null); downloadExcel(); }}>Excel</MenuItem>
             </Menu>
+            <Dialog open={manualOpen} onClose={() => setManualOpen(false)} fullWidth maxWidth="sm">
+              <DialogTitle>Copy link</DialogTitle>
+              <DialogContent>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                  Copy this link to reopen Explore with the current filters.
+                </Typography>
+                <TextField
+                  value={manualLink}
+                  fullWidth
+                  size="small"
+                  autoFocus
+                  onFocus={(e) => e.target.select()}
+                  onClick={(e) => e.target.select()}
+                  slotProps={{ input: { readOnly: true, sx: { fontFamily: "monospace", fontSize: "0.8rem" } } }}
+                />
+              </DialogContent>
+              <DialogActions>
+                <Button onClick={() => setManualOpen(false)}>Close</Button>
+              </DialogActions>
+            </Dialog>
           </Stack>
 
           {loading ? (
