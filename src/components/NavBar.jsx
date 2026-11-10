@@ -79,7 +79,7 @@ export default function NavBar({ mode, setMode }) {
         </Button>
         <Button
           component="a"
-          href="https://arxiv.org/abs/2610.31816"
+          href="https://doi.org/10.48550/arXiv.2610.31816"
           target="_blank"
           rel="noopener noreferrer"
           style={linkStyle()}
