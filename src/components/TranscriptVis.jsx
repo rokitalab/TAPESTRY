@@ -220,14 +220,25 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
     return { min, max, span: max - min };
   }, [junctionExonIndices, coordDomain, junctionTx, junctionCoords]);
 
-  // True when the junction arc is too narrow to draw at full view: renderArcRow
-  // drops arcs under 2 viewBox units (of 1000) wide, e.g. a 407 bp intron in a
-  // 916 kb gene. Used to prompt the user to zoom. Intron retention draws no arc.
+  // True when the event is too narrow to see at full view, used to prompt the
+  // user to zoom. renderArcRow drops arcs under 2 viewBox units (of 1000) wide,
+  // e.g. a 407 bp intron in a 916 kb gene. Intron retention draws no arc; its
+  // highlight spans the retained intron, and under 2 units it is hidden by the
+  // flanking exons, which are drawn at least 2 units wide on top of it.
   const junctionTooSmall = useMemo(() => {
-    if (!coordDomain || !junctionCoords || junctionCoords.eventType === "intron retention") return false;
-    const spanUnits = (Math.abs(junctionCoords.acceptorSite - junctionCoords.donorSite) / coordDomain.span) * 1000;
-    return spanUnits < 2;
-  }, [coordDomain, junctionCoords]);
+    if (!coordDomain || !junctionCoords) return false;
+    let spanBp;
+    if (junctionCoords.eventType === "intron retention") {
+      const { leftExonIdx, rightExonIdx } = junctionExonIndices;
+      const leftExon  = junctionTx?.exons?.[leftExonIdx];
+      const rightExon = junctionTx?.exons?.[rightExonIdx];
+      if (!leftExon || !rightExon) return false;
+      spanBp = rightExon.start - leftExon.end;
+    } else {
+      spanBp = Math.abs(junctionCoords.acceptorSite - junctionCoords.donorSite);
+    }
+    return (spanBp / coordDomain.span) * 1000 < 2;
+  }, [coordDomain, junctionCoords, junctionExonIndices, junctionTx]);
 
   const [zoomed, setZoomed] = useState(false);
 
