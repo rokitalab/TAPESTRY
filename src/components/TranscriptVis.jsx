@@ -220,6 +220,15 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
     return { min, max, span: max - min };
   }, [junctionExonIndices, coordDomain, junctionTx, junctionCoords]);
 
+  // True when the junction arc is too narrow to draw at full view: renderArcRow
+  // drops arcs under 2 viewBox units (of 1000) wide, e.g. a 407 bp intron in a
+  // 916 kb gene. Used to prompt the user to zoom. Intron retention draws no arc.
+  const junctionTooSmall = useMemo(() => {
+    if (!coordDomain || !junctionCoords || junctionCoords.eventType === "intron retention") return false;
+    const spanUnits = (Math.abs(junctionCoords.acceptorSite - junctionCoords.donorSite) / coordDomain.span) * 1000;
+    return spanUnits < 2;
+  }, [coordDomain, junctionCoords]);
+
   const [zoomed, setZoomed] = useState(false);
 
   // Reset zoom whenever the selected junction changes.
@@ -749,9 +758,17 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
             )}
           </Box>
           {!loading && zoomDomain && (
-            <Button size="small" variant="outlined" onClick={() => setZoomed(z => !z)} sx={{ ml: 2, flexShrink: 0, alignSelf: "center" }}>
-              {zoomed ? "View full transcript" : "Zoom to area of interest"}
-            </Button>
+            <Stack alignItems="flex-end" spacing={0.5} sx={{ ml: 2, flexShrink: 0, alignSelf: "center" }}>
+              {/* Filled, with a caption, when the junction arc can't be drawn at full view */}
+              <Button size="small" variant={junctionTooSmall && !zoomed ? "contained" : "outlined"} onClick={() => setZoomed(z => !z)}>
+                {zoomed ? "View full transcript" : "Zoom to area of interest"}
+              </Button>
+              {junctionTooSmall && !zoomed && (
+                <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.2 }}>
+                  Junction too small to see at full view
+                </Typography>
+              )}
+            </Stack>
           )}
         </Stack>
       )}
