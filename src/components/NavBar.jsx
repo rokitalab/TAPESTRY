@@ -78,13 +78,15 @@ export default function NavBar({ mode, setMode }) {
           Release Notes
         </Button>
         <Button
-          component={NavLink}
-          to="/about"
-          style={linkStyle}
+          component="a"
+          href="https://arxiv.org/abs/2610.31816"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={linkStyle()}
           color="inherit"
-          sx={{ opacity: 0.9, "&.active": { opacity: 1, fontWeight: 700 } }}
+          sx={{ opacity: 0.9 }}
         >
-          About
+          Publication
         </Button>
         <Button
           component="a"
