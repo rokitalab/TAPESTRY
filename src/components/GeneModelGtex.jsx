@@ -68,6 +68,50 @@ const EXCLUDED_TRANSCRIPT_BIOTYPES = new Set([
 const JUNC_CURVE_COLOR = "#92bcc9";
 const JUNC_DOT_COLOR = "rgb(86, 98, 107)";
 
+// Strand-direction chevrons in the gaps between exons, matching
+// TranscriptVis.jsx's: one candidate column every CHEVRON_STEP_PX, skipped
+// wherever the chevron would come within CHEVRON_PAD_PX of an exon -- ›
+// on the plus strand, ‹ on the minus strand.
+const CHEVRON_STEP_PX = 40;
+const CHEVRON_SIZE_PX = 8;
+const CHEVRON_PAD_PX = 3;
+
+// Draws chevrons into `g` along y = centerY, between the leftmost and
+// rightmost of `exonData` (GtexGeneModel's rendered exon data, carrying
+// pixel x/w). Exons GtexGeneModel couldn't map have no x and are ignored.
+function drawStrandChevrons(g, { exonData, innerWidth, centerY, strand, color }) {
+  if (strand !== "+" && strand !== "-") return;
+  const ex = exonData
+    .filter((d) => Number.isFinite(d.x) && Number.isFinite(d.w))
+    .map((d) => ({ l: d.x, r: d.x + d.w }));
+  if (ex.length < 2) return;
+  const lo = d3.min(ex, (e) => e.l);
+  const hi = d3.max(ex, (e) => e.r);
+  const xs = [];
+  for (let x = CHEVRON_STEP_PX / 2; x + CHEVRON_SIZE_PX <= innerWidth; x += CHEVRON_STEP_PX) {
+    if (x < lo || x + CHEVRON_SIZE_PX > hi) continue;
+    if (ex.some((e) => x + CHEVRON_SIZE_PX + CHEVRON_PAD_PX > e.l && x - CHEVRON_PAD_PX < e.r)) continue;
+    xs.push(x);
+  }
+  // Same 8x8 paths as TranscriptVis's chevrons, placed with their box
+  // vertically centered on centerY.
+  const d = strand === "-" ? "M6 1L3 4l3 3" : "M2 1l3 3-3 3";
+  g.append("g")
+    .attr("class", "strand-chevrons")
+    .attr("pointer-events", "none")
+    .selectAll("path")
+    .data(xs)
+    .join("path")
+    .attr("transform", (x) => `translate(${x},${centerY - CHEVRON_SIZE_PX / 2})`)
+    .attr("d", d)
+    .attr("fill", "none")
+    .attr("stroke", color)
+    .attr("stroke-width", 1.3)
+    .attr("stroke-linecap", "round")
+    .attr("stroke-linejoin", "round")
+    .attr("opacity", 0.6);
+}
+
 // GtexGeneModel.js bakes the junctionId into each junction element's class
 // as `junc-curve junc${junctionId}` (path) / `junc junc${junctionId}`
 // (dot) -- pulls it back out so hover handlers know which junction an
@@ -209,6 +253,16 @@ function drawMainModel(dom, { width, exons, junctions, strand, gene, geneId, tex
       .attr("fill", textColor)
       .text(geneId);
   }
+
+  // Centered on the exon bar (GtexGeneModel's hardcoded 15px height).
+  drawStrandChevrons(g, {
+    exonData: g.selectAll(".exon-curated").data(),
+    innerWidth: Math.max(width - PADDING.left - PADDING.right, 0),
+    centerY: exonY + 15 / 2,
+    strand,
+    color: textColor,
+  });
+
   // gtex-viz's own stylesheet sets junc-curve's fill to none; without it the
   // browser fills the area the arc implicitly closes over with black.
   g.selectAll(".junc-curve").style("fill", "none");
@@ -244,12 +298,28 @@ function drawMainModel(dom, { width, exons, junctions, strand, gene, geneId, tex
 // inner width as drawMainModel above, so setXscale() recomputes an
 // identical scale every time and each transcript's exons land at the same x
 // as the matching exon in the main model.
-function drawTranscriptRows(dom, { width, exons, strand, transcriptRows, textColor, onHoverExon, container }) {
+//
+// While a junction is hovered (hoveredJunctionId, shared with the heatmap
+// and the main model's arcs), every row whose transcript splices exactly
+// that intron -- two consecutive exons ending at intron_start - 1 and
+// starting at intron_end + 1 -- gets the intron highlighted and labeled
+// with its junction name, e.g. "exon5:exon4". Exons are listed in genomic
+// order, numbered 5'->3' per transcript (see toGeneModelExons), matching
+// the tej table's junction_name format.
+function drawTranscriptRows(dom, { width, exons, strand, transcriptRows, textColor, primaryColor, haloColor, hoveredJunctionId = null, onHoverExon, container }) {
   dom.selectAll("*").remove();
   const g = dom.append("g").attr("transform", `translate(${PADDING.left},${TX_TOP_PAD})`);
 
   const innerWidth = Math.max(width - PADDING.left - PADDING.right, 0);
   const txBarCenter = TX_EXON_BAR_HEIGHT / 2;
+  // junctionId is 'chr_intronStart_intronEnd'; read from the end in case a
+  // contig name itself contains an underscore.
+  const hoveredIntron = hoveredJunctionId
+    ? (() => {
+        const parts = hoveredJunctionId.split("_");
+        return { start: Number(parts[parts.length - 2]), end: Number(parts[parts.length - 1]) };
+      })()
+    : null;
   // GtexGeneModel.js's own #modelLabel convention: text-anchor "end" at
   // xScale.range()[0] - 5, and the range always starts at 0 (see
   // setXscale), so this is a fixed offset rather than something to read
@@ -298,6 +368,45 @@ function drawTranscriptRows(dom, { width, exons, strand, transcriptRows, textCol
       .attr("y1", txBarCenter)
       .attr("y2", txBarCenter)
       .attr("stroke", textColor);
+
+    const exonData = rowG.selectAll(".exon-curated").data();
+    drawStrandChevrons(rowG, { exonData, innerWidth, centerY: txBarCenter, strand, color: textColor });
+
+    if (hoveredIntron) {
+      const left = exonData.find((d) => d.chromEnd === hoveredIntron.start - 1);
+      const right = exonData.find((d) => d.chromStart === hoveredIntron.end + 1);
+      if (left && right && Math.abs(left.exonNumber - right.exonNumber) === 1
+          && Number.isFinite(left.x) && Number.isFinite(right.x)) {
+        const x1 = left.x + left.w;
+        const x2 = right.x;
+        rowG.append("line")
+          .attr("x1", x1)
+          .attr("x2", x2)
+          .attr("y1", txBarCenter)
+          .attr("y2", txBarCenter)
+          .attr("stroke", primaryColor)
+          .attr("stroke-width", 3)
+          .attr("pointer-events", "none");
+        // Haloed in the background color (paint-order draws the stroke
+        // under the fill) so it stays legible over exon bars when the
+        // intron is narrower than the label.
+        rowG.append("text")
+          .attr("x", (x1 + x2) / 2)
+          .attr("y", txBarCenter)
+          .attr("text-anchor", "middle")
+          .attr("dominant-baseline", "middle")
+          .style("font-size", "10px")
+          .attr("font-weight", 700)
+          .attr("font-family", "sans-serif")
+          .attr("fill", primaryColor)
+          .attr("stroke", haloColor)
+          .attr("stroke-width", 3)
+          .attr("stroke-linejoin", "round")
+          .attr("paint-order", "stroke")
+          .attr("pointer-events", "none")
+          .text(`exon${left.exonNumber}:exon${right.exonNumber}`);
+      }
+    }
 
     // Vertically centered on the row's exon bar. dominant-baseline="middle"
     // centers the glyphs themselves rather than the text baseline, so it's
@@ -496,10 +605,14 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
       strand,
       transcriptRows: visibleTranscriptRows,
       textColor: theme.palette.text.primary,
+      primaryColor: theme.palette.primary.main,
+      haloColor: theme.palette.background.paper,
+      hoveredJunctionId,
       onHoverExon: setHoveredExon,
       container: containerRef.current,
     });
-  }, [exons, strand, width, visibleTranscriptRows, theme.palette.text.primary]);
+  }, [exons, strand, width, visibleTranscriptRows, hoveredJunctionId,
+      theme.palette.text.primary, theme.palette.primary.main, theme.palette.background.paper]);
 
   // Lets JunctionExpressionHeatmap.jsx's download button pull in a
   // matching, export-sized copy of the gene model (main model stacked above
