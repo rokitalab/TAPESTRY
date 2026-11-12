@@ -11,6 +11,7 @@ import {
   MIN_TOTAL_READS, MIN_MEDIAN_CPM, selectExpressedJunctionIds, metricValueGetter, filterHiddenGroups,
 } from "./lib/junctionExpressionFilter";
 import PlotDownloadMenu from "./PlotDownloadMenu";
+import { junctionIdToDisplayCoords } from "./lib/junctionCoords";
 import { stackSvgsVertically } from "./lib/svgExport";
 
 const MARGIN = { top: 10, right: 20, bottom: 140, left: 200 };
@@ -260,11 +261,13 @@ const LEGEND_HEIGHT = 28;
 const LEGEND_BAR_W = 100;
 const LEGEND_BAR_H = 10;
 
-// Splits a 'chr_start_end' junctionId (the format gtex-viz's parseJunctions
-// expects) back into its parts for sorting/display.
+// Splits a 'chr_intronStart_intronEnd' junctionId (the format gtex-viz's
+// parseJunctions expects) back into its parts for sorting/display. start/end
+// are display coordinates in the tej-table convention (last base of the
+// upstream exon to first base of the downstream exon), not the intron
+// coordinates in the junctionId -- see lib/junctionCoords.js.
 function parseJunctionId(junctionId) {
-  const [chr, start, end] = junctionId.split("_");
-  return { chr, start: Number(start), end: Number(end) };
+  return junctionIdToDisplayCoords(junctionId);
 }
 
 // Renders the cell-color legend (gradient swatch + "0"/max labels) into its
