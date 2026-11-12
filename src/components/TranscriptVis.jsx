@@ -220,6 +220,26 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
     return { min, max, span: max - min };
   }, [junctionExonIndices, coordDomain, junctionTx, junctionCoords]);
 
+  // True when the event is too narrow to see at full view, used to prompt the
+  // user to zoom. renderArcRow drops arcs under 2 viewBox units (of 1000) wide,
+  // e.g. a 407 bp intron in a 916 kb gene. Intron retention draws no arc; its
+  // highlight spans the retained intron, and under 2 units it is hidden by the
+  // flanking exons, which are drawn at least 2 units wide on top of it.
+  const junctionTooSmall = useMemo(() => {
+    if (!coordDomain || !junctionCoords) return false;
+    let spanBp;
+    if (junctionCoords.eventType === "intron retention") {
+      const { leftExonIdx, rightExonIdx } = junctionExonIndices;
+      const leftExon  = junctionTx?.exons?.[leftExonIdx];
+      const rightExon = junctionTx?.exons?.[rightExonIdx];
+      if (!leftExon || !rightExon) return false;
+      spanBp = rightExon.start - leftExon.end;
+    } else {
+      spanBp = Math.abs(junctionCoords.acceptorSite - junctionCoords.donorSite);
+    }
+    return (spanBp / coordDomain.span) * 1000 < 2;
+  }, [coordDomain, junctionCoords, junctionExonIndices, junctionTx]);
+
   const [zoomed, setZoomed] = useState(false);
 
   // Reset zoom whenever the selected junction changes.
@@ -749,9 +769,17 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
             )}
           </Box>
           {!loading && zoomDomain && (
-            <Button size="small" variant="outlined" onClick={() => setZoomed(z => !z)} sx={{ ml: 2, flexShrink: 0, alignSelf: "center" }}>
-              {zoomed ? "View full transcript" : "Zoom to area of interest"}
-            </Button>
+            <Stack alignItems="flex-end" spacing={0.5} sx={{ ml: 2, flexShrink: 0, alignSelf: "center" }}>
+              {/* Filled, with a caption, when the junction arc can't be drawn at full view */}
+              <Button size="small" variant={junctionTooSmall && !zoomed ? "contained" : "outlined"} onClick={() => setZoomed(z => !z)}>
+                {zoomed ? "View full transcript" : "Zoom to area of interest"}
+              </Button>
+              {junctionTooSmall && !zoomed && (
+                <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.2 }}>
+                  Junction too small to see at full view
+                </Typography>
+              )}
+            </Stack>
           )}
         </Stack>
       )}
