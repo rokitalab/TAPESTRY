@@ -66,7 +66,6 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
           displayName: t.symbol,
           biotype: t.biotype,
           isCanonical: t.isCanonical,
-          colour: colourForBiotype(t.biotype),
           exonCount: t.exons.length > 0 ? t.exons.length : null,
           exons: t.exons.map(({ start, end }) => ({ start, end })),
           translation: t.translation,
@@ -89,13 +88,11 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
     return () => { active = false; controller.abort(); };
   }, [geneID]);
 
-  const legendItems = useMemo(() => {
-    const map = new Map();
-    txList.forEach(t => {
-      if (!map.has(t.biotype)) map.set(t.biotype, t.colour);
-    });
-    return Array.from(map.entries());
-  }, [txList]);
+  // Distinct biotypes in first-seen order; colored per theme mode at render.
+  const legendItems = useMemo(
+    () => Array.from(new Set(txList.map(t => t.biotype))),
+    [txList]
+  );
 
   // Compute genomic domain across ALL transcripts for consistent scaling
   const coordDomain = useMemo(() => {
@@ -251,6 +248,13 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
 
   const theme = useTheme();
   const canonicalColor = theme.palette.mode === "dark" ? "#ffffff" : "#000000";
+  // Biotype colors for the current mode (lightened in dark mode, see
+  // BIO_COLOURS_DARK); the canonical transcript stays black/white.
+  const txColour = (t) => (t.isCanonical ? canonicalColor : colourForBiotype(t.biotype, theme.palette.mode));
+  // Intron backbone and strand chevron opacity: faint lines read fine on
+  // white but disappear on the dark paper, so dark mode draws them stronger.
+  const intronOpacity = theme.palette.mode === "dark" ? 0.7 : 0.4;
+  const chevronOpacity = theme.palette.mode === "dark" ? 0.9 : 0.6;
   const containerRef = useRef(null);
 
   // Track width in px (the panel minus the row label), for placing fixed-size
@@ -429,7 +433,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
   // ‹ on the minus strand, › on the plus strand.
   const renderChevrons = (xs, centerY, colour) => xs.map(x => (
     <Box key={x} component="svg" aria-hidden="true" viewBox="0 0 8 8"
-      sx={{ position: "absolute", left: x, top: centerY - CHEVRON_SIZE_PX / 2, width: CHEVRON_SIZE_PX, height: CHEVRON_SIZE_PX, opacity: 0.6, pointerEvents: "none" }}>
+      sx={{ position: "absolute", left: x, top: centerY - CHEVRON_SIZE_PX / 2, width: CHEVRON_SIZE_PX, height: CHEVRON_SIZE_PX, opacity: chevronOpacity, pointerEvents: "none" }}>
       <path d={effStrand === "-" ? "M6 1L3 4l3 3" : "M2 1l3 3-3 3"} fill="none" stroke={colour}
         strokeWidth={1.3} strokeLinecap="round" strokeLinejoin="round" />
     </Box>
@@ -538,7 +542,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
       }
     }
 
-    const displayColor = t.isCanonical ? canonicalColor : t.colour;
+    const displayColor = txColour(t);
     const isReference = roles.includes("reference");
     const aaLength = isReference ? (t.translation?.length ?? uniprotData?.length) : t.translation?.length;
     const subtitle = [isReference ? "UniProt canonical" : t.biotype, aaLength ? `${aaLength.toLocaleString()} aa` : null]
@@ -573,7 +577,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
                   <line
                     x1={minLeft} y1={ARC_H + TRACK_H / 2}
                     x2={maxRight} y2={ARC_H + TRACK_H / 2}
-                    stroke={displayColor} strokeWidth={2} strokeOpacity={0.4}
+                    stroke={displayColor} strokeWidth={2} strokeOpacity={intronOpacity}
                     vectorEffect="non-scaling-stroke"
                   />
                 );
@@ -680,7 +684,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
     const W = 1000;
     const domain = zoomed && zoomDomain ? zoomDomain : coordDomain;
 
-    const displayColor = t.isCanonical ? canonicalColor : t.colour;
+    const displayColor = txColour(t);
     const exonsSvg = domain && t.exons?.length
       ? t.exons.map(e => {
           const l = ((e.start - domain.min) / domain.span) * W;
@@ -705,7 +709,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
                   <line
                     x1={minLeft} y1={trackH / 2}
                     x2={maxRight} y2={trackH / 2}
-                    stroke={displayColor} strokeWidth={2} strokeOpacity={0.4}
+                    stroke={displayColor} strokeWidth={2} strokeOpacity={intronOpacity}
                     vectorEffect="non-scaling-stroke"
                   />
                 );
@@ -838,11 +842,17 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
                     }}
                   />
                 )}
-                {legendItems.map(([bio, colour]) => {
+                {legendItems.map((bio) => {
+                  const colour = colourForBiotype(bio, theme.palette.mode);
                   const selected = activeBiotypes.has(bio);
                   const bg = selected ? colour : hexToRgba(colour, 0.5);
+                  // Dark mode's lighter biotype colors need dark text on a selected
+                  // (solid) chip; a deselected chip is half-transparent over the
+                  // dark paper, so it keeps light text.
+                  const fg = theme.palette.mode !== "dark" ? "common.white"
+                    : selected ? theme.palette.getContrastText(colour) : "text.primary";
                   return (
-                    <Chip key={bio} label={bio} size="small" onClick={() => toggleBio(bio)} sx={{ bgcolor: bg, color: "common.white", fontWeight: selected ? 700 : 400, border: "1px solid", borderColor: selected ? "transparent" : "divider", cursor: "pointer" }} />
+                    <Chip key={bio} label={bio} size="small" onClick={() => toggleBio(bio)} sx={{ bgcolor: bg, color: fg, fontWeight: selected ? 700 : 400, border: "1px solid", borderColor: selected ? "transparent" : "divider", cursor: "pointer" }} />
                   );
                 })}
               </Stack>
