@@ -7,7 +7,7 @@ import {
 import SettingsIcon from "@mui/icons-material/Settings";
 import * as d3 from "d3";
 import { controlCohortColor, histologyColor, histologyLabel } from "../histologyColors";
-import { triggerDownload } from "./lib/svgExport";
+import { triggerDownload, EXPORT_PALETTE } from "./lib/svgExport";
 import PlotDownloadMenu from "./PlotDownloadMenu";
 
 const MARGIN = { top: 20, right: 20, bottom: 160, left: 100 };
@@ -408,7 +408,7 @@ function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, corrected =
     .attr("text-anchor", "middle")
     .attr("font-size", 16)
     .attr("font-family", "sans-serif")
-    .attr("fill", "#666")
+    .attr("fill", textColor)
     .text(cpmAxisLabel(log2Scale, corrected));
 
   visibleGroups.forEach((g) => {
@@ -529,7 +529,7 @@ function drawEvoDevoPlot(svg, { width, height, evodevoPoints, log2Scale, correct
     .attr("text-anchor", "middle")
     .attr("font-size", 16)
     .attr("font-family", "sans-serif")
-    .attr("fill", "#666")
+    .attr("fill", textColor)
     .text(cpmAxisLabel(log2Scale, corrected));
 
   ["Forebrain", "Hindbrain"].forEach((region) => {
@@ -740,7 +740,7 @@ function drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleG
   root.append("text")
     .attr("transform", "rotate(-90)").attr("x", -iH / 2).attr("y", -52)
     .attr("text-anchor", "middle").attr("font-size", 16)
-    .attr("font-family", "sans-serif").attr("fill", "#666")
+    .attr("font-family", "sans-serif").attr("fill", textColor)
     .text(cpmAxisLabel(log2Scale, corrected));
 
   ["Forebrain", "Hindbrain"].forEach((region) => {
@@ -799,20 +799,23 @@ function drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleG
 const NO_TOOLTIP = { onHover: () => {}, onMove: () => {}, onLeave: () => {} };
 
 // Builds a detached <svg> at the requested export dimensions, drawn with the
-// same logic as the on-screen chart for the active tab.
+// same logic as the on-screen chart for the active tab. Always uses the light
+// theme's text color (the export background is white), so a download matches
+// the light-mode chart whatever mode the page is in.
 function buildExportSvg({ width, height, activeTab, visibleGroups, evodevoPoints, log2Scale, corrected, highlightIds }) {
   const svgEl = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svgEl.setAttribute("width", width);
   svgEl.setAttribute("height", height);
   const svg = d3.select(svgEl);
+  const textColor = EXPORT_PALETTE.text.primary;
   if (activeTab === TAB_EVO_DEVO) {
     if (visibleGroups.length > 0) {
-      drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleGroups, log2Scale, corrected, highlightIds, ...NO_TOOLTIP });
+      drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleGroups, log2Scale, corrected, highlightIds, textColor, ...NO_TOOLTIP });
     } else {
-      drawEvoDevoPlot(svg, { width, height, evodevoPoints, log2Scale, corrected, ...NO_TOOLTIP });
+      drawEvoDevoPlot(svg, { width, height, evodevoPoints, log2Scale, corrected, textColor, ...NO_TOOLTIP });
     }
   } else {
-    drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, corrected, highlightIds, ...NO_TOOLTIP });
+    drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, corrected, highlightIds, textColor, ...NO_TOOLTIP });
   }
   return svgEl;
 }
