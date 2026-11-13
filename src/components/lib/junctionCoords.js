@@ -16,14 +16,20 @@
 // e.g. junctionId "chr10_116862853_116868649" displays as 116862852-116868650.
 
 // Splits a 'chr_intronStart_intronEnd' junctionId into its chromosome and
-// display coordinates (last base of the upstream exon, first base of the
-// downstream exon). Reads the coordinates from the end in case a contig
+// intron coordinates. Reads the coordinates from the end in case a contig
 // name itself contains an underscore.
-export function junctionIdToDisplayCoords(junctionId) {
+export function junctionIdToIntron(junctionId) {
   const parts = junctionId.split("_");
   const intronEnd = Number(parts.pop());
   const intronStart = Number(parts.pop());
-  return { chr: parts.join("_"), start: intronStart - 1, end: intronEnd + 1 };
+  return { chr: parts.join("_"), intronStart, intronEnd };
+}
+
+// Splits a junctionId into its chromosome and display coordinates (last
+// base of the upstream exon, first base of the downstream exon).
+export function junctionIdToDisplayCoords(junctionId) {
+  const { chr, intronStart, intronEnd } = junctionIdToIntron(junctionId);
+  return { chr, start: intronStart - 1, end: intronEnd + 1 };
 }
 
 const TEJ_JUNCTION_RE = /^([^:]+):(\d+)-(\d+)_(\d+)-(\d+)$/;
