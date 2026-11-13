@@ -42,6 +42,7 @@ const TOC = [
   ["release-information", "Release information"],
   ["glossary", "Glossary"],
   ["protein-domains", "Protein domains"],
+  ["junction-expression", "Junction expression"],
   ["use-case-walkthroughs", "Use-case walkthroughs"],
   ["raw-data-availability", "Raw data availability"],
   ["whos-behind-it", "Who's behind it"],
@@ -479,6 +480,66 @@ export default function Docs() {
           drawn, so check UniProt directly when cell-surface accessibility
           matters (e.g., for CAR-T or antibody targets).
         </Typography>
+      </Section>
+
+      <Section title="Junction expression">
+        <Typography sx={{ mb: 2 }}>
+          The Junction Expression page shows every splice junction in a gene,
+          not only TEJs. The heatmap has one column per junction and one row per
+          tumor histology or control group, colored by median (or mean) CPM.
+          Below it, the gene model shows the gene&apos;s exons with each junction
+          drawn as an arc, and underneath that, one row per Ensembl transcript.
+          A junction gets a column when it is annotated, has more than 10 reads
+          in total across the shown groups, and reaches the minimum CPM set by
+          the slider in at least one shown group.
+        </Typography>
+        <List sx={{ listStyleType: "disc", pl: 4, py: 0, mb: 2 }}>
+          <ListItem sx={{ display: "list-item", py: 0.5, pl: 0 }}>
+            <Typography variant="body2">
+              <strong>Coordinates.</strong> Each column is labeled with the
+              junction&apos;s two splice sites: the last base of the upstream
+              exon and the first base of the downstream exon (1-based, GRCh38).
+              This is the same convention as the TEJ table on Explore, so a
+              junction reads the same on both pages. For example, the TEJ{" "}
+              <Code>chr10:116862799-116862852_116868650-116868706</Code> lists
+              its two flanking exons, and its column is labeled{" "}
+              <Code>116862852-116868650</Code>. Tools such as STAR report the
+              intron itself instead (first to last intronic base); to convert,
+              add 1 to the first coordinate and subtract 1 from the second,
+              giving <Code>116862853-116868649</Code> here.
+            </Typography>
+          </ListItem>
+          <ListItem sx={{ display: "list-item", py: 0.5, pl: 0 }}>
+            <Typography variant="body2">
+              <strong>TEJs.</strong> Junctions in the TEJ table are highlighted in
+              amber: a bold amber column label with an amber bar underneath on the
+              heatmap (explained by the <strong>TEJ</strong> key next to the color
+              legend), and an amber dot on the junction&apos;s arc in the gene
+              model. Because the heatmap only shows annotated junctions, TEJs with
+              the status Novel junction or Novel splice site never get a column;
+              find those on Explore.
+            </Typography>
+          </ListItem>
+          <ListItem sx={{ display: "list-item", py: 0.5, pl: 0 }}>
+            <Typography variant="body2">
+              <strong>Hovering.</strong> Hovering a heatmap column, an arc, or an
+              arc&apos;s dot highlights the same junction in both plots, and
+              highlights its intron on every transcript row that splices it.
+              Hovering an arc or dot also lists the junction&apos;s name in each
+              of those transcripts (e.g. <Code>exon23:exon22</Code>), grouped by
+              name. Only transcripts currently shown by the biotype filter are
+              counted.
+            </Typography>
+          </ListItem>
+          <ListItem sx={{ display: "list-item", py: 0.5, pl: 0 }}>
+            <Typography variant="body2">
+              <strong>Direction.</strong> Arrows on the intron lines show the
+              direction of transcription (› on the plus strand, ‹ on the minus
+              strand). The plots always run in genomic order, left to right, so
+              on the minus strand exon 1 is on the right.
+            </Typography>
+          </ListItem>
+        </List>
       </Section>
 
       <Section title="Use-case walkthroughs">

@@ -11,10 +11,16 @@ import {
   MIN_TOTAL_READS, MIN_MEDIAN_CPM, selectExpressedJunctionIds, metricValueGetter, filterHiddenGroups,
 } from "./lib/junctionExpressionFilter";
 import PlotDownloadMenu from "./PlotDownloadMenu";
-import { stackSvgsVertically } from "./lib/svgExport";
+import { junctionIdToDisplayCoords } from "./lib/junctionCoords";
+import { stackSvgsVertically, EXPORT_PALETTE } from "./lib/svgExport";
 
-const MARGIN = { top: 10, right: 20, bottom: 140, left: 200 };
+const MARGIN = { top: 10, right: 20, bottom: 146, left: 200 };
 const ROW_HEIGHT = 14;
+// How far below the cells the rotated junction-coordinate labels start --
+// leaves a clear gap under the TEJ marker bars (drawn just below the
+// cells). MARGIN.bottom grows with it so the labels keep the same clearance
+// above the gene model.
+const COLUMN_LABEL_OFFSET = 16;
 
 // Mirrors PlotArea.jsx's evo-devo timepoint progression, so heatmap rows
 // follow the same developmental ordering as the rest of the app.
@@ -260,11 +266,25 @@ const LEGEND_HEIGHT = 28;
 const LEGEND_BAR_W = 100;
 const LEGEND_BAR_H = 10;
 
-// Splits a 'chr_start_end' junctionId (the format gtex-viz's parseJunctions
-// expects) back into its parts for sorting/display.
+// Splits a 'chr_intronStart_intronEnd' junctionId (the format gtex-viz's
+// parseJunctions expects) back into its parts for sorting/display. start/end
+// are display coordinates in the tej-table convention (last base of the
+// upstream exon to first base of the downstream exon), not the intron
+// coordinates in the junctionId -- see lib/junctionCoords.js.
 function parseJunctionId(junctionId) {
-  const [chr, start, end] = junctionId.split("_");
-  return { chr, start: Number(start), end: Number(end) };
+  return junctionIdToDisplayCoords(junctionId);
+}
+
+// The export legend's text width in px at its 11px sans-serif font. Measured
+// on a canvas because the export SVG is detached from the page, so it has no
+// layout to measure (getBBox/getComputedTextLength return 0). Falls back to
+// a rough per-character estimate if no 2D context is available.
+let legendMeasureCtx = null;
+function legendTextWidth(text) {
+  legendMeasureCtx ??= document.createElement("canvas").getContext("2d");
+  if (!legendMeasureCtx) return text.length * 6.5;
+  legendMeasureCtx.font = "11px sans-serif";
+  return legendMeasureCtx.measureText(text).width;
 }
 
 // Renders the cell-color legend (gradient swatch + "0"/max labels) into its
@@ -272,7 +292,10 @@ function parseJunctionId(junctionId) {
 // as plain HTML (see the Stack with LEGEND_GRADIENT in the component body
 // below) rather than drawing it into the heatmap's <svg>, so it's otherwise
 // invisible to buildExportSvg's <svg>-only export pipeline.
-function drawLegend(dom, { width, legendMax, metricLabel, textColor }) {
+//
+// When showTejKey is set, also draws the "TEJ" key (a tejColor bar matching
+// drawHeatmap's column markers) to the left of the gradient.
+function drawLegend(dom, { width, legendMax, metricLabel, textColor, showTejKey = false, tejColor }) {
   dom.selectAll("*").remove();
 
   const gradient = dom.append("defs").append("linearGradient").attr("id", LEGEND_GRADIENT_ID);
@@ -282,7 +305,11 @@ function drawLegend(dom, { width, legendMax, metricLabel, textColor }) {
       .attr("stop-color", color);
   });
 
-  const barX = width - MARGIN.right - LEGEND_BAR_W;
+  // Laid out from the right margin inward: the upper-bound label (e.g.
+  // "150 Median CPM") ends at the margin and the bar sits just left of it,
+  // so the label isn't cut off at the edge of the export.
+  const maxLabel = `${roundToSigFigs(legendMax, 2)} ${metricLabel}`;
+  const barX = width - MARGIN.right - legendTextWidth(maxLabel) - 6 - LEGEND_BAR_W;
   const barY = (LEGEND_HEIGHT - LEGEND_BAR_H) / 2;
 
   dom.append("rect")
@@ -294,7 +321,7 @@ function drawLegend(dom, { width, legendMax, metricLabel, textColor }) {
     .attr("fill", `url(#${LEGEND_GRADIENT_ID})`);
 
   [{ x: barX - 6, anchor: "end", text: "0" },
-   { x: barX + LEGEND_BAR_W + 6, anchor: "start", text: `${roundToSigFigs(legendMax, 2)} ${metricLabel}` }]
+   { x: barX + LEGEND_BAR_W + 6, anchor: "start", text: maxLabel }]
     .forEach(({ x, anchor, text }) => {
       dom.append("text")
         .attr("x", x)
@@ -306,6 +333,26 @@ function drawLegend(dom, { width, legendMax, metricLabel, textColor }) {
         .attr("fill", textColor)
         .text(text);
     });
+
+  if (showTejKey) {
+    // Left of the "0" label (end-anchored at barX - 6).
+    const keyX = barX - 70;
+    dom.append("rect")
+      .attr("x", keyX)
+      .attr("y", LEGEND_HEIGHT / 2 - 1.75)
+      .attr("width", 16)
+      .attr("height", 3.5)
+      .attr("rx", 1)
+      .attr("fill", tejColor);
+    dom.append("text")
+      .attr("x", keyX + 22)
+      .attr("y", LEGEND_HEIGHT / 2)
+      .attr("dominant-baseline", "middle")
+      .attr("font-size", 11)
+      .attr("font-family", "sans-serif")
+      .attr("fill", textColor)
+      .text("TEJ");
+  }
 }
 
 // Ported from gtex-viz's TranscriptBrowser.js: junction cells are colored on
@@ -313,7 +360,17 @@ function drawLegend(dom, { width, legendMax, metricLabel, textColor }) {
 // plot_group names ordered alphabetically (as returned by the API) rather
 // than dendrogram-clustered tissues, so there's no clustering step here.
 // Junctions run along x, plot_groups run along y (rows).
-function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, metric, textColor, hoveredJunctionId, onHover, onMove, onLeave, onToggleEvoDevo, onHoverJunction, showEvoDevoToggles = true }) {
+//
+// Junctions in the tej table (tejsByJunctionId, junctionId -> tej rows) are
+// highlighted: bold column labels in tejLabelColor (defaults to tejColor; a
+// darker shade where tejColor is too light to read as text) and a tejColor
+// marker bar under the column, explained by the "TEJ" key in the legend.
+//
+// Draws no hover state: the hovered column's outline and bold label are
+// applied afterwards by applyHeatmapHover, which restyles the existing
+// elements. Redrawing on every hover would delete the element under the
+// pointer before its mouseout ran, leaving its tooltip stuck on screen.
+function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, metric, textColor, tejsByJunctionId = new Map(), tejColor, tejLabelColor = tejColor, onHover, onMove, onLeave, onToggleEvoDevo, onHoverJunction, showEvoDevoToggles = true }) {
   svg.selectAll("*").remove();
 
   const { get: metricValue } = METRICS[metric];
@@ -394,16 +451,33 @@ function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, m
     .selectAll("text")
     .data(junctions)
     .join("text")
-    .attr("transform", (j) => `translate(${x(j.junctionId) + x.bandwidth() / 2}, 10) rotate(-55)`)
+    .attr("class", "col-label")
+    .attr("transform", (j) => `translate(${x(j.junctionId) + x.bandwidth() / 2}, ${COLUMN_LABEL_OFFSET}) rotate(-55)`)
     .attr("text-anchor", "end")
     .attr("font-size", 11)
     .attr("font-family", "monospace")
-    .attr("font-weight", (j) => (j.junctionId === hoveredJunctionId ? 700 : 400))
-    .attr("fill", textColor)
+    .attr("font-weight", (j) => (tejsByJunctionId.has(j.junctionId) ? 700 : 400))
+    .attr("fill", (j) => (tejsByJunctionId.has(j.junctionId) ? tejLabelColor : textColor))
     .style("cursor", "pointer")
     .text((j) => `${j.start}-${j.end}`)
     .on("mouseover", (e, j) => onHoverJunction(j.junctionId))
     .on("mouseout", () => onHoverJunction(null));
+
+  // TEJ marker bar under each tej-table junction's column, in the gap
+  // between the last row of cells and the rotated labels (which start
+  // COLUMN_LABEL_OFFSET below the cells, their glyphs reaching ~5px above
+  // that).
+  root.append("g")
+    .attr("pointer-events", "none")
+    .selectAll("rect")
+    .data(junctions.filter((j) => tejsByJunctionId.has(j.junctionId)))
+    .join("rect")
+    .attr("x", (j) => x(j.junctionId))
+    .attr("y", innerHeight + 1)
+    .attr("width", x.bandwidth())
+    .attr("height", 3.5)
+    .attr("rx", 1)
+    .attr("fill", tejColor);
 
   const cells = root.append("g")
     .selectAll("g")
@@ -447,13 +521,15 @@ function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, m
       onLeave();
     });
 
-  // Column outline for whichever junction is hovered here or in the gene
-  // model -- drawn last (and pointer-events: none) so it overlays the cells
-  // without intercepting their hover/tooltip handlers.
+  // Column outline per junction, hidden until applyHeatmapHover shows the
+  // one hovered here or in the gene model -- drawn last (and
+  // pointer-events: none) so it overlays the cells without intercepting
+  // their hover/tooltip handlers.
   root.append("g")
     .selectAll("rect")
-    .data(junctions.filter((j) => j.junctionId === hoveredJunctionId))
+    .data(junctions)
     .join("rect")
+    .attr("class", "col-outline")
     .attr("x", (j) => x(j.junctionId) - 2)
     .attr("y", -2)
     .attr("width", x.bandwidth() + 4)
@@ -461,15 +537,36 @@ function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, m
     .attr("fill", "none")
     .attr("stroke", textColor)
     .attr("stroke-width", 2)
+    .attr("display", "none")
     .attr("pointer-events", "none");
 }
+
+// Shows the hovered junction's column outline and bolds its label (TEJ
+// labels stay bold regardless) on a heatmap already drawn by drawHeatmap,
+// without redrawing it.
+function applyHeatmapHover(svg, { hoveredJunctionId, tejsByJunctionId }) {
+  svg.selectAll(".col-label")
+    .attr("font-weight", (j) => (j.junctionId === hoveredJunctionId || tejsByJunctionId.has(j.junctionId) ? 700 : 400));
+  svg.selectAll(".col-outline")
+    .attr("display", (j) => (j.junctionId === hoveredJunctionId ? null : "none"));
+}
+
+// Shared default for tejsByJunctionId, so an omitted prop doesn't produce a
+// new Map (and a redraw) on every render.
+const NO_TEJS = new Map();
 
 export default function JunctionExpressionHeatmap({
   gene, data, width, geneModelRef = null, hoveredJunctionId = null, onHoverJunction,
   metric, onMetricChange, minExpressionValue, onMinExpressionValueChange,
-  hiddenGroups, onHiddenGroupsChange,
+  hiddenGroups, onHiddenGroupsChange, tejsByJunctionId = NO_TEJS,
 }) {
   const theme = useTheme();
+  // TEJ highlight: the theme's amber for bars/key. Column labels use its
+  // darker generated shade in light mode, where amber text on white is too
+  // faint (~2.2:1 vs ~4.4:1); dark mode keeps amber, which already reads
+  // well (~6:1) on the dark background.
+  const tejColor = theme.palette.secondary.main;
+  const tejLabelColor = theme.palette.mode === "dark" ? theme.palette.secondary.main : theme.palette.secondary.dark;
   const svgRef = useRef(null);
   const [tooltip, setTooltip] = useState({ visible: false, x: 0, y: 0, html: "" });
   const [expandedEvoDevo, setExpandedEvoDevo] = useState(new Set());
@@ -519,6 +616,13 @@ export default function JunctionExpressionHeatmap({
     return Array.from(seen.values()).sort((a, b) => a.start - b.start);
   }, [visibleData, filteredData, metric, minExpressionValue]);
 
+  // Whether any shown column is a TEJ -- the "TEJ" legend key is only
+  // shown (and exported) when there's something for it to explain.
+  const hasVisibleTej = useMemo(
+    () => junctions.some((j) => tejsByJunctionId.has(j.junctionId)),
+    [junctions, tejsByJunctionId]
+  );
+
   const sampleFacets = useMemo(() => buildSampleFacets(data), [data]);
 
   // Rows are ordered the same way PlotArea.jsx orders its groups: tumors
@@ -563,11 +667,17 @@ export default function JunctionExpressionHeatmap({
   // user-chosen export height, since rows have a fixed height. Also pulls in
   // a matching copy of the gene model (if mounted and loaded) and stacks it
   // underneath, so the download captures both plots on one canvas.
+  //
+  // Drawn in the light theme's colors (EXPORT_PALETTE) whatever the page's
+  // mode, since the export always has a white background.
   function buildExportSvg({ width }) {
     // Mirrors the live header's `{junctions.length > 0 && (...)}` guard
     // around the legend Stack -- no legend (or reserved space for it) when
     // there are no junctions to color.
     const showLegend = junctions.length > 0;
+    const exportTextColor = EXPORT_PALETTE.text.primary;
+    const exportTejColor = EXPORT_PALETTE.secondary.main;
+    const exportTejLabelColor = EXPORT_PALETTE.secondary.dark;
     const svgEl = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svgEl.setAttribute("width", width);
     svgEl.setAttribute("height", svgHeight + (showLegend ? LEGEND_HEIGHT : 0));
@@ -577,7 +687,9 @@ export default function JunctionExpressionHeatmap({
         width,
         legendMax,
         metricLabel: METRICS[metric].label,
-        textColor: theme.palette.text.primary,
+        textColor: exportTextColor,
+        showTejKey: hasVisibleTej,
+        tejColor: exportTejColor,
       });
     }
     drawHeatmap(root.append("g").attr("transform", `translate(0, ${showLegend ? LEGEND_HEIGHT : 0})`), {
@@ -587,8 +699,10 @@ export default function JunctionExpressionHeatmap({
       groupMeta,
       valueFor,
       metric,
-      textColor: theme.palette.text.primary,
-      hoveredJunctionId: null,
+      textColor: exportTextColor,
+      tejsByJunctionId,
+      tejColor: exportTejColor,
+      tejLabelColor: exportTejLabelColor,
       onHover: () => {},
       onMove: () => {},
       onLeave: () => {},
@@ -614,14 +728,24 @@ export default function JunctionExpressionHeatmap({
       valueFor,
       metric,
       textColor: theme.palette.text.primary,
-      hoveredJunctionId,
+      tejsByJunctionId,
+      tejColor,
+      tejLabelColor,
       onHover: (e, html) => setTooltip({ visible: true, x: e.clientX + 14, y: e.clientY - 32, html }),
       onMove: (e) => setTooltip((prev) => ({ ...prev, x: e.clientX + 14, y: e.clientY - 32 })),
       onLeave: () => setTooltip((prev) => ({ ...prev, visible: false })),
       onToggleEvoDevo: toggleEvoDevoExpand,
       onHoverJunction: (id) => onHoverJunction?.(id),
     });
-  }, [junctions, plotGroups, groupMeta, width, metric, hoveredJunctionId, onHoverJunction, theme.palette.text.primary]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [junctions, plotGroups, groupMeta, width, metric, onHoverJunction, tejsByJunctionId, tejColor, tejLabelColor, theme.palette.text.primary]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Hover styling only -- runs after the draw effect above. Lists the draw
+  // effect's dependencies too, so it re-applies after every redraw (which
+  // resets the outline/labels), not just when the hovered junction changes.
+  useEffect(() => {
+    if (!svgRef.current || junctions.length === 0) return;
+    applyHeatmapHover(d3.select(svgRef.current), { hoveredJunctionId, tejsByJunctionId });
+  }, [hoveredJunctionId, junctions, plotGroups, groupMeta, width, metric, onHoverJunction, tejsByJunctionId, tejColor, tejLabelColor, theme.palette.text.primary]);
 
   return (
     <Box>
@@ -632,6 +756,12 @@ export default function JunctionExpressionHeatmap({
         <Stack direction="row" spacing={2} alignItems="center">
           {junctions.length > 0 && (
             <Stack direction="row" spacing={1} alignItems="center">
+              {hasVisibleTej && (
+                <Stack direction="row" spacing={0.75} alignItems="center" sx={{ pr: 1 }}>
+                  <Box sx={{ width: 16, height: 3.5, borderRadius: 0.5, bgcolor: tejColor }} />
+                  <Typography variant="caption" color="text.secondary">TEJ</Typography>
+                </Stack>
+              )}
               <Typography variant="caption" color="text.secondary">0</Typography>
               <Box sx={{ width: 100, height: 10, borderRadius: 1, background: LEGEND_GRADIENT }} />
               <Typography variant="caption" color="text.secondary">
@@ -686,7 +816,19 @@ export default function JunctionExpressionHeatmap({
         </Typography>
       ) : (
         <>
-          <svg ref={svgRef} width={width} height={svgHeight} style={{ display: "block" }} />
+          {/* Leaving the plot always clears its tooltip and the hovered
+              junction -- a fallback in case an element's own mouseout
+              didn't fire. */}
+          <svg
+            ref={svgRef}
+            width={width}
+            height={svgHeight}
+            style={{ display: "block" }}
+            onMouseLeave={() => {
+              setTooltip((prev) => ({ ...prev, visible: false }));
+              onHoverJunction?.(null);
+            }}
+          />
           {tooltip.visible && (
             <div
               dangerouslySetInnerHTML={{ __html: tooltip.html }}
