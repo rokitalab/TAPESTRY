@@ -253,17 +253,20 @@ function roundToSigFigs(value, sigFigs) {
   return Math.round(value * factor) / factor;
 }
 
-// Cell color scales. Light mode (and every download, which is always drawn
-// on white) uses d3.interpolateReds. In dark mode its near-white zero end
-// glares against the dark background, so zero starts from a light gray
-// instead, blending into the same reds by ~20% of the range and ending in
-// the same dark red.
+// Cell color scales, both topping out at crimson (#a50f15) rather than
+// d3.interpolateReds' near-black #67000d, which barely showed against the
+// dark background. Light mode (and every download, which is always drawn on
+// white) is d3.interpolateReds' smooth curve over its first 8 colors, i.e.
+// Reds ending one step early. In dark mode the near-white zero end glares
+// against the dark background, so zero starts from a light gray instead,
+// blending into the same reds by ~20% of the range.
+const LIGHT_MODE_REDS = d3.interpolateRgbBasis(d3.schemeReds[9].slice(0, 8));
 const DARK_MODE_REDS = d3.piecewise(d3.interpolateRgb, [
-  "#d3d8de", "#e6cbc3", "#fcbba1", "#fc9272", "#fb6a4a", "#ef3b2c", "#cb181d", "#a50f15", "#67000d",
+  "#d3d8de", "#e6cbc3", "#fcbba1", "#fc9272", "#fb6a4a", "#ef3b2c", "#cb181d", "#a50f15",
 ]);
 
 function cellColorInterpolator(mode) {
-  return mode === "dark" ? DARK_MODE_REDS : d3.interpolateReds;
+  return mode === "dark" ? DARK_MODE_REDS : LIGHT_MODE_REDS;
 }
 
 // Cell color legend gradient -- cells map linearly onto the interpolator
@@ -309,7 +312,7 @@ function legendTextWidth(text) {
 //
 // When showTejKey is set, also draws the "TEJ" key (a tejColor bar matching
 // drawHeatmap's column markers) to the left of the gradient.
-function drawLegend(dom, { width, legendMax, metricLabel, textColor, interpolator = d3.interpolateReds, showTejKey = false, tejColor }) {
+function drawLegend(dom, { width, legendMax, metricLabel, textColor, interpolator = LIGHT_MODE_REDS, showTejKey = false, tejColor }) {
   dom.selectAll("*").remove();
 
   const gradient = dom.append("defs").append("linearGradient").attr("id", LEGEND_GRADIENT_ID);
@@ -388,7 +391,7 @@ function drawLegend(dom, { width, legendMax, metricLabel, textColor, interpolato
 //
 // interpolator colors the cells (see cellColorInterpolator); cellStroke is
 // the hairline between them, matched to the background they sit on.
-function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, metric, textColor, interpolator = d3.interpolateReds, cellStroke = "#fff", tejsByJunctionId = new Map(), tejColor, tejLabelColor = tejColor, onHover, onMove, onLeave, onToggleEvoDevo, onHoverJunction, showEvoDevoToggles = true }) {
+function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, metric, textColor, interpolator = LIGHT_MODE_REDS, cellStroke = "#fff", tejsByJunctionId = new Map(), tejColor, tejLabelColor = tejColor, onHover, onMove, onLeave, onToggleEvoDevo, onHoverJunction, showEvoDevoToggles = true }) {
   svg.selectAll("*").remove();
 
   const { get: metricValue } = METRICS[metric];

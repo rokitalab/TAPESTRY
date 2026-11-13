@@ -120,7 +120,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
       setActiveBiotypes(new Set());
       setCanonicalOnly(false);
     } else {
-      const available = new Set(legendItems.map(([bio]) => bio));
+      const available = new Set(legendItems);
       let differs = activeBiotypes.size !== available.size;
       if (!differs) {
         for (const b of available) { if (!activeBiotypes.has(b)) { differs = true; break; } }
