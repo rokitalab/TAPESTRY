@@ -254,6 +254,23 @@ function drawMainModel(dom, { width, exons, junctions, strand, gene, geneId, tex
       .text(geneId);
   }
 
+  // Intron backbone from the first exon to the last, centered on the exon
+  // bar (GtexGeneModel's hardcoded 15px height) -- GtexGeneModel only draws
+  // this line for isoform rows, not the main model. Inserted before the
+  // first exon rect so it renders behind the exons.
+  const mainExonData = g.selectAll(".exon-curated").data()
+    .filter((d) => Number.isFinite(d.x) && Number.isFinite(d.w));
+  if (mainExonData.length > 1) {
+    g.insert("line", ".exon")
+      .attr("class", "intron")
+      .attr("x1", d3.min(mainExonData, (d) => d.x))
+      .attr("x2", d3.max(mainExonData, (d) => d.x + d.w))
+      .attr("y1", exonY + 15 / 2)
+      .attr("y2", exonY + 15 / 2)
+      .attr("stroke", textColor)
+      .attr("pointer-events", "none");
+  }
+
   // Centered on the exon bar (GtexGeneModel's hardcoded 15px height).
   drawStrandChevrons(g, {
     exonData: g.selectAll(".exon-curated").data(),
