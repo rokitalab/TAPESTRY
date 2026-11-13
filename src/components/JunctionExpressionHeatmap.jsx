@@ -270,6 +270,18 @@ function parseJunctionId(junctionId) {
   return junctionIdToDisplayCoords(junctionId);
 }
 
+// The export legend's text width in px at its 11px sans-serif font. Measured
+// on a canvas because the export SVG is detached from the page, so it has no
+// layout to measure (getBBox/getComputedTextLength return 0). Falls back to
+// a rough per-character estimate if no 2D context is available.
+let legendMeasureCtx = null;
+function legendTextWidth(text) {
+  legendMeasureCtx ??= document.createElement("canvas").getContext("2d");
+  if (!legendMeasureCtx) return text.length * 6.5;
+  legendMeasureCtx.font = "11px sans-serif";
+  return legendMeasureCtx.measureText(text).width;
+}
+
 // Renders the cell-color legend (gradient swatch + "0"/max labels) into its
 // own <g> -- only needed for the SVG download. The live page renders this
 // as plain HTML (see the Stack with LEGEND_GRADIENT in the component body
@@ -288,7 +300,11 @@ function drawLegend(dom, { width, legendMax, metricLabel, textColor, showTejKey 
       .attr("stop-color", color);
   });
 
-  const barX = width - MARGIN.right - LEGEND_BAR_W;
+  // Laid out from the right margin inward: the upper-bound label (e.g.
+  // "150 Median CPM") ends at the margin and the bar sits just left of it,
+  // so the label isn't cut off at the edge of the export.
+  const maxLabel = `${roundToSigFigs(legendMax, 2)} ${metricLabel}`;
+  const barX = width - MARGIN.right - legendTextWidth(maxLabel) - 6 - LEGEND_BAR_W;
   const barY = (LEGEND_HEIGHT - LEGEND_BAR_H) / 2;
 
   dom.append("rect")
@@ -300,7 +316,7 @@ function drawLegend(dom, { width, legendMax, metricLabel, textColor, showTejKey 
     .attr("fill", `url(#${LEGEND_GRADIENT_ID})`);
 
   [{ x: barX - 6, anchor: "end", text: "0" },
-   { x: barX + LEGEND_BAR_W + 6, anchor: "start", text: `${roundToSigFigs(legendMax, 2)} ${metricLabel}` }]
+   { x: barX + LEGEND_BAR_W + 6, anchor: "start", text: maxLabel }]
     .forEach(({ x, anchor, text }) => {
       dom.append("text")
         .attr("x", x)
