@@ -247,7 +247,9 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
   }
 
   const theme = useTheme();
-  const canonicalColor = theme.palette.mode === "dark" ? "#ffffff" : "#000000";
+  // Ensembl canonical transcript: black on white; a soft gray in dark mode,
+  // where pure white glared against the other rows.
+  const canonicalColor = theme.palette.mode === "dark" ? "#c3ccd6" : "#000000";
   // Biotype colors for the current mode (lightened in dark mode, see
   // BIO_COLOURS_DARK); the canonical transcript stays black/white.
   const txColour = (t) => (t.isCanonical ? canonicalColor : colourForBiotype(t.biotype, theme.palette.mode));
@@ -552,13 +554,23 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
       <Box key={t.id} sx={{ display: "flex", alignItems: "center" }}>
         <Box sx={{ width: 200, flexShrink: 0, mr: 1 }}>
           <Stack direction="row" spacing={0.5}>
-            {roles.map(role => (
-              <Box key={role} component="span" sx={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", lineHeight: 1.5, color: "common.white", bgcolor: role === "reference" ? REFERENCE_TAG_COLOR : "error.main", borderRadius: 0.5, px: 0.625 }}>
-                {role === "reference" ? "REFERENCE" : "JUNCTION"}
-              </Box>
-            ))}
+            {roles.map(role => {
+              // Dark mode outlines the REFERENCE tag in its row's color (the
+              // slate fill vanished on the dark paper); 1px border on the
+              // others too (transparent) so every tag is the same size.
+              const outlinedRef = role === "reference" && theme.palette.mode === "dark";
+              const tagColour = role === "reference" ? REFERENCE_TAG_COLOR : theme.palette.error.main;
+              return (
+                <Box key={role} component="span" sx={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", lineHeight: 1.5, borderRadius: 0.5, px: 0.625,
+                  color: outlinedRef ? displayColor : "common.white",
+                  bgcolor: outlinedRef ? "transparent" : tagColour,
+                  border: "1px solid", borderColor: outlinedRef ? displayColor : "transparent" }}>
+                  {role === "reference" ? "REFERENCE" : "JUNCTION"}
+                </Box>
+              );
+            })}
           </Stack>
-          <Typography variant="caption" sx={{ display: "block", fontSize: 12, lineHeight: 1.3, mt: 0.25, color: displayColor, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis" }} title={`${t.displayName} (${t.id})`}>
+          <Typography variant="caption" sx={{ display: "block", fontSize: 12, lineHeight: 1.3, mt: 0.25, color: "text.primary", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis" }} title={`${t.displayName} (${t.id})`}>
             {t.displayName} ({t.id})
           </Typography>
           <Typography variant="caption" color="text.secondary" sx={{ display: "block", fontSize: 11, lineHeight: 1.3 }}>
@@ -696,7 +708,7 @@ export default function TranscriptVis({ geneID, geneName = null, strand = "+", h
 
     return (
       <Box key={t.id} sx={{ display: "flex", alignItems: "center" }}>
-        <Typography variant="caption" sx={{ fontSize: 12, lineHeight: 1.2, color: displayColor, width: 200, flexShrink: 0, mr: 1, overflow: "hidden", textOverflow: "ellipsis" }} title={`${t.displayName} (${t.id})`}>
+        <Typography variant="caption" sx={{ fontSize: 12, lineHeight: 1.2, color: "text.primary", width: 200, flexShrink: 0, mr: 1, overflow: "hidden", textOverflow: "ellipsis" }} title={`${t.displayName} (${t.id})`}>
           {t.displayName} ({t.id})
         </Typography>
         {exonsSvg.length > 0 ? (
