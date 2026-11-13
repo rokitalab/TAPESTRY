@@ -186,6 +186,7 @@ export default function JunctionExpression() {
                   metric={metric}
                   minExpressionValue={minExpressionValue}
                   hiddenGroups={hiddenGroups}
+                  tejsByJunctionId={tejsByJunctionId}
                 />
               </Box>
             </Box>

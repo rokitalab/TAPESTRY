@@ -69,6 +69,10 @@ const EXCLUDED_TRANSCRIPT_BIOTYPES = new Set([
 const JUNC_CURVE_COLOR = "#92bcc9";
 const JUNC_DOT_COLOR = "rgb(86, 98, 107)";
 
+// Shared default for tejsByJunctionId, so an omitted prop doesn't produce a
+// new Map (and a redraw) on every render.
+const NO_TEJS = new Map();
+
 // Strand-direction chevrons in the gaps between exons, matching
 // TranscriptVis.jsx's: one candidate column every CHEVRON_STEP_PX, skipped
 // wherever the chevron would come within CHEVRON_PAD_PX of an exon -- ›
@@ -207,7 +211,7 @@ function mergeExonIntervals(rawExons) {
 // so the download produces exactly what's on screen. Transcript isoform
 // rows are drawn separately by drawTranscriptRows so the biotype Chip
 // filter can sit between the two in the DOM.
-function drawMainModel(dom, { width, exons, junctions, strand, gene, geneId, textColor, primaryColor, hoveredJunctionId, onHoverJunction, onHoverExon, onJunctionTip, container }) {
+function drawMainModel(dom, { width, exons, junctions, strand, gene, geneId, textColor, primaryColor, tejsByJunctionId = NO_TEJS, hoveredJunctionId, onHoverJunction, onHoverExon, onJunctionTip, container }) {
   dom.selectAll("*").remove();
   const g = dom.append("g").attr("transform", `translate(${PADDING.left},${PADDING.top})`);
 
@@ -335,12 +339,16 @@ function drawMainModel(dom, { width, exons, junctions, strand, gene, geneId, tex
       .style("cursor", junctionId ? "pointer" : null)
       .call(tipHandlers, junctionId);
   });
+  // A TEJ's dot (junctions in the tej table) is filled primaryColor, the
+  // same blue as the heatmap's TEJ labels/bars; its arc and hover styling
+  // are unchanged.
   g.selectAll(".junc").each(function () {
     const junctionId = junctionIdOf(this, "junc");
     const isHovered = junctionId !== null && junctionId === hoveredJunctionId;
+    const isTej = junctionId !== null && tejsByJunctionId.has(junctionId);
     d3.select(this)
       .attr("r", isHovered ? 6 : 4)
-      .style("fill", isHovered ? primaryColor : JUNC_DOT_COLOR)
+      .style("fill", isHovered || isTej ? primaryColor : JUNC_DOT_COLOR)
       .style("cursor", junctionId ? "pointer" : null)
       .call(tipHandlers, junctionId);
   });
@@ -457,7 +465,7 @@ function drawTranscriptRows(dom, { width, exons, strand, transcriptRows, textCol
 }
 
 const GeneModelGtex = forwardRef(function GeneModelGtex(
-  { gene, junctionData, width, hoveredJunctionId = null, onHoverJunction, metric, minExpressionValue, hiddenGroups },
+  { gene, junctionData, width, hoveredJunctionId = null, onHoverJunction, metric, minExpressionValue, hiddenGroups, tejsByJunctionId = NO_TEJS },
   ref
 ) {
   const theme = useTheme();
@@ -635,13 +643,14 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
       geneId,
       textColor: theme.palette.text.primary,
       primaryColor: theme.palette.primary.main,
+      tejsByJunctionId,
       hoveredJunctionId,
       onHoverJunction,
       onHoverExon: setHoveredExon,
       onJunctionTip: setJunctionTip,
       container: containerRef.current,
     });
-  }, [exons, junctions, strand, gene, geneId, width, hoveredJunctionId, onHoverJunction,
+  }, [exons, junctions, strand, gene, geneId, width, hoveredJunctionId, onHoverJunction, tejsByJunctionId,
       theme.palette.text.primary, theme.palette.primary.main]);
 
   useEffect(() => {
@@ -681,6 +690,7 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
         geneId,
         textColor: theme.palette.text.primary,
         primaryColor: theme.palette.primary.main,
+        tejsByJunctionId,
         hoveredJunctionId: null,
         onHoverJunction: () => {},
       });
@@ -695,7 +705,7 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
       }
       return svgEl;
     },
-  }), [exons, junctions, strand, gene, geneId, visibleTranscriptRows, theme.palette.text.primary, theme.palette.primary.main]);
+  }), [exons, junctions, strand, gene, geneId, visibleTranscriptRows, tejsByJunctionId, theme.palette.text.primary, theme.palette.primary.main]);
 
   if (!gene) return null;
 
