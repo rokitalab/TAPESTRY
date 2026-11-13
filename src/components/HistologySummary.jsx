@@ -250,7 +250,10 @@ function SpecificityCard({ total, oncofetal }) {
           sx={{
             position: "relative",
             height: 12,
-            bgcolor: alpha(trackColor, 0.18),
+            // The faint teal track sinks into the dark paper, so dark mode
+            // uses the theme's muted gray for the non-oncofetal share.
+            bgcolor: (theme) =>
+              theme.palette.mode === "dark" ? theme.palette.text.secondary : alpha(trackColor, 0.18),
             borderRadius: 999,
             overflow: "hidden",
             my: 2,
