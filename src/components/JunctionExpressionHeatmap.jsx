@@ -364,7 +364,12 @@ function drawLegend(dom, { width, legendMax, metricLabel, textColor, showTejKey 
 // Junctions in the tej table (tejsByJunctionId, junctionId -> tej rows) are
 // highlighted in tejColor: bold colored column labels and a marker bar under
 // the column, explained by the "TEJ" key in the legend.
-function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, metric, textColor, tejsByJunctionId = new Map(), tejColor, hoveredJunctionId, onHover, onMove, onLeave, onToggleEvoDevo, onHoverJunction, showEvoDevoToggles = true }) {
+//
+// Draws no hover state: the hovered column's outline and bold label are
+// applied afterwards by applyHeatmapHover, which restyles the existing
+// elements. Redrawing on every hover would delete the element under the
+// pointer before its mouseout ran, leaving its tooltip stuck on screen.
+function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, metric, textColor, tejsByJunctionId = new Map(), tejColor, onHover, onMove, onLeave, onToggleEvoDevo, onHoverJunction, showEvoDevoToggles = true }) {
   svg.selectAll("*").remove();
 
   const { get: metricValue } = METRICS[metric];
@@ -445,11 +450,12 @@ function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, m
     .selectAll("text")
     .data(junctions)
     .join("text")
+    .attr("class", "col-label")
     .attr("transform", (j) => `translate(${x(j.junctionId) + x.bandwidth() / 2}, ${COLUMN_LABEL_OFFSET}) rotate(-55)`)
     .attr("text-anchor", "end")
     .attr("font-size", 11)
     .attr("font-family", "monospace")
-    .attr("font-weight", (j) => (j.junctionId === hoveredJunctionId || tejsByJunctionId.has(j.junctionId) ? 700 : 400))
+    .attr("font-weight", (j) => (tejsByJunctionId.has(j.junctionId) ? 700 : 400))
     .attr("fill", (j) => (tejsByJunctionId.has(j.junctionId) ? tejColor : textColor))
     .style("cursor", "pointer")
     .text((j) => `${j.start}-${j.end}`)
@@ -514,13 +520,15 @@ function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, m
       onLeave();
     });
 
-  // Column outline for whichever junction is hovered here or in the gene
-  // model -- drawn last (and pointer-events: none) so it overlays the cells
-  // without intercepting their hover/tooltip handlers.
+  // Column outline per junction, hidden until applyHeatmapHover shows the
+  // one hovered here or in the gene model -- drawn last (and
+  // pointer-events: none) so it overlays the cells without intercepting
+  // their hover/tooltip handlers.
   root.append("g")
     .selectAll("rect")
-    .data(junctions.filter((j) => j.junctionId === hoveredJunctionId))
+    .data(junctions)
     .join("rect")
+    .attr("class", "col-outline")
     .attr("x", (j) => x(j.junctionId) - 2)
     .attr("y", -2)
     .attr("width", x.bandwidth() + 4)
@@ -528,7 +536,18 @@ function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, m
     .attr("fill", "none")
     .attr("stroke", textColor)
     .attr("stroke-width", 2)
+    .attr("display", "none")
     .attr("pointer-events", "none");
+}
+
+// Shows the hovered junction's column outline and bolds its label (TEJ
+// labels stay bold regardless) on a heatmap already drawn by drawHeatmap,
+// without redrawing it.
+function applyHeatmapHover(svg, { hoveredJunctionId, tejsByJunctionId }) {
+  svg.selectAll(".col-label")
+    .attr("font-weight", (j) => (j.junctionId === hoveredJunctionId || tejsByJunctionId.has(j.junctionId) ? 700 : 400));
+  svg.selectAll(".col-outline")
+    .attr("display", (j) => (j.junctionId === hoveredJunctionId ? null : "none"));
 }
 
 // Shared default for tejsByJunctionId, so an omitted prop doesn't produce a
@@ -671,7 +690,6 @@ export default function JunctionExpressionHeatmap({
       textColor: theme.palette.text.primary,
       tejsByJunctionId,
       tejColor,
-      hoveredJunctionId: null,
       onHover: () => {},
       onMove: () => {},
       onLeave: () => {},
@@ -699,14 +717,21 @@ export default function JunctionExpressionHeatmap({
       textColor: theme.palette.text.primary,
       tejsByJunctionId,
       tejColor,
-      hoveredJunctionId,
       onHover: (e, html) => setTooltip({ visible: true, x: e.clientX + 14, y: e.clientY - 32, html }),
       onMove: (e) => setTooltip((prev) => ({ ...prev, x: e.clientX + 14, y: e.clientY - 32 })),
       onLeave: () => setTooltip((prev) => ({ ...prev, visible: false })),
       onToggleEvoDevo: toggleEvoDevoExpand,
       onHoverJunction: (id) => onHoverJunction?.(id),
     });
-  }, [junctions, plotGroups, groupMeta, width, metric, hoveredJunctionId, onHoverJunction, tejsByJunctionId, tejColor, theme.palette.text.primary]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [junctions, plotGroups, groupMeta, width, metric, onHoverJunction, tejsByJunctionId, tejColor, theme.palette.text.primary]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Hover styling only -- runs after the draw effect above. Lists the draw
+  // effect's dependencies too, so it re-applies after every redraw (which
+  // resets the outline/labels), not just when the hovered junction changes.
+  useEffect(() => {
+    if (!svgRef.current || junctions.length === 0) return;
+    applyHeatmapHover(d3.select(svgRef.current), { hoveredJunctionId, tejsByJunctionId });
+  }, [hoveredJunctionId, junctions, plotGroups, groupMeta, width, metric, onHoverJunction, tejsByJunctionId, tejColor, theme.palette.text.primary]);
 
   return (
     <Box>
@@ -777,7 +802,19 @@ export default function JunctionExpressionHeatmap({
         </Typography>
       ) : (
         <>
-          <svg ref={svgRef} width={width} height={svgHeight} style={{ display: "block" }} />
+          {/* Leaving the plot always clears its tooltip and the hovered
+              junction -- a fallback in case an element's own mouseout
+              didn't fire. */}
+          <svg
+            ref={svgRef}
+            width={width}
+            height={svgHeight}
+            style={{ display: "block" }}
+            onMouseLeave={() => {
+              setTooltip((prev) => ({ ...prev, visible: false }));
+              onHoverJunction?.(null);
+            }}
+          />
           {tooltip.visible && (
             <div
               dangerouslySetInnerHTML={{ __html: tooltip.html }}

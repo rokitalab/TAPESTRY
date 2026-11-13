@@ -211,7 +211,12 @@ function mergeExonIntervals(rawExons) {
 // so the download produces exactly what's on screen. Transcript isoform
 // rows are drawn separately by drawTranscriptRows so the biotype Chip
 // filter can sit between the two in the DOM.
-function drawMainModel(dom, { width, exons, junctions, strand, gene, geneId, textColor, primaryColor, tejsByJunctionId = NO_TEJS, hoveredJunctionId, onHoverJunction, onHoverExon, onJunctionTip, container }) {
+//
+// Draws no hover state: the hovered junction's arc/dot styling is applied
+// by applyMainModelHover, which restyles the existing elements. Redrawing on
+// every hover would delete the element under the pointer before its
+// mouseout ran, leaving its tooltip and highlight stuck on screen.
+function drawMainModel(dom, { width, exons, junctions, strand, gene, geneId, textColor, primaryColor, tejsByJunctionId = NO_TEJS, onHoverJunction, onHoverExon, onJunctionTip, container }) {
   dom.selectAll("*").remove();
   const g = dom.append("g").attr("transform", `translate(${PADDING.left},${PADDING.top})`);
 
@@ -317,8 +322,7 @@ function drawMainModel(dom, { width, exons, junctions, strand, gene, geneId, tex
   // hoveredJunctionId), highlights the same junction in both places.
   // Hovering it here also reports the pointer position (relative to
   // `container`, like the exon tooltip) via onJunctionTip, for the junction
-  // name tooltip. mousemove rather than mouseover: hovering redraws the
-  // model, and the redrawn element under a still pointer gets no mouseover.
+  // name tooltip -- on mousemove, so the tooltip follows the pointer.
   const tipHandlers = (sel, junctionId) => sel
     .on("mouseover", () => onHoverJunction?.(junctionId))
     .on("mousemove", (event) => {
@@ -332,25 +336,40 @@ function drawMainModel(dom, { width, exons, junctions, strand, gene, geneId, tex
     });
   g.selectAll(".junc-curve").each(function () {
     const junctionId = junctionIdOf(this, "junc-curve");
-    const isHovered = junctionId !== null && junctionId === hoveredJunctionId;
     d3.select(this)
-      .style("stroke", isHovered ? primaryColor : JUNC_CURVE_COLOR)
-      .style("stroke-width", isHovered ? 3 : 1)
       .style("cursor", junctionId ? "pointer" : null)
       .call(tipHandlers, junctionId);
   });
-  // A TEJ's dot (junctions in the tej table) is filled primaryColor, the
-  // same blue as the heatmap's TEJ labels/bars; its arc and hover styling
-  // are unchanged.
   g.selectAll(".junc").each(function () {
+    const junctionId = junctionIdOf(this, "junc");
+    d3.select(this)
+      .style("cursor", junctionId ? "pointer" : null)
+      .call(tipHandlers, junctionId);
+  });
+
+  applyMainModelHover(dom, { hoveredJunctionId: null, tejsByJunctionId, primaryColor });
+}
+
+// Styles the main model's junction arcs/dots for the hovered junction (or
+// none, for the base look) on a model already drawn by drawMainModel,
+// without redrawing it. A TEJ's dot (junctions in the tej table) is always
+// filled primaryColor, the same blue as the heatmap's TEJ labels/bars; its
+// arc and hover styling are otherwise the same as any junction's.
+function applyMainModelHover(dom, { hoveredJunctionId, tejsByJunctionId = NO_TEJS, primaryColor }) {
+  dom.selectAll(".junc-curve").each(function () {
+    const junctionId = junctionIdOf(this, "junc-curve");
+    const isHovered = junctionId !== null && junctionId === hoveredJunctionId;
+    d3.select(this)
+      .style("stroke", isHovered ? primaryColor : JUNC_CURVE_COLOR)
+      .style("stroke-width", isHovered ? 3 : 1);
+  });
+  dom.selectAll(".junc").each(function () {
     const junctionId = junctionIdOf(this, "junc");
     const isHovered = junctionId !== null && junctionId === hoveredJunctionId;
     const isTej = junctionId !== null && tejsByJunctionId.has(junctionId);
     d3.select(this)
       .attr("r", isHovered ? 6 : 4)
-      .style("fill", isHovered || isTej ? primaryColor : JUNC_DOT_COLOR)
-      .style("cursor", junctionId ? "pointer" : null)
-      .call(tipHandlers, junctionId);
+      .style("fill", isHovered || isTej ? primaryColor : JUNC_DOT_COLOR);
   });
 }
 
@@ -362,19 +381,14 @@ function drawMainModel(dom, { width, exons, junctions, strand, gene, geneId, tex
 // identical scale every time and each transcript's exons land at the same x
 // as the matching exon in the main model.
 //
-// While a junction is hovered (hoveredJunctionId, shared with the heatmap
-// and the main model's arcs), every row whose transcript splices exactly
-// that intron -- two consecutive exons ending at intron_start - 1 and
-// starting at intron_end + 1 -- gets the intron highlighted. The junction's
-// name in each transcript is shown in the main model's arc tooltip (see
-// junctionNameGroups) rather than on the rows.
-function drawTranscriptRows(dom, { width, exons, strand, transcriptRows, textColor, primaryColor, hoveredJunctionId = null, onHoverExon, container }) {
+// The hovered junction's intron highlight is applied afterwards by
+// applyTranscriptRowsHover, without redrawing the rows.
+function drawTranscriptRows(dom, { width, exons, strand, transcriptRows, textColor, onHoverExon, container }) {
   dom.selectAll("*").remove();
   const g = dom.append("g").attr("transform", `translate(${PADDING.left},${TX_TOP_PAD})`);
 
   const innerWidth = Math.max(width - PADDING.left - PADDING.right, 0);
   const txBarCenter = TX_EXON_BAR_HEIGHT / 2;
-  const hoveredIntron = hoveredJunctionId ? junctionIdToIntron(hoveredJunctionId) : null;
   // GtexGeneModel.js's own #modelLabel convention: text-anchor "end" at
   // xScale.range()[0] - 5, and the range always starts at 0 (see
   // setXscale), so this is a fixed offset rather than something to read
@@ -382,7 +396,7 @@ function drawTranscriptRows(dom, { width, exons, strand, transcriptRows, textCol
   const stackX = -5;
   let rowTop = 0;
   (transcriptRows ?? []).forEach((t) => {
-    const rowG = g.append("g").attr("transform", `translate(0, ${rowTop})`);
+    const rowG = g.append("g").attr("class", "tx-row").attr("transform", `translate(0, ${rowTop})`);
     const txModel = new GtexGeneModel(
       { strand },
       exons.map((e) => ({ ...e })),
@@ -427,24 +441,6 @@ function drawTranscriptRows(dom, { width, exons, strand, transcriptRows, textCol
     const exonData = rowG.selectAll(".exon-curated").data();
     drawStrandChevrons(rowG, { exonData, innerWidth, centerY: txBarCenter, strand, color: textColor });
 
-    if (hoveredIntron) {
-      const left = exonData.find((d) => d.chromEnd === hoveredIntron.intronStart - 1);
-      const right = exonData.find((d) => d.chromStart === hoveredIntron.intronEnd + 1);
-      if (left && right && Math.abs(left.exonNumber - right.exonNumber) === 1
-          && Number.isFinite(left.x) && Number.isFinite(right.x)) {
-        const x1 = left.x + left.w;
-        const x2 = right.x;
-        rowG.append("line")
-          .attr("x1", x1)
-          .attr("x2", x2)
-          .attr("y1", txBarCenter)
-          .attr("y2", txBarCenter)
-          .attr("stroke", primaryColor)
-          .attr("stroke-width", 3)
-          .attr("pointer-events", "none");
-      }
-    }
-
     // Vertically centered on the row's exon bar. dominant-baseline="middle"
     // centers the glyphs themselves rather than the text baseline, so it's
     // accurate regardless of font metrics -- transcript names/IDs are all
@@ -461,6 +457,38 @@ function drawTranscriptRows(dom, { width, exons, strand, transcriptRows, textCol
       .text(`${t.displayName} (${t.id})`);
 
     rowTop += TX_ROW_PITCH;
+  });
+}
+
+// While a junction is hovered (hoveredJunctionId, shared with the heatmap
+// and the main model's arcs), every row whose transcript splices exactly
+// that intron -- two consecutive exons ending at intron_start - 1 and
+// starting at intron_end + 1 -- gets the intron highlighted. The junction's
+// name in each transcript is shown in the main model's arc tooltip (see
+// junctionNameGroups) rather than on the rows. Works on rows already drawn
+// by drawTranscriptRows: replaces only the highlight lines, which ignore
+// the pointer, so the exons under the mouse are never touched.
+function applyTranscriptRowsHover(dom, { hoveredJunctionId, primaryColor }) {
+  dom.selectAll(".tx-junction-hl").remove();
+  if (!hoveredJunctionId) return;
+  const { intronStart, intronEnd } = junctionIdToIntron(hoveredJunctionId);
+  const txBarCenter = TX_EXON_BAR_HEIGHT / 2;
+  dom.selectAll(".tx-row").each(function () {
+    const rowG = d3.select(this);
+    const exonData = rowG.selectAll(".exon-curated").data();
+    const left = exonData.find((d) => d.chromEnd === intronStart - 1);
+    const right = exonData.find((d) => d.chromStart === intronEnd + 1);
+    if (!left || !right || Math.abs(left.exonNumber - right.exonNumber) !== 1
+        || !Number.isFinite(left.x) || !Number.isFinite(right.x)) return;
+    rowG.append("line")
+      .attr("class", "tx-junction-hl")
+      .attr("x1", left.x + left.w)
+      .attr("x2", right.x)
+      .attr("y1", txBarCenter)
+      .attr("y2", txBarCenter)
+      .attr("stroke", primaryColor)
+      .attr("stroke-width", 3)
+      .attr("pointer-events", "none");
   });
 }
 
@@ -644,13 +672,25 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
       textColor: theme.palette.text.primary,
       primaryColor: theme.palette.primary.main,
       tejsByJunctionId,
-      hoveredJunctionId,
       onHoverJunction,
       onHoverExon: setHoveredExon,
       onJunctionTip: setJunctionTip,
       container: containerRef.current,
     });
-  }, [exons, junctions, strand, gene, geneId, width, hoveredJunctionId, onHoverJunction, tejsByJunctionId,
+  }, [exons, junctions, strand, gene, geneId, width, onHoverJunction, tejsByJunctionId,
+      theme.palette.text.primary, theme.palette.primary.main]);
+
+  // Hover styling only -- runs after the draw effect above. Lists the draw
+  // effect's dependencies too, so it re-applies after every redraw (which
+  // resets the arcs/dots), not just when the hovered junction changes.
+  useEffect(() => {
+    if (!svgRef.current || !exons || exons.length === 0) return;
+    applyMainModelHover(d3.select(svgRef.current), {
+      hoveredJunctionId,
+      tejsByJunctionId,
+      primaryColor: theme.palette.primary.main,
+    });
+  }, [hoveredJunctionId, exons, junctions, strand, gene, geneId, width, onHoverJunction, tejsByJunctionId,
       theme.palette.text.primary, theme.palette.primary.main]);
 
   useEffect(() => {
@@ -661,12 +701,19 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
       strand,
       transcriptRows: visibleTranscriptRows,
       textColor: theme.palette.text.primary,
-      primaryColor: theme.palette.primary.main,
-      hoveredJunctionId,
       onHoverExon: setHoveredExon,
       container: containerRef.current,
     });
-  }, [exons, strand, width, visibleTranscriptRows, hoveredJunctionId,
+  }, [exons, strand, width, visibleTranscriptRows, theme.palette.text.primary]);
+
+  // Same pattern as the main model's hover effect above, for the rows.
+  useEffect(() => {
+    if (!txSvgRef.current || !exons || exons.length === 0) return;
+    applyTranscriptRowsHover(d3.select(txSvgRef.current), {
+      hoveredJunctionId,
+      primaryColor: theme.palette.primary.main,
+    });
+  }, [hoveredJunctionId, exons, strand, width, visibleTranscriptRows,
       theme.palette.text.primary, theme.palette.primary.main]);
 
   // Lets JunctionExpressionHeatmap.jsx's download button pull in a
@@ -691,7 +738,6 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
         textColor: theme.palette.text.primary,
         primaryColor: theme.palette.primary.main,
         tejsByJunctionId,
-        hoveredJunctionId: null,
         onHoverJunction: () => {},
       });
       if (visibleTranscriptRows.length > 0) {
@@ -710,7 +756,17 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
   if (!gene) return null;
 
   return (
-    <Box ref={containerRef} sx={{ position: "relative" }}>
+    // Leaving the gene model always clears its tooltips and the hovered
+    // junction -- a fallback in case an element's own mouseout didn't fire.
+    <Box
+      ref={containerRef}
+      sx={{ position: "relative" }}
+      onMouseLeave={() => {
+        setHoveredExon(null);
+        setJunctionTip(null);
+        onHoverJunction?.(null);
+      }}
+    >
       {loading ? (
         <Box sx={{ display: "flex", justifyContent: "center", p: 3 }}>
           <CircularProgress size={24} />
