@@ -253,14 +253,28 @@ function roundToSigFigs(value, sigFigs) {
   return Math.round(value * factor) / factor;
 }
 
-// Cell color legend gradient -- cells map linearly onto d3.interpolateReds
+// Cell color scales. Light mode (and every download, which is always drawn
+// on white) uses d3.interpolateReds. In dark mode its near-white zero end
+// glares against the dark background, so zero starts from a light gray
+// instead, blending into the same reds by ~20% of the range and ending in
+// the same dark red.
+const DARK_MODE_REDS = d3.piecewise(d3.interpolateRgb, [
+  "#d3d8de", "#e6cbc3", "#fcbba1", "#fc9272", "#fb6a4a", "#ef3b2c", "#cb181d", "#a50f15", "#67000d",
+]);
+
+function cellColorInterpolator(mode) {
+  return mode === "dark" ? DARK_MODE_REDS : d3.interpolateReds;
+}
+
+// Cell color legend gradient -- cells map linearly onto the interpolator
 // across the color scale's domain (see drawHeatmap), so sampling the same
 // interpolator at even steps reproduces that gradient exactly, both as CSS
 // (for the live HTML legend below) and as SVG gradient stops (drawLegend,
 // for the download -- the live legend is plain HTML, invisible to the
 // export's <svg>-only pipeline).
-const LEGEND_GRADIENT_STEPS = d3.range(0, 1.001, 0.1).map((t) => d3.interpolateReds(t));
-const LEGEND_GRADIENT = `linear-gradient(to right, ${LEGEND_GRADIENT_STEPS.join(", ")})`;
+function legendGradientSteps(interpolator) {
+  return d3.range(0, 1.001, 0.1).map((t) => interpolator(t));
+}
 const LEGEND_GRADIENT_ID = "junction-heatmap-legend-gradient";
 const LEGEND_HEIGHT = 28;
 const LEGEND_BAR_W = 100;
@@ -289,19 +303,20 @@ function legendTextWidth(text) {
 
 // Renders the cell-color legend (gradient swatch + "0"/max labels) into its
 // own <g> -- only needed for the SVG download. The live page renders this
-// as plain HTML (see the Stack with LEGEND_GRADIENT in the component body
+// as plain HTML (see the Stack with legendGradient in the component body
 // below) rather than drawing it into the heatmap's <svg>, so it's otherwise
 // invisible to buildExportSvg's <svg>-only export pipeline.
 //
 // When showTejKey is set, also draws the "TEJ" key (a tejColor bar matching
 // drawHeatmap's column markers) to the left of the gradient.
-function drawLegend(dom, { width, legendMax, metricLabel, textColor, showTejKey = false, tejColor }) {
+function drawLegend(dom, { width, legendMax, metricLabel, textColor, interpolator = d3.interpolateReds, showTejKey = false, tejColor }) {
   dom.selectAll("*").remove();
 
   const gradient = dom.append("defs").append("linearGradient").attr("id", LEGEND_GRADIENT_ID);
-  LEGEND_GRADIENT_STEPS.forEach((color, i) => {
+  const steps = legendGradientSteps(interpolator);
+  steps.forEach((color, i) => {
     gradient.append("stop")
-      .attr("offset", `${(i / (LEGEND_GRADIENT_STEPS.length - 1)) * 100}%`)
+      .attr("offset", `${(i / (steps.length - 1)) * 100}%`)
       .attr("stop-color", color);
   });
 
@@ -370,7 +385,10 @@ function drawLegend(dom, { width, legendMax, metricLabel, textColor, showTejKey 
 // applied afterwards by applyHeatmapHover, which restyles the existing
 // elements. Redrawing on every hover would delete the element under the
 // pointer before its mouseout ran, leaving its tooltip stuck on screen.
-function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, metric, textColor, tejsByJunctionId = new Map(), tejColor, tejLabelColor = tejColor, onHover, onMove, onLeave, onToggleEvoDevo, onHoverJunction, showEvoDevoToggles = true }) {
+//
+// interpolator colors the cells (see cellColorInterpolator); cellStroke is
+// the hairline between them, matched to the background they sit on.
+function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, metric, textColor, interpolator = d3.interpolateReds, cellStroke = "#fff", tejsByJunctionId = new Map(), tejColor, tejLabelColor = tejColor, onHover, onMove, onLeave, onToggleEvoDevo, onHoverJunction, showEvoDevoToggles = true }) {
   svg.selectAll("*").remove();
 
   const { get: metricValue } = METRICS[metric];
@@ -384,7 +402,7 @@ function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, m
   const maxLog = d3.max(junctions, (j) =>
     d3.max(plotGroups, (g) => Math.log10(metricValue(valueFor(j.junctionId, g)) + 1))
   ) || 0;
-  const color = d3.scaleSequential(d3.interpolateReds).domain([0, maxLog || 1]);
+  const color = d3.scaleSequential(interpolator).domain([0, maxLog || 1]);
 
   const root = svg.append("g").attr("transform", `translate(${MARGIN.left},${MARGIN.top})`);
 
@@ -493,7 +511,7 @@ function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, m
     .attr("width", x.bandwidth())
     .attr("height", y.bandwidth())
     .attr("fill", (d) => color(Math.log10(metricValue(d.rec) + 1)))
-    .attr("stroke", "#fff")
+    .attr("stroke", cellStroke)
     .attr("stroke-width", 0.5)
     .style("cursor", "pointer")
     .on("mouseover", function (e, d) {
@@ -516,7 +534,7 @@ function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, m
     })
     .on("mousemove", onMove)
     .on("mouseout", function () {
-      d3.select(this).attr("stroke", "#fff").attr("stroke-width", 0.5);
+      d3.select(this).attr("stroke", cellStroke).attr("stroke-width", 0.5);
       onHoverJunction(null);
       onLeave();
     });
@@ -567,6 +585,12 @@ export default function JunctionExpressionHeatmap({
   // well (~6:1) on the dark background.
   const tejColor = theme.palette.secondary.main;
   const tejLabelColor = theme.palette.mode === "dark" ? theme.palette.secondary.main : theme.palette.secondary.dark;
+  const cellInterpolator = cellColorInterpolator(theme.palette.mode);
+  const cellStroke = theme.palette.background.paper;
+  const legendGradient = useMemo(
+    () => `linear-gradient(to right, ${legendGradientSteps(cellInterpolator).join(", ")})`,
+    [cellInterpolator]
+  );
   const svgRef = useRef(null);
   const [tooltip, setTooltip] = useState({ visible: false, x: 0, y: 0, html: "" });
   const [expandedEvoDevo, setExpandedEvoDevo] = useState(new Set());
@@ -688,6 +712,7 @@ export default function JunctionExpressionHeatmap({
         legendMax,
         metricLabel: METRICS[metric].label,
         textColor: exportTextColor,
+        interpolator: cellColorInterpolator(EXPORT_PALETTE.mode),
         showTejKey: hasVisibleTej,
         tejColor: exportTejColor,
       });
@@ -700,6 +725,8 @@ export default function JunctionExpressionHeatmap({
       valueFor,
       metric,
       textColor: exportTextColor,
+      interpolator: cellColorInterpolator(EXPORT_PALETTE.mode),
+      cellStroke: EXPORT_PALETTE.background.paper,
       tejsByJunctionId,
       tejColor: exportTejColor,
       tejLabelColor: exportTejLabelColor,
@@ -728,6 +755,8 @@ export default function JunctionExpressionHeatmap({
       valueFor,
       metric,
       textColor: theme.palette.text.primary,
+      interpolator: cellInterpolator,
+      cellStroke,
       tejsByJunctionId,
       tejColor,
       tejLabelColor,
@@ -737,7 +766,7 @@ export default function JunctionExpressionHeatmap({
       onToggleEvoDevo: toggleEvoDevoExpand,
       onHoverJunction: (id) => onHoverJunction?.(id),
     });
-  }, [junctions, plotGroups, groupMeta, width, metric, onHoverJunction, tejsByJunctionId, tejColor, tejLabelColor, theme.palette.text.primary]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [junctions, plotGroups, groupMeta, width, metric, onHoverJunction, tejsByJunctionId, tejColor, tejLabelColor, cellInterpolator, cellStroke, theme.palette.text.primary]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Hover styling only -- runs after the draw effect above. Lists the draw
   // effect's dependencies too, so it re-applies after every redraw (which
@@ -745,7 +774,7 @@ export default function JunctionExpressionHeatmap({
   useEffect(() => {
     if (!svgRef.current || junctions.length === 0) return;
     applyHeatmapHover(d3.select(svgRef.current), { hoveredJunctionId, tejsByJunctionId });
-  }, [hoveredJunctionId, junctions, plotGroups, groupMeta, width, metric, onHoverJunction, tejsByJunctionId, tejColor, tejLabelColor, theme.palette.text.primary]);
+  }, [hoveredJunctionId, junctions, plotGroups, groupMeta, width, metric, onHoverJunction, tejsByJunctionId, tejColor, tejLabelColor, cellInterpolator, cellStroke, theme.palette.text.primary]);
 
   return (
     <Box>
@@ -763,7 +792,7 @@ export default function JunctionExpressionHeatmap({
                 </Stack>
               )}
               <Typography variant="caption" color="text.secondary">0</Typography>
-              <Box sx={{ width: 100, height: 10, borderRadius: 1, background: LEGEND_GRADIENT }} />
+              <Box sx={{ width: 100, height: 10, borderRadius: 1, background: legendGradient }} />
               <Typography variant="caption" color="text.secondary">
                 {roundToSigFigs(legendMax, 2)} {METRICS[metric].label}
               </Typography>
