@@ -362,14 +362,15 @@ function drawLegend(dom, { width, legendMax, metricLabel, textColor, showTejKey 
 // Junctions run along x, plot_groups run along y (rows).
 //
 // Junctions in the tej table (tejsByJunctionId, junctionId -> tej rows) are
-// highlighted in tejColor: bold colored column labels and a marker bar under
-// the column, explained by the "TEJ" key in the legend.
+// highlighted: bold column labels in tejLabelColor (defaults to tejColor; a
+// darker shade where tejColor is too light to read as text) and a tejColor
+// marker bar under the column, explained by the "TEJ" key in the legend.
 //
 // Draws no hover state: the hovered column's outline and bold label are
 // applied afterwards by applyHeatmapHover, which restyles the existing
 // elements. Redrawing on every hover would delete the element under the
 // pointer before its mouseout ran, leaving its tooltip stuck on screen.
-function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, metric, textColor, tejsByJunctionId = new Map(), tejColor, onHover, onMove, onLeave, onToggleEvoDevo, onHoverJunction, showEvoDevoToggles = true }) {
+function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, metric, textColor, tejsByJunctionId = new Map(), tejColor, tejLabelColor = tejColor, onHover, onMove, onLeave, onToggleEvoDevo, onHoverJunction, showEvoDevoToggles = true }) {
   svg.selectAll("*").remove();
 
   const { get: metricValue } = METRICS[metric];
@@ -456,7 +457,7 @@ function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, m
     .attr("font-size", 11)
     .attr("font-family", "monospace")
     .attr("font-weight", (j) => (tejsByJunctionId.has(j.junctionId) ? 700 : 400))
-    .attr("fill", (j) => (tejsByJunctionId.has(j.junctionId) ? tejColor : textColor))
+    .attr("fill", (j) => (tejsByJunctionId.has(j.junctionId) ? tejLabelColor : textColor))
     .style("cursor", "pointer")
     .text((j) => `${j.start}-${j.end}`)
     .on("mouseover", (e, j) => onHoverJunction(j.junctionId))
@@ -560,7 +561,12 @@ export default function JunctionExpressionHeatmap({
   hiddenGroups, onHiddenGroupsChange, tejsByJunctionId = NO_TEJS,
 }) {
   const theme = useTheme();
-  const tejColor = theme.palette.primary.main;
+  // TEJ highlight: the theme's amber for bars/key. Column labels use its
+  // darker generated shade in light mode, where amber text on white is too
+  // faint (~2.2:1 vs ~4.4:1); dark mode keeps amber, which already reads
+  // well (~6:1) on the dark background.
+  const tejColor = theme.palette.secondary.main;
+  const tejLabelColor = theme.palette.mode === "dark" ? theme.palette.secondary.main : theme.palette.secondary.dark;
   const svgRef = useRef(null);
   const [tooltip, setTooltip] = useState({ visible: false, x: 0, y: 0, html: "" });
   const [expandedEvoDevo, setExpandedEvoDevo] = useState(new Set());
@@ -690,6 +696,7 @@ export default function JunctionExpressionHeatmap({
       textColor: theme.palette.text.primary,
       tejsByJunctionId,
       tejColor,
+      tejLabelColor,
       onHover: () => {},
       onMove: () => {},
       onLeave: () => {},
@@ -717,13 +724,14 @@ export default function JunctionExpressionHeatmap({
       textColor: theme.palette.text.primary,
       tejsByJunctionId,
       tejColor,
+      tejLabelColor,
       onHover: (e, html) => setTooltip({ visible: true, x: e.clientX + 14, y: e.clientY - 32, html }),
       onMove: (e) => setTooltip((prev) => ({ ...prev, x: e.clientX + 14, y: e.clientY - 32 })),
       onLeave: () => setTooltip((prev) => ({ ...prev, visible: false })),
       onToggleEvoDevo: toggleEvoDevoExpand,
       onHoverJunction: (id) => onHoverJunction?.(id),
     });
-  }, [junctions, plotGroups, groupMeta, width, metric, onHoverJunction, tejsByJunctionId, tejColor, theme.palette.text.primary]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [junctions, plotGroups, groupMeta, width, metric, onHoverJunction, tejsByJunctionId, tejColor, tejLabelColor, theme.palette.text.primary]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Hover styling only -- runs after the draw effect above. Lists the draw
   // effect's dependencies too, so it re-applies after every redraw (which
@@ -731,7 +739,7 @@ export default function JunctionExpressionHeatmap({
   useEffect(() => {
     if (!svgRef.current || junctions.length === 0) return;
     applyHeatmapHover(d3.select(svgRef.current), { hoveredJunctionId, tejsByJunctionId });
-  }, [hoveredJunctionId, junctions, plotGroups, groupMeta, width, metric, onHoverJunction, tejsByJunctionId, tejColor, theme.palette.text.primary]);
+  }, [hoveredJunctionId, junctions, plotGroups, groupMeta, width, metric, onHoverJunction, tejsByJunctionId, tejColor, tejLabelColor, theme.palette.text.primary]);
 
   return (
     <Box>

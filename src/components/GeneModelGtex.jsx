@@ -64,10 +64,11 @@ const EXCLUDED_TRANSCRIPT_BIOTYPES = new Set([
   "protein_coding_CDS_not_defined",
 ]);
 
-// GtexGeneModel.js's defaults for junction arcs/dots (see its render()) --
-// duplicated here so hover highlighting can fall back to them.
-const JUNC_CURVE_COLOR = "#92bcc9";
-const JUNC_DOT_COLOR = "rgb(86, 98, 107)";
+// Junction arcs/dots don't use GtexGeneModel.js's fixed defaults (a teal
+// arc, a dark gray dot that all but disappears in dark mode). They take
+// theme-based colors from the component's junctionStyle -- see
+// applyMainModelHover -- so they adapt to light/dark mode.
+const ARC_OPACITY = 0.55;
 
 // Shared default for tejsByJunctionId, so an omitted prop doesn't produce a
 // new Map (and a redraw) on every render.
@@ -216,7 +217,7 @@ function mergeExonIntervals(rawExons) {
 // by applyMainModelHover, which restyles the existing elements. Redrawing on
 // every hover would delete the element under the pointer before its
 // mouseout ran, leaving its tooltip and highlight stuck on screen.
-function drawMainModel(dom, { width, exons, junctions, strand, gene, geneId, textColor, primaryColor, tejsByJunctionId = NO_TEJS, onHoverJunction, onHoverExon, onJunctionTip, container }) {
+function drawMainModel(dom, { width, exons, junctions, strand, gene, geneId, textColor, primaryColor, tejColor, junctionStyle, tejsByJunctionId = NO_TEJS, onHoverJunction, onHoverExon, onJunctionTip, container }) {
   dom.selectAll("*").remove();
   const g = dom.append("g").attr("transform", `translate(${PADDING.left},${PADDING.top})`);
 
@@ -347,29 +348,38 @@ function drawMainModel(dom, { width, exons, junctions, strand, gene, geneId, tex
       .call(tipHandlers, junctionId);
   });
 
-  applyMainModelHover(dom, { hoveredJunctionId: null, tejsByJunctionId, primaryColor });
+  applyMainModelHover(dom, { hoveredJunctionId: null, tejsByJunctionId, primaryColor, tejColor, junctionStyle });
 }
 
 // Styles the main model's junction arcs/dots for the hovered junction (or
 // none, for the base look) on a model already drawn by drawMainModel,
-// without redrawing it. A TEJ's dot (junctions in the tej table) is always
-// filled primaryColor, the same blue as the heatmap's TEJ labels/bars; its
-// arc and hover styling are otherwise the same as any junction's.
-function applyMainModelHover(dom, { hoveredJunctionId, tejsByJunctionId = NO_TEJS, primaryColor }) {
+// without redrawing it.
+// - Ordinary junctions: arcs in junctionStyle.arcColor at ARC_OPACITY;
+//   dots in junctionStyle.dotColor, filled, or (junctionStyle.dotRing) as
+//   a ring filled with junctionStyle.ringFill.
+// - TEJs (junctions in the tej table): dot filled tejColor, the same amber
+//   shade as the heatmap's TEJ labels.
+// - The hovered junction, TEJ or not: arc and enlarged dot in primaryColor.
+function applyMainModelHover(dom, { hoveredJunctionId, tejsByJunctionId = NO_TEJS, primaryColor, tejColor, junctionStyle }) {
+  const { arcColor, dotColor, dotRing, ringFill } = junctionStyle;
   dom.selectAll(".junc-curve").each(function () {
     const junctionId = junctionIdOf(this, "junc-curve");
     const isHovered = junctionId !== null && junctionId === hoveredJunctionId;
     d3.select(this)
-      .style("stroke", isHovered ? primaryColor : JUNC_CURVE_COLOR)
+      .style("stroke", isHovered ? primaryColor : arcColor)
+      .style("stroke-opacity", isHovered ? 1 : ARC_OPACITY)
       .style("stroke-width", isHovered ? 3 : 1);
   });
   dom.selectAll(".junc").each(function () {
     const junctionId = junctionIdOf(this, "junc");
     const isHovered = junctionId !== null && junctionId === hoveredJunctionId;
     const isTej = junctionId !== null && tejsByJunctionId.has(junctionId);
+    const ring = dotRing && !isHovered && !isTej;
     d3.select(this)
-      .attr("r", isHovered ? 6 : 4)
-      .style("fill", isHovered || isTej ? primaryColor : JUNC_DOT_COLOR);
+      .attr("r", isHovered ? 6 : ring ? 3.6 : 4)
+      .style("fill", isHovered ? primaryColor : isTej ? tejColor : ring ? ringFill : dotColor)
+      .style("stroke", ring ? dotColor : null)
+      .style("stroke-width", ring ? 1.6 : null);
   });
 }
 
@@ -497,6 +507,20 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
   ref
 ) {
   const theme = useTheme();
+  // TEJ dot fill: matches the heatmap's TEJ label text -- the theme amber's
+  // darker generated shade in light mode, where it stands out better against
+  // the white background, and the amber itself in dark mode.
+  const tejDotColor = theme.palette.mode === "dark" ? theme.palette.secondary.main : theme.palette.secondary.dark;
+  // Ordinary junction arcs/dots (see applyMainModelHover): muted
+  // secondary-text gray in both modes -- filled dots in light mode, rings
+  // filled with the panel color in dark mode, where filled gray dots read
+  // as smudges against the dark background.
+  const junctionStyle = useMemo(() => ({
+    arcColor: theme.palette.text.secondary,
+    dotColor: theme.palette.text.secondary,
+    dotRing: theme.palette.mode === "dark",
+    ringFill: theme.palette.background.paper,
+  }), [theme.palette.text.secondary, theme.palette.mode, theme.palette.background.paper]);
   const containerRef = useRef(null);
   const svgRef = useRef(null);
   const txSvgRef = useRef(null);
@@ -671,14 +695,16 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
       geneId,
       textColor: theme.palette.text.primary,
       primaryColor: theme.palette.primary.main,
+      tejColor: tejDotColor,
+      junctionStyle,
       tejsByJunctionId,
       onHoverJunction,
       onHoverExon: setHoveredExon,
       onJunctionTip: setJunctionTip,
       container: containerRef.current,
     });
-  }, [exons, junctions, strand, gene, geneId, width, onHoverJunction, tejsByJunctionId,
-      theme.palette.text.primary, theme.palette.primary.main]);
+  }, [exons, junctions, strand, gene, geneId, width, onHoverJunction, tejsByJunctionId, junctionStyle,
+      theme.palette.text.primary, theme.palette.primary.main, tejDotColor]);
 
   // Hover styling only -- runs after the draw effect above. Lists the draw
   // effect's dependencies too, so it re-applies after every redraw (which
@@ -689,9 +715,11 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
       hoveredJunctionId,
       tejsByJunctionId,
       primaryColor: theme.palette.primary.main,
+      tejColor: tejDotColor,
+      junctionStyle,
     });
-  }, [hoveredJunctionId, exons, junctions, strand, gene, geneId, width, onHoverJunction, tejsByJunctionId,
-      theme.palette.text.primary, theme.palette.primary.main]);
+  }, [hoveredJunctionId, junctionStyle, exons, junctions, strand, gene, geneId, width, onHoverJunction, tejsByJunctionId,
+      theme.palette.text.primary, theme.palette.primary.main, tejDotColor]);
 
   useEffect(() => {
     if (!txSvgRef.current || !exons || exons.length === 0) return;
@@ -737,6 +765,8 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
         geneId,
         textColor: theme.palette.text.primary,
         primaryColor: theme.palette.primary.main,
+        tejColor: tejDotColor,
+        junctionStyle,
         tejsByJunctionId,
         onHoverJunction: () => {},
       });
@@ -751,7 +781,7 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
       }
       return svgEl;
     },
-  }), [exons, junctions, strand, gene, geneId, visibleTranscriptRows, tejsByJunctionId, theme.palette.text.primary, theme.palette.primary.main]);
+  }), [exons, junctions, strand, gene, geneId, visibleTranscriptRows, tejsByJunctionId, junctionStyle, theme.palette.text.primary, theme.palette.primary.main, tejDotColor]);
 
   if (!gene) return null;
 
