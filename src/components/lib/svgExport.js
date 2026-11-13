@@ -4,6 +4,15 @@
 // optional title/subtitle overlay), rasterize it to a canvas, then convert
 // that canvas to whichever format the user picked.
 
+import { makeTheme } from "../../theme";
+
+// Exports are always drawn on a white background (see
+// cloneSvgWithBackground), so plots should draw their export SVG with the
+// light theme's colors whatever mode the page is in -- the dark theme's
+// near-white text would vanish on white. PlotArea.jsx gets the same effect
+// from its draw functions' fixed "#333" default text color.
+export const EXPORT_PALETTE = makeTheme("light").palette;
+
 // SVG dimensions are in CSS px (96 DPI); scale raster exports up to 300 DPI.
 export const EXPORT_SCALE = 300 / 96;
 export const PX_PER_INCH = 96;

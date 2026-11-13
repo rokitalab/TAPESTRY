@@ -7,6 +7,7 @@ import { colourForBiotype, hexToRgba } from "./lib/biotypeColors";
 import { fetchEnsemblGeneId, fetchEnsemblGene } from "./lib/ensembl";
 import { selectExpressedJunctionIds, metricValueGetter, filterHiddenGroups } from "./lib/junctionExpressionFilter";
 import { junctionIdToIntron, junctionIdToDisplayCoords } from "./lib/junctionCoords";
+import { EXPORT_PALETTE } from "./lib/svgExport";
 
 const SVG_HEIGHT = 200;
 // 20px less than JunctionExpressionHeatmap's MARGIN.left (200) -- keeps the
@@ -748,6 +749,11 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
   // matching, export-sized copy of the gene model (main model stacked above
   // the transcript rows, same as on screen minus the interactive Chips) to
   // stack under the heatmap on the same canvas.
+  //
+  // Drawn in the light theme's colors (EXPORT_PALETTE) whatever the page's
+  // mode, since the export always has a white background: light-mode text
+  // and exons, dark-amber TEJ dots, and the light-mode junction style
+  // (filled dots, not rings).
   useImperativeHandle(ref, () => ({
     buildExportSvg({ width: exportWidth }) {
       if (!exons || exons.length === 0) return null;
@@ -763,10 +769,15 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
         strand,
         gene,
         geneId,
-        textColor: theme.palette.text.primary,
-        primaryColor: theme.palette.primary.main,
-        tejColor: tejDotColor,
-        junctionStyle,
+        textColor: EXPORT_PALETTE.text.primary,
+        primaryColor: EXPORT_PALETTE.primary.main,
+        tejColor: EXPORT_PALETTE.secondary.dark,
+        junctionStyle: {
+          arcColor: EXPORT_PALETTE.text.secondary,
+          dotColor: EXPORT_PALETTE.text.secondary,
+          dotRing: false,
+          ringFill: EXPORT_PALETTE.background.paper,
+        },
         tejsByJunctionId,
         onHoverJunction: () => {},
       });
@@ -776,12 +787,12 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
           exons,
           strand,
           transcriptRows: visibleTranscriptRows,
-          textColor: theme.palette.text.primary,
+          textColor: EXPORT_PALETTE.text.primary,
         });
       }
       return svgEl;
     },
-  }), [exons, junctions, strand, gene, geneId, visibleTranscriptRows, tejsByJunctionId, junctionStyle, theme.palette.text.primary, theme.palette.primary.main, tejDotColor]);
+  }), [exons, junctions, strand, gene, geneId, visibleTranscriptRows, tejsByJunctionId]);
 
   if (!gene) return null;
 

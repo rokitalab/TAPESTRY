@@ -12,7 +12,7 @@ import {
 } from "./lib/junctionExpressionFilter";
 import PlotDownloadMenu from "./PlotDownloadMenu";
 import { junctionIdToDisplayCoords } from "./lib/junctionCoords";
-import { stackSvgsVertically } from "./lib/svgExport";
+import { stackSvgsVertically, EXPORT_PALETTE } from "./lib/svgExport";
 
 const MARGIN = { top: 10, right: 20, bottom: 146, left: 200 };
 const ROW_HEIGHT = 14;
@@ -667,11 +667,17 @@ export default function JunctionExpressionHeatmap({
   // user-chosen export height, since rows have a fixed height. Also pulls in
   // a matching copy of the gene model (if mounted and loaded) and stacks it
   // underneath, so the download captures both plots on one canvas.
+  //
+  // Drawn in the light theme's colors (EXPORT_PALETTE) whatever the page's
+  // mode, since the export always has a white background.
   function buildExportSvg({ width }) {
     // Mirrors the live header's `{junctions.length > 0 && (...)}` guard
     // around the legend Stack -- no legend (or reserved space for it) when
     // there are no junctions to color.
     const showLegend = junctions.length > 0;
+    const exportTextColor = EXPORT_PALETTE.text.primary;
+    const exportTejColor = EXPORT_PALETTE.secondary.main;
+    const exportTejLabelColor = EXPORT_PALETTE.secondary.dark;
     const svgEl = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svgEl.setAttribute("width", width);
     svgEl.setAttribute("height", svgHeight + (showLegend ? LEGEND_HEIGHT : 0));
@@ -681,9 +687,9 @@ export default function JunctionExpressionHeatmap({
         width,
         legendMax,
         metricLabel: METRICS[metric].label,
-        textColor: theme.palette.text.primary,
+        textColor: exportTextColor,
         showTejKey: hasVisibleTej,
-        tejColor,
+        tejColor: exportTejColor,
       });
     }
     drawHeatmap(root.append("g").attr("transform", `translate(0, ${showLegend ? LEGEND_HEIGHT : 0})`), {
@@ -693,10 +699,10 @@ export default function JunctionExpressionHeatmap({
       groupMeta,
       valueFor,
       metric,
-      textColor: theme.palette.text.primary,
+      textColor: exportTextColor,
       tejsByJunctionId,
-      tejColor,
-      tejLabelColor,
+      tejColor: exportTejColor,
+      tejLabelColor: exportTejLabelColor,
       onHover: () => {},
       onMove: () => {},
       onLeave: () => {},
