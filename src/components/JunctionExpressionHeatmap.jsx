@@ -275,7 +275,10 @@ function parseJunctionId(junctionId) {
 // as plain HTML (see the Stack with LEGEND_GRADIENT in the component body
 // below) rather than drawing it into the heatmap's <svg>, so it's otherwise
 // invisible to buildExportSvg's <svg>-only export pipeline.
-function drawLegend(dom, { width, legendMax, metricLabel, textColor }) {
+//
+// When showTejKey is set, also draws the "TEJ" key (a tejColor bar matching
+// drawHeatmap's column markers) to the left of the gradient.
+function drawLegend(dom, { width, legendMax, metricLabel, textColor, showTejKey = false, tejColor }) {
   dom.selectAll("*").remove();
 
   const gradient = dom.append("defs").append("linearGradient").attr("id", LEGEND_GRADIENT_ID);
@@ -309,6 +312,26 @@ function drawLegend(dom, { width, legendMax, metricLabel, textColor }) {
         .attr("fill", textColor)
         .text(text);
     });
+
+  if (showTejKey) {
+    // Left of the "0" label (end-anchored at barX - 6).
+    const keyX = barX - 70;
+    dom.append("rect")
+      .attr("x", keyX)
+      .attr("y", LEGEND_HEIGHT / 2 - 1.75)
+      .attr("width", 16)
+      .attr("height", 3.5)
+      .attr("rx", 1)
+      .attr("fill", tejColor);
+    dom.append("text")
+      .attr("x", keyX + 22)
+      .attr("y", LEGEND_HEIGHT / 2)
+      .attr("dominant-baseline", "middle")
+      .attr("font-size", 11)
+      .attr("font-family", "sans-serif")
+      .attr("fill", textColor)
+      .text("TEJ");
+  }
 }
 
 // Ported from gtex-viz's TranscriptBrowser.js: junction cells are colored on
@@ -316,7 +339,11 @@ function drawLegend(dom, { width, legendMax, metricLabel, textColor }) {
 // plot_group names ordered alphabetically (as returned by the API) rather
 // than dendrogram-clustered tissues, so there's no clustering step here.
 // Junctions run along x, plot_groups run along y (rows).
-function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, metric, textColor, hoveredJunctionId, onHover, onMove, onLeave, onToggleEvoDevo, onHoverJunction, showEvoDevoToggles = true }) {
+//
+// Junctions in the tej table (tejsByJunctionId, junctionId -> tej rows) are
+// highlighted in tejColor: bold colored column labels and a marker bar under
+// the column, explained by the "TEJ" key in the legend.
+function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, metric, textColor, tejsByJunctionId = new Map(), tejColor, hoveredJunctionId, onHover, onMove, onLeave, onToggleEvoDevo, onHoverJunction, showEvoDevoToggles = true }) {
   svg.selectAll("*").remove();
 
   const { get: metricValue } = METRICS[metric];
@@ -401,12 +428,27 @@ function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, m
     .attr("text-anchor", "end")
     .attr("font-size", 11)
     .attr("font-family", "monospace")
-    .attr("font-weight", (j) => (j.junctionId === hoveredJunctionId ? 700 : 400))
-    .attr("fill", textColor)
+    .attr("font-weight", (j) => (j.junctionId === hoveredJunctionId || tejsByJunctionId.has(j.junctionId) ? 700 : 400))
+    .attr("fill", (j) => (tejsByJunctionId.has(j.junctionId) ? tejColor : textColor))
     .style("cursor", "pointer")
     .text((j) => `${j.start}-${j.end}`)
     .on("mouseover", (e, j) => onHoverJunction(j.junctionId))
     .on("mouseout", () => onHoverJunction(null));
+
+  // TEJ marker bar under each tej-table junction's column, in the gap
+  // between the last row of cells and the rotated labels (which start 10px
+  // below the cells, their glyphs reaching ~5px above that).
+  root.append("g")
+    .attr("pointer-events", "none")
+    .selectAll("rect")
+    .data(junctions.filter((j) => tejsByJunctionId.has(j.junctionId)))
+    .join("rect")
+    .attr("x", (j) => x(j.junctionId))
+    .attr("y", innerHeight + 1)
+    .attr("width", x.bandwidth())
+    .attr("height", 3.5)
+    .attr("rx", 1)
+    .attr("fill", tejColor);
 
   const cells = root.append("g")
     .selectAll("g")
@@ -467,12 +509,17 @@ function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, m
     .attr("pointer-events", "none");
 }
 
+// Shared default for tejsByJunctionId, so an omitted prop doesn't produce a
+// new Map (and a redraw) on every render.
+const NO_TEJS = new Map();
+
 export default function JunctionExpressionHeatmap({
   gene, data, width, geneModelRef = null, hoveredJunctionId = null, onHoverJunction,
   metric, onMetricChange, minExpressionValue, onMinExpressionValueChange,
-  hiddenGroups, onHiddenGroupsChange,
+  hiddenGroups, onHiddenGroupsChange, tejsByJunctionId = NO_TEJS,
 }) {
   const theme = useTheme();
+  const tejColor = theme.palette.primary.main;
   const svgRef = useRef(null);
   const [tooltip, setTooltip] = useState({ visible: false, x: 0, y: 0, html: "" });
   const [expandedEvoDevo, setExpandedEvoDevo] = useState(new Set());
@@ -521,6 +568,13 @@ export default function JunctionExpressionHeatmap({
     });
     return Array.from(seen.values()).sort((a, b) => a.start - b.start);
   }, [visibleData, filteredData, metric, minExpressionValue]);
+
+  // Whether any shown column is a TEJ -- the "TEJ" legend key is only
+  // shown (and exported) when there's something for it to explain.
+  const hasVisibleTej = useMemo(
+    () => junctions.some((j) => tejsByJunctionId.has(j.junctionId)),
+    [junctions, tejsByJunctionId]
+  );
 
   const sampleFacets = useMemo(() => buildSampleFacets(data), [data]);
 
@@ -581,6 +635,8 @@ export default function JunctionExpressionHeatmap({
         legendMax,
         metricLabel: METRICS[metric].label,
         textColor: theme.palette.text.primary,
+        showTejKey: hasVisibleTej,
+        tejColor,
       });
     }
     drawHeatmap(root.append("g").attr("transform", `translate(0, ${showLegend ? LEGEND_HEIGHT : 0})`), {
@@ -591,6 +647,8 @@ export default function JunctionExpressionHeatmap({
       valueFor,
       metric,
       textColor: theme.palette.text.primary,
+      tejsByJunctionId,
+      tejColor,
       hoveredJunctionId: null,
       onHover: () => {},
       onMove: () => {},
@@ -617,6 +675,8 @@ export default function JunctionExpressionHeatmap({
       valueFor,
       metric,
       textColor: theme.palette.text.primary,
+      tejsByJunctionId,
+      tejColor,
       hoveredJunctionId,
       onHover: (e, html) => setTooltip({ visible: true, x: e.clientX + 14, y: e.clientY - 32, html }),
       onMove: (e) => setTooltip((prev) => ({ ...prev, x: e.clientX + 14, y: e.clientY - 32 })),
@@ -624,7 +684,7 @@ export default function JunctionExpressionHeatmap({
       onToggleEvoDevo: toggleEvoDevoExpand,
       onHoverJunction: (id) => onHoverJunction?.(id),
     });
-  }, [junctions, plotGroups, groupMeta, width, metric, hoveredJunctionId, onHoverJunction, theme.palette.text.primary]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [junctions, plotGroups, groupMeta, width, metric, hoveredJunctionId, onHoverJunction, tejsByJunctionId, tejColor, theme.palette.text.primary]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <Box>
@@ -635,6 +695,12 @@ export default function JunctionExpressionHeatmap({
         <Stack direction="row" spacing={2} alignItems="center">
           {junctions.length > 0 && (
             <Stack direction="row" spacing={1} alignItems="center">
+              {hasVisibleTej && (
+                <Stack direction="row" spacing={0.75} alignItems="center" sx={{ pr: 1 }}>
+                  <Box sx={{ width: 16, height: 3.5, borderRadius: 0.5, bgcolor: tejColor }} />
+                  <Typography variant="caption" color="text.secondary">TEJ</Typography>
+                </Stack>
+              )}
               <Typography variant="caption" color="text.secondary">0</Typography>
               <Box sx={{ width: 100, height: 10, borderRadius: 1, background: LEGEND_GRADIENT }} />
               <Typography variant="caption" color="text.secondary">

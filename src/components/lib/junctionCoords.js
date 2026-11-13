@@ -25,3 +25,21 @@ export function junctionIdToDisplayCoords(junctionId) {
   const intronStart = Number(parts.pop());
   return { chr: parts.join("_"), start: intronStart - 1, end: intronEnd + 1 };
 }
+
+const TEJ_JUNCTION_RE = /^([^:]+):(\d+)-(\d+)_(\d+)-(\d+)$/;
+
+// The reverse direction, for matching tej-table rows against junctionIds:
+// takes a tej junction string ("chr:upStart-upEnd_downStart-downEnd") to
+// its 'chr_intronStart_intronEnd' junctionId, or null if it doesn't parse.
+// Orders the two flanking exons by start first, so the result doesn't
+// depend on which exon is listed first.
+// e.g. "chr10:116862799-116862852_116868650-116868706" -> "chr10_116862853_116868649"
+export function tejJunctionToJunctionId(junction) {
+  const m = TEJ_JUNCTION_RE.exec((junction ?? "").trim());
+  if (!m) return null;
+  const [left, right] = [
+    { start: Number(m[2]), end: Number(m[3]) },
+    { start: Number(m[4]), end: Number(m[5]) },
+  ].sort((a, b) => a.start - b.start);
+  return `${m[1]}_${left.end + 1}_${right.start - 1}`;
+}

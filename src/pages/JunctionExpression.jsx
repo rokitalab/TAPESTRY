@@ -4,6 +4,7 @@ import { Alert, Box, CircularProgress, Divider, Paper, Stack, TextField, Typogra
 import JunctionExpressionHeatmap from "../components/JunctionExpressionHeatmap";
 import GeneModelGtex from "../components/GeneModelGtex";
 import { MIN_MEDIAN_CPM } from "../components/lib/junctionExpressionFilter";
+import { tejJunctionToJunctionId } from "../components/lib/junctionCoords";
 
 const API_BASE = (import.meta.env.VITE_API_BASE || "/tapestry-api").replace(/\/$/, "");
 
@@ -22,6 +23,11 @@ export default function JunctionExpression() {
   // Shared between the heatmap and the gene model so hovering a junction in
   // either one highlights the matching column/arc in the other.
   const [hoveredJunctionId, setHoveredJunctionId] = useState(null);
+  // The gene's tej-table junctions, keyed by the junctionId each converts to
+  // (see tejJunctionToJunctionId), so the heatmap can highlight them. Values
+  // are arrays: TEJs sharing a junction but differing in flanking exons map
+  // to the same junctionId.
+  const [tejsByJunctionId, setTejsByJunctionId] = useState(new Map());
 
   // Shared between the heatmap and the gene model so toggling the metric,
   // the min-CPM slider, or a sample group in Configure Samples changes which
@@ -58,6 +64,7 @@ export default function JunctionExpression() {
     setPrevGene(gene);
     if (!gene) setData([]);
     setHoveredJunctionId(null);
+    setTejsByJunctionId(new Map());
   }
 
   useEffect(() => {
@@ -85,6 +92,34 @@ export default function JunctionExpression() {
         if (active) setLoading(false);
       });
     return () => { active = false; };
+  }, [gene]);
+
+  // Fetched separately from the expression data above and kept out of its
+  // loading/error state: TEJ highlighting is supplementary, so if this fails
+  // the page still renders, just without highlights.
+  useEffect(() => {
+    if (!gene) return;
+    const controller = new AbortController();
+    fetch(`${API_BASE}/gene-junction-view/?gene=${encodeURIComponent(gene)}`, { signal: controller.signal })
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((rows) => {
+        const map = new Map();
+        (Array.isArray(rows) ? rows : []).forEach((t) => {
+          const id = tejJunctionToJunctionId(t.junction);
+          if (!id) return;
+          const list = map.get(id) ?? [];
+          list.push(t);
+          map.set(id, list);
+        });
+        setTejsByJunctionId(map);
+      })
+      .catch((e) => {
+        if (e.name !== "AbortError") console.warn(`Failed to load TEJs for ${gene}: ${e.message}`);
+      });
+    return () => controller.abort();
   }, [gene]);
 
   const submitGene = () => setGene(geneInput.trim());
@@ -133,6 +168,7 @@ export default function JunctionExpression() {
                 onMinExpressionValueChange={setMinExpressionValue}
                 hiddenGroups={hiddenGroups}
                 onHiddenGroupsChange={setHiddenGroups}
+                tejsByJunctionId={tejsByJunctionId}
               />
               {/* Pulls the gene model up into the heatmap's bottom margin,
                   which is sized for its rotated junction-coordinate labels
