@@ -14,8 +14,13 @@ import PlotDownloadMenu from "./PlotDownloadMenu";
 import { junctionIdToDisplayCoords } from "./lib/junctionCoords";
 import { stackSvgsVertically } from "./lib/svgExport";
 
-const MARGIN = { top: 10, right: 20, bottom: 140, left: 200 };
+const MARGIN = { top: 10, right: 20, bottom: 146, left: 200 };
 const ROW_HEIGHT = 14;
+// How far below the cells the rotated junction-coordinate labels start --
+// leaves a clear gap under the TEJ marker bars (drawn just below the
+// cells). MARGIN.bottom grows with it so the labels keep the same clearance
+// above the gene model.
+const COLUMN_LABEL_OFFSET = 16;
 
 // Mirrors PlotArea.jsx's evo-devo timepoint progression, so heatmap rows
 // follow the same developmental ordering as the rest of the app.
@@ -440,7 +445,7 @@ function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, m
     .selectAll("text")
     .data(junctions)
     .join("text")
-    .attr("transform", (j) => `translate(${x(j.junctionId) + x.bandwidth() / 2}, 10) rotate(-55)`)
+    .attr("transform", (j) => `translate(${x(j.junctionId) + x.bandwidth() / 2}, ${COLUMN_LABEL_OFFSET}) rotate(-55)`)
     .attr("text-anchor", "end")
     .attr("font-size", 11)
     .attr("font-family", "monospace")
@@ -452,8 +457,9 @@ function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, m
     .on("mouseout", () => onHoverJunction(null));
 
   // TEJ marker bar under each tej-table junction's column, in the gap
-  // between the last row of cells and the rotated labels (which start 10px
-  // below the cells, their glyphs reaching ~5px above that).
+  // between the last row of cells and the rotated labels (which start
+  // COLUMN_LABEL_OFFSET below the cells, their glyphs reaching ~5px above
+  // that).
   root.append("g")
     .attr("pointer-events", "none")
     .selectAll("rect")
