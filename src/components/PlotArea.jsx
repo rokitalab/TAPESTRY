@@ -325,9 +325,17 @@ function cpmAxisLabel(log2Scale, corrected) {
   return log2Scale ? `log₂(${cpm} + 1)` : cpm.charAt(0).toUpperCase() + cpm.slice(1);
 }
 
+// Opacities for the plots' marks: grid lines, box fills, tumor dots (highlighted
+// dots are always opaque), and evo-devo timepoint dots. Light mode (and every
+// export, which is always drawn on white) uses LIGHT_OPACITY. In dark mode the
+// light-gray grid lines glare and the faint fills sink into the background, so
+// grid lines are halved and boxes/dots are more opaque.
+const LIGHT_OPACITY = { grid: 1, boxFill: 0.2, dot: 0.4, evoDevoDot: 0.3 };
+const DARK_OPACITY = { grid: 0.5, boxFill: 0.5, dot: 0.7, evoDevoDot: 0.7 };
+
 // Renders the per-histology box plot into `svg`, sized to `width` x `height`.
 // Shared by the on-screen chart and off-screen export rendering.
-function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, corrected = true, highlightIds, enrichedIds = highlightIds, textColor = "#333", gridOpacity = 1, onHover, onBoxHover = onHover, onMove, onLeave }) {
+function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, corrected = true, highlightIds, enrichedIds = highlightIds, textColor = "#333", opacity = LIGHT_OPACITY, onHover, onBoxHover = onHover, onMove, onLeave }) {
   svg.selectAll("*").remove();
 
   const iW = width - MARGIN.left - MARGIN.right;
@@ -366,7 +374,7 @@ function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, corrected =
   root.append("g")
     .call(d3.axisLeft(y).tickSize(-iW).tickFormat(""))
     .call((g) => g.select(".domain").remove())
-    .call((g) => g.selectAll("line").attr("stroke", "#e0e0e0").attr("stroke-opacity", gridOpacity).attr("stroke-dasharray", "3,3"));
+    .call((g) => g.selectAll("line").attr("stroke", "#e0e0e0").attr("stroke-opacity", opacity.grid).attr("stroke-dasharray", "3,3"));
 
   const labelForKey = new Map(visibleGroups.map((g) => [g.key, g.label]));
 
@@ -441,7 +449,7 @@ function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, corrected =
     root.append("rect")
       .attr("x", cx - bw / 2).attr("y", y(q3))
       .attr("width", bw).attr("height", Math.abs(y(q1) - y(q3)))
-      .attr("fill", color).attr("fill-opacity", 0.2)
+      .attr("fill", color).attr("fill-opacity", opacity.boxFill)
       .attr("stroke", textColor).attr("stroke-width", 1.5)
       .attr("rx", 2)
       .on("mouseover", (e) => onBoxHover(e, boxTip))
@@ -463,7 +471,7 @@ function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, corrected =
         .attr("cy", y(xform(d)))
         .attr("r", highlighted ? 5 : 3)
         .attr("fill", color)
-        .attr("fill-opacity", highlighted ? 1 : 0.4)
+        .attr("fill-opacity", highlighted ? 1 : opacity.dot)
         .attr("stroke", textColor)
         .attr("stroke-width", highlighted ? 1.5 : 0.5)
         .style("cursor", "pointer")
@@ -478,7 +486,7 @@ function drawBoxPlot(svg, { width, height, visibleGroups, log2Scale, corrected =
 
 // Renders the EvoDevo timepoint plot into `svg`, sized to `width` x `height`.
 // Shared by the on-screen chart and off-screen export rendering.
-function drawEvoDevoPlot(svg, { width, height, evodevoPoints, log2Scale, corrected = true, textColor = "#333", gridOpacity = 1, onHover, onMove, onLeave }) {
+function drawEvoDevoPlot(svg, { width, height, evodevoPoints, log2Scale, corrected = true, textColor = "#333", opacity = LIGHT_OPACITY, onHover, onMove, onLeave }) {
   svg.selectAll("*").remove();
 
   const presentTimepoints = EVODEVO_TIMEPOINTS.filter((t) =>
@@ -500,7 +508,7 @@ function drawEvoDevoPlot(svg, { width, height, evodevoPoints, log2Scale, correct
   root.append("g")
     .call(d3.axisLeft(y).tickSize(-iW).tickFormat(""))
     .call((g) => g.select(".domain").remove())
-    .call((g) => g.selectAll("line").attr("stroke", "#e0e0e0").attr("stroke-opacity", gridOpacity).attr("stroke-dasharray", "3,3"));
+    .call((g) => g.selectAll("line").attr("stroke", "#e0e0e0").attr("stroke-opacity", opacity.grid).attr("stroke-dasharray", "3,3"));
 
   root.append("line")
     .attr("x1", 0).attr("x2", iW).attr("y1", 0).attr("y2", 0)
@@ -543,7 +551,7 @@ function drawEvoDevoPlot(svg, { width, height, evodevoPoints, log2Scale, correct
         .attr("cy", y(xform(d)))
         .attr("r", 3)
         .attr("fill", color)
-        .attr("fill-opacity", 0.3)
+        .attr("fill-opacity", opacity.evoDevoDot)
         .attr("stroke", textColor)
         .attr("stroke-width", 0.5)
         .style("cursor", "pointer")
@@ -600,7 +608,7 @@ function drawEvoDevoPlot(svg, { width, height, evodevoPoints, log2Scale, correct
 
 // Renders tumor box plots on the left and the evo-devo line plot on the right
 // as two adjacent facets sharing a continuous y-scale and grid lines.
-function drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleGroups, log2Scale, corrected = true, highlightIds, enrichedIds = highlightIds, textColor = "#333", gridOpacity = 1, onHover, onBoxHover = onHover, onMove, onLeave }) {
+function drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleGroups, log2Scale, corrected = true, highlightIds, enrichedIds = highlightIds, textColor = "#333", opacity = LIGHT_OPACITY, onHover, onBoxHover = onHover, onMove, onLeave }) {
   svg.selectAll("*").remove();
 
   const presentTimepoints = EVODEVO_TIMEPOINTS.filter((t) =>
@@ -646,7 +654,7 @@ function drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleG
   root.append("g")
     .call(d3.axisLeft(y).tickSize(-iW).tickFormat(""))
     .call((g) => g.select(".domain").remove())
-    .call((g) => g.selectAll("line").attr("stroke", "#e0e0e0").attr("stroke-opacity", gridOpacity).attr("stroke-dasharray", "3,3"));
+    .call((g) => g.selectAll("line").attr("stroke", "#e0e0e0").attr("stroke-opacity", opacity.grid).attr("stroke-dasharray", "3,3"));
 
   // — Tumor section —
   root.append("line")
@@ -694,7 +702,7 @@ function drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleG
     root.append("rect")
       .attr("x", cx - bw / 2).attr("y", y(q3))
       .attr("width", bw).attr("height", Math.abs(y(q1) - y(q3)))
-      .attr("fill", color).attr("fill-opacity", 0.2)
+      .attr("fill", color).attr("fill-opacity", opacity.boxFill)
       .attr("stroke", textColor).attr("stroke-width", 1.5).attr("rx", 2)
       .on("mouseover", (e) => onBoxHover(e, boxTip))
       .on("mousemove", onMove).on("mouseout", onLeave);
@@ -709,7 +717,7 @@ function drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleG
       root.append("circle")
         .attr("cx", cx + d.jitter * bw * 0.65).attr("cy", y(xform(d)))
         .attr("r", highlighted ? 5 : 3).attr("fill", color)
-        .attr("fill-opacity", highlighted ? 1 : 0.4)
+        .attr("fill-opacity", highlighted ? 1 : opacity.dot)
         .attr("stroke", textColor).attr("stroke-width", highlighted ? 1.5 : 0.5)
         .style("cursor", "pointer")
         .on("mouseover", (e) =>
@@ -751,7 +759,7 @@ function drawEvoDevoWithTumorsPlot(svg, { width, height, evodevoPoints, visibleG
       if (!presentTimepoints.includes(d.timepoint)) return;
       root.append("circle")
         .attr("cx", xEvo(d.timepoint)).attr("cy", y(xform(d)))
-        .attr("r", 3).attr("fill", color).attr("fill-opacity", 0.3)
+        .attr("r", 3).attr("fill", color).attr("fill-opacity", opacity.evoDevoDot)
         .attr("stroke", textColor).attr("stroke-width", 0.5).style("cursor", "pointer")
         .on("mouseover", (e) =>
           onHover(e, `<strong>${d.id}</strong>${d.sampleId ? `<br/><a href="https://pedcbioportal.kidsfirstdrc.org/patient?studyId=pbta_all&sampleId=${encodeURIComponent(cbioportalId(d.id, d.sampleId))}" target="_blank" rel="noreferrer">${cbioportalId(d.id, d.sampleId)}<img src="https://pbs.twimg.com/profile_images/448682169553006594/Uh7nmhLE_400x400.png" style="width:12px;height:12px;vertical-align:middle;margin-left:3px;border-radius:2px;display:inline-block;" /></a>` : ""}<br/>${region} — ${timepointDisplay(d.timepoint)}<br/>CPM: ${xform(d).toFixed(3)}<br/>${d.rnaLibrary ?? "—"}`)
@@ -1004,9 +1012,7 @@ export default function PlotArea({
   };
   const cancelHide = () => clearTimeout(hideTimeoutRef.current);
 
-  // The light-gray grid lines are subtle on white but glare on the dark
-  // background, so dark mode draws them at half opacity.
-  const gridOpacity = theme.palette.mode === "dark" ? 0.5 : 1;
+  const opacity = theme.palette.mode === "dark" ? DARK_OPACITY : LIGHT_OPACITY;
 
   useEffect(() => {
     if (!svgRef.current || activeTab === TAB_EVO_DEVO) return;
@@ -1019,13 +1025,13 @@ export default function PlotArea({
       highlightIds: activeHighlightIds,
       enrichedIds: highlightIds,
       textColor: theme.palette.text.primary,
-      gridOpacity,
+      opacity,
       onHover: (e, html) => { cancelHide(); pinnedRef.current = true; setTooltip({ visible: true, x: e.clientX + 14, y: e.clientY - 32, html }); },
       onBoxHover: (e, html) => { if (pinnedRef.current) return; cancelHide(); setTooltip({ visible: true, x: e.clientX + 14, y: e.clientY - 32, html }); },
       onMove: (e) => { cancelHide(); setTooltip((prev) => ({ ...prev, x: e.clientX + 14, y: e.clientY - 32 })); },
       onLeave: scheduleHide,
     });
-  }, [visibleGroups, containerWidth, height, activeTab, activeHighlightIds, highlightIds, log2Scale, corrected, theme.palette.text.primary, gridOpacity]);
+  }, [visibleGroups, containerWidth, height, activeTab, activeHighlightIds, highlightIds, log2Scale, corrected, theme.palette.text.primary, opacity]);
 
   useEffect(() => {
     if (!svgRef.current || activeTab !== TAB_EVO_DEVO) return;
@@ -1037,16 +1043,16 @@ export default function PlotArea({
       drawEvoDevoWithTumorsPlot(d3.select(svgRef.current), {
         width: containerWidth, height, evodevoPoints: filteredEvodevoPoints,
         visibleGroups, log2Scale, corrected, highlightIds: activeHighlightIds, enrichedIds: highlightIds,
-        textColor: theme.palette.text.primary, gridOpacity, onHover, onBoxHover, onMove, onLeave,
+        textColor: theme.palette.text.primary, opacity, onHover, onBoxHover, onMove, onLeave,
       });
     } else {
       drawEvoDevoPlot(d3.select(svgRef.current), {
         width: containerWidth, height, evodevoPoints: filteredEvodevoPoints,
-        log2Scale, corrected, textColor: theme.palette.text.primary, gridOpacity, onHover, onMove, onLeave,
+        log2Scale, corrected, textColor: theme.palette.text.primary, opacity, onHover, onMove, onLeave,
       });
     }
   }, [filteredEvodevoPoints, activeTab, containerWidth, height, log2Scale, corrected, theme.palette.text.primary,
-      gridOpacity, visibleGroups, activeHighlightIds, highlightIds]);
+      opacity, visibleGroups, activeHighlightIds, highlightIds]);
 
   function exportFilename(ext) {
     return `junction-cpm${junction ? `-${junction}` : ""}.${ext}`;
