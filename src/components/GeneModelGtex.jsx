@@ -86,7 +86,7 @@ const CHEVRON_PAD_PX = 3;
 // Draws chevrons into `g` along y = centerY, between the leftmost and
 // rightmost of `exonData` (GtexGeneModel's rendered exon data, carrying
 // pixel x/w). Exons GtexGeneModel couldn't map have no x and are ignored.
-function drawStrandChevrons(g, { exonData, innerWidth, centerY, strand, color }) {
+function drawStrandChevrons(g, { exonData, innerWidth, centerY, strand, color, opacity = 0.6 }) {
   if (strand !== "+" && strand !== "-") return;
   const ex = exonData
     .filter((d) => Number.isFinite(d.x) && Number.isFinite(d.w))
@@ -116,7 +116,7 @@ function drawStrandChevrons(g, { exonData, innerWidth, centerY, strand, color })
     .attr("stroke-width", 1.3)
     .attr("stroke-linecap", "round")
     .attr("stroke-linejoin", "round")
-    .attr("opacity", 0.6);
+    .attr("opacity", opacity);
 }
 
 // GtexGeneModel.js bakes the junctionId into each junction element's class
@@ -394,7 +394,9 @@ function applyMainModelHover(dom, { hoveredJunctionId, tejsByJunctionId = NO_TEJ
 //
 // The hovered junction's intron highlight is applied afterwards by
 // applyTranscriptRowsHover, without redrawing the rows.
-function drawTranscriptRows(dom, { width, exons, strand, transcriptRows, textColor, onHoverExon, container }) {
+// mode ("light" | "dark") picks the biotype exon colors (see
+// BIO_COLOURS_DARK); exports leave it at light for their white background.
+function drawTranscriptRows(dom, { width, exons, strand, transcriptRows, textColor, mode = "light", onHoverExon, container }) {
   dom.selectAll("*").remove();
   const g = dom.append("g").attr("transform", `translate(${PADDING.left},${TX_TOP_PAD})`);
 
@@ -407,6 +409,7 @@ function drawTranscriptRows(dom, { width, exons, strand, transcriptRows, textCol
   const stackX = -5;
   let rowTop = 0;
   (transcriptRows ?? []).forEach((t) => {
+    const colour = colourForBiotype(t.biotype, mode);
     const rowG = g.append("g").attr("class", "tx-row").attr("transform", `translate(0, ${rowTop})`);
     const txModel = new GtexGeneModel(
       { strand },
@@ -427,7 +430,7 @@ function drawTranscriptRows(dom, { width, exons, strand, transcriptRows, textCol
     rowG.selectAll(".exon-curated")
       .attr("y", 0)
       .attr("height", TX_EXON_BAR_HEIGHT)
-      .style("fill", colourForBiotype(t.biotype))
+      .style("fill", colour)
       .style("cursor", "pointer")
       .on("mousemove", function (event) {
         const d = d3.select(this).datum();
@@ -444,13 +447,19 @@ function drawTranscriptRows(dom, { width, exons, strand, transcriptRows, textCol
         });
       })
       .on("mouseleave", () => onHoverExon?.(null));
+    // Intron line and chevrons in the transcript's biotype color, matching
+    // TranscriptVis's rows (stronger in dark mode, where faint lines vanish).
     rowG.select(".intron")
       .attr("y1", txBarCenter)
       .attr("y2", txBarCenter)
-      .attr("stroke", textColor);
+      .attr("stroke", colour)
+      .attr("stroke-width", 2)
+      .attr("stroke-opacity", mode === "dark" ? 0.7 : 0.4);
 
     const exonData = rowG.selectAll(".exon-curated").data();
-    drawStrandChevrons(rowG, { exonData, innerWidth, centerY: txBarCenter, strand, color: textColor });
+    drawStrandChevrons(rowG, {
+      exonData, innerWidth, centerY: txBarCenter, strand, color: colour, opacity: mode === "dark" ? 0.9 : 0.6,
+    });
 
     // Vertically centered on the row's exon bar. dominant-baseline="middle"
     // centers the glyphs themselves rather than the text baseline, so it's
@@ -730,10 +739,11 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
       strand,
       transcriptRows: visibleTranscriptRows,
       textColor: theme.palette.text.primary,
+      mode: theme.palette.mode,
       onHoverExon: setHoveredExon,
       container: containerRef.current,
     });
-  }, [exons, strand, width, visibleTranscriptRows, theme.palette.text.primary]);
+  }, [exons, strand, width, visibleTranscriptRows, theme.palette.text.primary, theme.palette.mode]);
 
   // Same pattern as the main model's hover effect above, for the rows.
   useEffect(() => {
@@ -743,7 +753,7 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
       primaryColor: theme.palette.primary.main,
     });
   }, [hoveredJunctionId, exons, strand, width, visibleTranscriptRows,
-      theme.palette.text.primary, theme.palette.primary.main]);
+      theme.palette.text.primary, theme.palette.mode, theme.palette.primary.main]);
 
   // Lets JunctionExpressionHeatmap.jsx's download button pull in a
   // matching, export-sized copy of the gene model (main model stacked above
@@ -821,7 +831,11 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
             <Stack direction="row" spacing={1} sx={{ my: 0.5, flexWrap: "wrap", alignItems: "center" }}>
               {txBiotypes.map((bio) => {
                 const selected = activeBiotypes.has(bio);
-                const colour = colourForBiotype(bio);
+                const colour = colourForBiotype(bio, theme.palette.mode);
+                // Same text rule as TranscriptVis's biotype chips: dark mode's
+                // lighter colors need dark text on a selected (solid) chip.
+                const fg = theme.palette.mode !== "dark" ? "common.white"
+                  : selected ? theme.palette.getContrastText(colour) : "text.primary";
                 return (
                   <Chip
                     key={bio}
@@ -830,7 +844,7 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
                     onClick={() => toggleBiotype(bio)}
                     sx={{
                       bgcolor: selected ? colour : hexToRgba(colour, 0.5),
-                      color: "common.white",
+                      color: fg,
                       fontWeight: selected ? 700 : 400,
                       border: "1px solid",
                       borderColor: selected ? "transparent" : "divider",
