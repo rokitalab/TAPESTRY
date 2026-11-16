@@ -568,13 +568,18 @@ function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, m
 // Shows the hovered junction's column outline and bolds its label (TEJ
 // labels stay bold regardless) on a heatmap already drawn by drawHeatmap,
 // without redrawing it.
-// Outlines (and bolds the label of) the hovered column and every pinned one
-// -- junctions pinned by clicking their arc in the gene model, which stay
-// outlined until clicked again.
-function applyHeatmapHover(svg, { hoveredJunctionId, pinnedJunctionIds = NO_PINS, tejsByJunctionId }) {
+// Outlines the hovered column and every pinned one -- junctions pinned by
+// clicking their arc in the gene model or their label here, which stay
+// outlined until clicked again -- and sets their labels bold in textColor.
+// TEJ labels are already bold in tejLabelColor, so switching them to
+// textColor is what shows they're hovered/pinned (the TEJ bar still marks
+// the column as a TEJ).
+function applyHeatmapHover(svg, { hoveredJunctionId, pinnedJunctionIds = NO_PINS, tejsByJunctionId, textColor, tejLabelColor }) {
   const isMarked = (j) => j.junctionId === hoveredJunctionId || pinnedJunctionIds.has(j.junctionId);
+  const isTej = (j) => tejsByJunctionId.has(j.junctionId);
   svg.selectAll(".col-label")
-    .attr("font-weight", (j) => (isMarked(j) || tejsByJunctionId.has(j.junctionId) ? 700 : 400));
+    .attr("font-weight", (j) => (isMarked(j) || isTej(j) ? 700 : 400))
+    .attr("fill", (j) => (isTej(j) && !isMarked(j) ? tejLabelColor : textColor));
   svg.selectAll(".col-outline")
     .attr("display", (j) => (isMarked(j) ? null : "none"));
 }
@@ -785,7 +790,9 @@ export default function JunctionExpressionHeatmap({
   // resets the outline/labels), not just when the hovered junction changes.
   useEffect(() => {
     if (!svgRef.current || junctions.length === 0) return;
-    applyHeatmapHover(d3.select(svgRef.current), { hoveredJunctionId, pinnedJunctionIds, tejsByJunctionId });
+    applyHeatmapHover(d3.select(svgRef.current), {
+      hoveredJunctionId, pinnedJunctionIds, tejsByJunctionId, textColor: theme.palette.text.primary, tejLabelColor,
+    });
   }, [hoveredJunctionId, pinnedJunctionIds, junctions, plotGroups, groupMeta, width, metric, onHoverJunction, onTogglePinJunction, tejsByJunctionId, tejColor, tejLabelColor, cellInterpolator, cellStroke, theme.palette.text.primary]);
 
   return (
