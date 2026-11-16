@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { Alert, Box, CircularProgress, Divider, Paper, Stack, TextField, Typography } from "@mui/material";
 import JunctionExpressionHeatmap from "../components/JunctionExpressionHeatmap";
@@ -23,6 +23,19 @@ export default function JunctionExpression() {
   // Shared between the heatmap and the gene model so hovering a junction in
   // either one highlights the matching column/arc in the other.
   const [hoveredJunctionId, setHoveredJunctionId] = useState(null);
+  // Junctions pinned by clicking their arc in the gene model or their
+  // coordinate label in the heatmap: each keeps its
+  // heatmap column outlined (and its arc highlighted) after the pointer
+  // leaves, until clicked again. Any number can be pinned at once.
+  const [pinnedJunctionIds, setPinnedJunctionIds] = useState(new Set());
+  const togglePinnedJunction = useCallback((junctionId) => {
+    setPinnedJunctionIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(junctionId)) next.delete(junctionId);
+      else next.add(junctionId);
+      return next;
+    });
+  }, []);
   // The gene's tej-table junctions, keyed by the junctionId each converts to
   // (see tejJunctionToJunctionId), so the heatmap can highlight them. Values
   // are arrays: TEJs sharing a junction but differing in flanking exons map
@@ -64,6 +77,7 @@ export default function JunctionExpression() {
     setPrevGene(gene);
     if (!gene) setData([]);
     setHoveredJunctionId(null);
+    setPinnedJunctionIds(new Set());
     setTejsByJunctionId(new Map());
   }
 
@@ -162,6 +176,8 @@ export default function JunctionExpression() {
                 geneModelRef={geneModelRef}
                 hoveredJunctionId={hoveredJunctionId}
                 onHoverJunction={setHoveredJunctionId}
+                pinnedJunctionIds={pinnedJunctionIds}
+                onTogglePinJunction={togglePinnedJunction}
                 metric={metric}
                 onMetricChange={setMetric}
                 minExpressionValue={minExpressionValue}
@@ -183,6 +199,8 @@ export default function JunctionExpression() {
                   width={plotWidth}
                   hoveredJunctionId={hoveredJunctionId}
                   onHoverJunction={setHoveredJunctionId}
+                  pinnedJunctionIds={pinnedJunctionIds}
+                  onTogglePinJunction={togglePinnedJunction}
                   metric={metric}
                   minExpressionValue={minExpressionValue}
                   hiddenGroups={hiddenGroups}

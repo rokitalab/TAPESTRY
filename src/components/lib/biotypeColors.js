@@ -14,19 +14,38 @@ export const BIO_COLOURS = {
   other: "#4b5563",
 };
 
-export function colourForBiotype(bt) {
+// Dark-mode counterparts: several BIO_COLOURS are too dark to read on the
+// dark theme's #262c35 paper (protein_coding 2.7:1, retained_intron 2.0:1,
+// other 1.9:1), so each is lightened to at least ~5:1 against it while
+// keeping the biotypes distinguishable.
+export const BIO_COLOURS_DARK = {
+  protein_coding: "#4da3e8",
+  lncRNA: "#e39ccb",
+  miRNA: "#8fd3f7",
+  snRNA: "#a98bf5",
+  snoRNA: "#c78cf0",
+  processed_transcript: "#e8925a",
+  retained_intron: "#c9a07a",
+  nonsense_mediated_decay: "#f2b84b",
+  pseudogene: "#F0E442",
+  other: "#9aa5b1",
+};
+
+// mode is the MUI palette mode ("light" | "dark"); defaults to light.
+export function colourForBiotype(bt, mode = "light") {
+  const colours = mode === "dark" ? BIO_COLOURS_DARK : BIO_COLOURS;
   const key = String(bt || "other").toLowerCase();
   // Normalize common variants
-  if (key == "protein_coding") return BIO_COLOURS.protein_coding;
-  if (key.includes("lncrna")) return BIO_COLOURS.lncRNA;
-  if (key.includes("mirna")) return BIO_COLOURS.miRNA;
-  if (key.includes("snrna")) return BIO_COLOURS.snRNA;
-  if (key.includes("snorna")) return BIO_COLOURS.snoRNA;
-  if (key.includes("processed_transcript")) return BIO_COLOURS.processed_transcript;
-  if (key.includes("retained_intron")) return BIO_COLOURS.retained_intron;
-  if (key.includes("nonsense") || key.includes("decay")) return BIO_COLOURS.nonsense_mediated_decay;
-  if (key.includes("pseudogene")) return BIO_COLOURS.pseudogene;
-  return BIO_COLOURS.other;
+  if (key == "protein_coding") return colours.protein_coding;
+  if (key.includes("lncrna")) return colours.lncRNA;
+  if (key.includes("mirna")) return colours.miRNA;
+  if (key.includes("snrna")) return colours.snRNA;
+  if (key.includes("snorna")) return colours.snoRNA;
+  if (key.includes("processed_transcript")) return colours.processed_transcript;
+  if (key.includes("retained_intron")) return colours.retained_intron;
+  if (key.includes("nonsense") || key.includes("decay")) return colours.nonsense_mediated_decay;
+  if (key.includes("pseudogene")) return colours.pseudogene;
+  return colours.other;
 }
 
 export function hexToRgba(hex, alpha = 1) {
