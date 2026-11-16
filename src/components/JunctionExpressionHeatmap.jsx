@@ -733,7 +733,8 @@ export default function JunctionExpressionHeatmap({
         tejColor: exportTejColor,
       });
     }
-    drawHeatmap(root.append("g").attr("transform", `translate(0, ${showLegend ? LEGEND_HEIGHT : 0})`), {
+    const heatmapG = root.append("g").attr("transform", `translate(0, ${showLegend ? LEGEND_HEIGHT : 0})`);
+    drawHeatmap(heatmapG, {
       width,
       junctions,
       plotGroups,
@@ -752,6 +753,15 @@ export default function JunctionExpressionHeatmap({
       onToggleEvoDevo: () => {},
       onHoverJunction: () => {},
       showEvoDevoToggles: false,
+    });
+    // Pinned columns keep their outline in the download; the hovered one
+    // doesn't (the pointer is on the download menu, not a junction).
+    applyHeatmapHover(heatmapG, {
+      hoveredJunctionId: null,
+      pinnedJunctionIds,
+      tejsByJunctionId,
+      textColor: exportTextColor,
+      tejLabelColor: exportTejLabelColor,
     });
     const geneModelSvg = geneModelRef?.current?.buildExportSvg?.({ width });
     // -20px overlaps the gene model into the heatmap's bottom margin, which
