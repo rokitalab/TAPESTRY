@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { Fragment, forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { Alert, Box, Chip, CircularProgress, Stack } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import * as d3 from "d3";
@@ -6,6 +6,8 @@ import GtexGeneModel from "./lib/GtexGeneModel";
 import { colourForBiotype, hexToRgba } from "./lib/biotypeColors";
 import { fetchEnsemblGeneId, fetchEnsemblGene } from "./lib/ensembl";
 import { selectExpressedJunctionIds, metricValueGetter, filterHiddenGroups } from "./lib/junctionExpressionFilter";
+import { junctionIdToIntron, junctionIdToDisplayCoords } from "./lib/junctionCoords";
+import { EXPORT_PALETTE } from "./lib/svgExport";
 
 const SVG_HEIGHT = 200;
 // 20px less than JunctionExpressionHeatmap's MARGIN.left (200) -- keeps the
@@ -63,10 +65,59 @@ const EXCLUDED_TRANSCRIPT_BIOTYPES = new Set([
   "protein_coding_CDS_not_defined",
 ]);
 
-// GtexGeneModel.js's defaults for junction arcs/dots (see its render()) --
-// duplicated here so hover highlighting can fall back to them.
-const JUNC_CURVE_COLOR = "#92bcc9";
-const JUNC_DOT_COLOR = "rgb(86, 98, 107)";
+// Junction arcs/dots don't use GtexGeneModel.js's fixed defaults (a teal
+// arc, a dark gray dot that all but disappears in dark mode). They take
+// theme-based colors from the component's junctionStyle -- see
+// applyMainModelHover -- so they adapt to light/dark mode.
+const ARC_OPACITY = 0.55;
+
+// Shared default for tejsByJunctionId, so an omitted prop doesn't produce a
+// new Map (and a redraw) on every render.
+const NO_TEJS = new Map();
+
+// Strand-direction chevrons in the gaps between exons, matching
+// TranscriptVis.jsx's: one candidate column every CHEVRON_STEP_PX, skipped
+// wherever the chevron would come within CHEVRON_PAD_PX of an exon -- ›
+// on the plus strand, ‹ on the minus strand.
+const CHEVRON_STEP_PX = 40;
+const CHEVRON_SIZE_PX = 8;
+const CHEVRON_PAD_PX = 3;
+
+// Draws chevrons into `g` along y = centerY, between the leftmost and
+// rightmost of `exonData` (GtexGeneModel's rendered exon data, carrying
+// pixel x/w). Exons GtexGeneModel couldn't map have no x and are ignored.
+function drawStrandChevrons(g, { exonData, innerWidth, centerY, strand, color }) {
+  if (strand !== "+" && strand !== "-") return;
+  const ex = exonData
+    .filter((d) => Number.isFinite(d.x) && Number.isFinite(d.w))
+    .map((d) => ({ l: d.x, r: d.x + d.w }));
+  if (ex.length < 2) return;
+  const lo = d3.min(ex, (e) => e.l);
+  const hi = d3.max(ex, (e) => e.r);
+  const xs = [];
+  for (let x = CHEVRON_STEP_PX / 2; x + CHEVRON_SIZE_PX <= innerWidth; x += CHEVRON_STEP_PX) {
+    if (x < lo || x + CHEVRON_SIZE_PX > hi) continue;
+    if (ex.some((e) => x + CHEVRON_SIZE_PX + CHEVRON_PAD_PX > e.l && x - CHEVRON_PAD_PX < e.r)) continue;
+    xs.push(x);
+  }
+  // Same 8x8 paths as TranscriptVis's chevrons, placed with their box
+  // vertically centered on centerY.
+  const d = strand === "-" ? "M6 1L3 4l3 3" : "M2 1l3 3-3 3";
+  g.append("g")
+    .attr("class", "strand-chevrons")
+    .attr("pointer-events", "none")
+    .selectAll("path")
+    .data(xs)
+    .join("path")
+    .attr("transform", (x) => `translate(${x},${centerY - CHEVRON_SIZE_PX / 2})`)
+    .attr("d", d)
+    .attr("fill", "none")
+    .attr("stroke", color)
+    .attr("stroke-width", 1.3)
+    .attr("stroke-linecap", "round")
+    .attr("stroke-linejoin", "round")
+    .attr("opacity", 0.6);
+}
 
 // GtexGeneModel.js bakes the junctionId into each junction element's class
 // as `junc-curve junc${junctionId}` (path) / `junc junc${junctionId}`
@@ -85,6 +136,30 @@ function junctionIdOf(node, ownClass) {
 function transcriptNumber(displayName) {
   const m = /-(\d+)$/.exec(displayName || "");
   return m ? Number(m[1]) : null;
+}
+
+// A junction's name in each transcript that splices exactly its intron --
+// two consecutive exons ending at intron_start - 1 and starting at
+// intron_end + 1 -- grouped by name, e.g.
+//   [{ name: "exon5:exon4", transcripts: ["GENE-201", "GENE-204"] }, ...]
+// Exons are numbered 5'->3' per transcript (descending genomic position on
+// the "-" strand, as in toGeneModelExons) and listed in genomic order,
+// matching the tej table's junction_name format. Transcript exons are
+// ascending by start (see lib/ensembl.js).
+function junctionNameGroups(junctionId, transcripts, strand) {
+  const { intronStart, intronEnd } = junctionIdToIntron(junctionId);
+  const groups = new Map();
+  transcripts.forEach((t) => {
+    const n = t.exons.length;
+    const k = t.exons.findIndex((e, i) => (
+      e.end === intronStart - 1 && t.exons[i + 1]?.start === intronEnd + 1
+    ));
+    if (k === -1) return;
+    const num = (i) => (strand === "-" ? n - i : i + 1);
+    const name = `exon${num(k)}:exon${num(k + 1)}`;
+    groups.set(name, [...(groups.get(name) ?? []), t.displayName]);
+  });
+  return Array.from(groups, ([name, txs]) => ({ name, transcripts: txs }));
 }
 
 // Ensembl's transcript exons don't come with an exonNumber. exonId is
@@ -138,7 +213,12 @@ function mergeExonIntervals(rawExons) {
 // so the download produces exactly what's on screen. Transcript isoform
 // rows are drawn separately by drawTranscriptRows so the biotype Chip
 // filter can sit between the two in the DOM.
-function drawMainModel(dom, { width, exons, junctions, strand, gene, geneId, textColor, primaryColor, hoveredJunctionId, onHoverJunction, onHoverExon, container }) {
+//
+// Draws no hover state: the hovered junction's arc/dot styling is applied
+// by applyMainModelHover, which restyles the existing elements. Redrawing on
+// every hover would delete the element under the pointer before its
+// mouseout ran, leaving its tooltip and highlight stuck on screen.
+function drawMainModel(dom, { width, exons, junctions, strand, gene, geneId, textColor, primaryColor, tejColor, junctionStyle, tejsByJunctionId = NO_TEJS, onHoverJunction, onHoverExon, onJunctionTip, container }) {
   dom.selectAll("*").remove();
   const g = dom.append("g").attr("transform", `translate(${PADDING.left},${PADDING.top})`);
 
@@ -209,31 +289,98 @@ function drawMainModel(dom, { width, exons, junctions, strand, gene, geneId, tex
       .attr("fill", textColor)
       .text(geneId);
   }
+
+  // Intron backbone from the first exon to the last, centered on the exon
+  // bar (GtexGeneModel's hardcoded 15px height) -- GtexGeneModel only draws
+  // this line for isoform rows, not the main model. Inserted before the
+  // first exon rect so it renders behind the exons.
+  const mainExonData = g.selectAll(".exon-curated").data()
+    .filter((d) => Number.isFinite(d.x) && Number.isFinite(d.w));
+  if (mainExonData.length > 1) {
+    g.insert("line", ".exon")
+      .attr("class", "intron")
+      .attr("x1", d3.min(mainExonData, (d) => d.x))
+      .attr("x2", d3.max(mainExonData, (d) => d.x + d.w))
+      .attr("y1", exonY + 15 / 2)
+      .attr("y2", exonY + 15 / 2)
+      .attr("stroke", textColor)
+      .attr("pointer-events", "none");
+  }
+
+  // Centered on the exon bar (GtexGeneModel's hardcoded 15px height).
+  drawStrandChevrons(g, {
+    exonData: g.selectAll(".exon-curated").data(),
+    innerWidth: Math.max(width - PADDING.left - PADDING.right, 0),
+    centerY: exonY + 15 / 2,
+    strand,
+    color: textColor,
+  });
+
   // gtex-viz's own stylesheet sets junc-curve's fill to none; without it the
   // browser fills the area the arc implicitly closes over with black.
   g.selectAll(".junc-curve").style("fill", "none");
 
   // Hovering a junction's arc/dot here, or a column in the heatmap (via
   // hoveredJunctionId), highlights the same junction in both places.
+  // Hovering it here also reports the pointer position (relative to
+  // `container`, like the exon tooltip) via onJunctionTip, for the junction
+  // name tooltip -- on mousemove, so the tooltip follows the pointer.
+  const tipHandlers = (sel, junctionId) => sel
+    .on("mouseover", () => onHoverJunction?.(junctionId))
+    .on("mousemove", (event) => {
+      if (!junctionId) return;
+      const [x, y] = d3.pointer(event, container ?? dom.node());
+      onJunctionTip?.({ junctionId, x, y });
+    })
+    .on("mouseout", () => {
+      onHoverJunction?.(null);
+      onJunctionTip?.(null);
+    });
   g.selectAll(".junc-curve").each(function () {
     const junctionId = junctionIdOf(this, "junc-curve");
-    const isHovered = junctionId !== null && junctionId === hoveredJunctionId;
     d3.select(this)
-      .style("stroke", isHovered ? primaryColor : JUNC_CURVE_COLOR)
-      .style("stroke-width", isHovered ? 3 : 1)
       .style("cursor", junctionId ? "pointer" : null)
-      .on("mouseover", () => onHoverJunction?.(junctionId))
-      .on("mouseout", () => onHoverJunction?.(null));
+      .call(tipHandlers, junctionId);
   });
   g.selectAll(".junc").each(function () {
     const junctionId = junctionIdOf(this, "junc");
+    d3.select(this)
+      .style("cursor", junctionId ? "pointer" : null)
+      .call(tipHandlers, junctionId);
+  });
+
+  applyMainModelHover(dom, { hoveredJunctionId: null, tejsByJunctionId, primaryColor, tejColor, junctionStyle });
+}
+
+// Styles the main model's junction arcs/dots for the hovered junction (or
+// none, for the base look) on a model already drawn by drawMainModel,
+// without redrawing it.
+// - Ordinary junctions: arcs in junctionStyle.arcColor at ARC_OPACITY;
+//   dots in junctionStyle.dotColor, filled, or (junctionStyle.dotRing) as
+//   a ring filled with junctionStyle.ringFill.
+// - TEJs (junctions in the tej table): dot filled tejColor, the same amber
+//   shade as the heatmap's TEJ labels.
+// - The hovered junction, TEJ or not: arc and enlarged dot in primaryColor.
+function applyMainModelHover(dom, { hoveredJunctionId, tejsByJunctionId = NO_TEJS, primaryColor, tejColor, junctionStyle }) {
+  const { arcColor, dotColor, dotRing, ringFill } = junctionStyle;
+  dom.selectAll(".junc-curve").each(function () {
+    const junctionId = junctionIdOf(this, "junc-curve");
     const isHovered = junctionId !== null && junctionId === hoveredJunctionId;
     d3.select(this)
-      .attr("r", isHovered ? 6 : 4)
-      .style("fill", isHovered ? primaryColor : JUNC_DOT_COLOR)
-      .style("cursor", junctionId ? "pointer" : null)
-      .on("mouseover", () => onHoverJunction?.(junctionId))
-      .on("mouseout", () => onHoverJunction?.(null));
+      .style("stroke", isHovered ? primaryColor : arcColor)
+      .style("stroke-opacity", isHovered ? 1 : ARC_OPACITY)
+      .style("stroke-width", isHovered ? 3 : 1);
+  });
+  dom.selectAll(".junc").each(function () {
+    const junctionId = junctionIdOf(this, "junc");
+    const isHovered = junctionId !== null && junctionId === hoveredJunctionId;
+    const isTej = junctionId !== null && tejsByJunctionId.has(junctionId);
+    const ring = dotRing && !isHovered && !isTej;
+    d3.select(this)
+      .attr("r", isHovered ? 6 : ring ? 3.6 : 4)
+      .style("fill", isHovered ? primaryColor : isTej ? tejColor : ring ? ringFill : dotColor)
+      .style("stroke", ring ? dotColor : null)
+      .style("stroke-width", ring ? 1.6 : null);
   });
 }
 
@@ -244,6 +391,9 @@ function drawMainModel(dom, { width, exons, junctions, strand, gene, geneId, tex
 // inner width as drawMainModel above, so setXscale() recomputes an
 // identical scale every time and each transcript's exons land at the same x
 // as the matching exon in the main model.
+//
+// The hovered junction's intron highlight is applied afterwards by
+// applyTranscriptRowsHover, without redrawing the rows.
 function drawTranscriptRows(dom, { width, exons, strand, transcriptRows, textColor, onHoverExon, container }) {
   dom.selectAll("*").remove();
   const g = dom.append("g").attr("transform", `translate(${PADDING.left},${TX_TOP_PAD})`);
@@ -257,7 +407,7 @@ function drawTranscriptRows(dom, { width, exons, strand, transcriptRows, textCol
   const stackX = -5;
   let rowTop = 0;
   (transcriptRows ?? []).forEach((t) => {
-    const rowG = g.append("g").attr("transform", `translate(0, ${rowTop})`);
+    const rowG = g.append("g").attr("class", "tx-row").attr("transform", `translate(0, ${rowTop})`);
     const txModel = new GtexGeneModel(
       { strand },
       exons.map((e) => ({ ...e })),
@@ -299,6 +449,9 @@ function drawTranscriptRows(dom, { width, exons, strand, transcriptRows, textCol
       .attr("y2", txBarCenter)
       .attr("stroke", textColor);
 
+    const exonData = rowG.selectAll(".exon-curated").data();
+    drawStrandChevrons(rowG, { exonData, innerWidth, centerY: txBarCenter, strand, color: textColor });
+
     // Vertically centered on the row's exon bar. dominant-baseline="middle"
     // centers the glyphs themselves rather than the text baseline, so it's
     // accurate regardless of font metrics -- transcript names/IDs are all
@@ -318,11 +471,57 @@ function drawTranscriptRows(dom, { width, exons, strand, transcriptRows, textCol
   });
 }
 
+// While a junction is hovered (hoveredJunctionId, shared with the heatmap
+// and the main model's arcs), every row whose transcript splices exactly
+// that intron -- two consecutive exons ending at intron_start - 1 and
+// starting at intron_end + 1 -- gets the intron highlighted. The junction's
+// name in each transcript is shown in the main model's arc tooltip (see
+// junctionNameGroups) rather than on the rows. Works on rows already drawn
+// by drawTranscriptRows: replaces only the highlight lines, which ignore
+// the pointer, so the exons under the mouse are never touched.
+function applyTranscriptRowsHover(dom, { hoveredJunctionId, primaryColor }) {
+  dom.selectAll(".tx-junction-hl").remove();
+  if (!hoveredJunctionId) return;
+  const { intronStart, intronEnd } = junctionIdToIntron(hoveredJunctionId);
+  const txBarCenter = TX_EXON_BAR_HEIGHT / 2;
+  dom.selectAll(".tx-row").each(function () {
+    const rowG = d3.select(this);
+    const exonData = rowG.selectAll(".exon-curated").data();
+    const left = exonData.find((d) => d.chromEnd === intronStart - 1);
+    const right = exonData.find((d) => d.chromStart === intronEnd + 1);
+    if (!left || !right || Math.abs(left.exonNumber - right.exonNumber) !== 1
+        || !Number.isFinite(left.x) || !Number.isFinite(right.x)) return;
+    rowG.append("line")
+      .attr("class", "tx-junction-hl")
+      .attr("x1", left.x + left.w)
+      .attr("x2", right.x)
+      .attr("y1", txBarCenter)
+      .attr("y2", txBarCenter)
+      .attr("stroke", primaryColor)
+      .attr("stroke-width", 3)
+      .attr("pointer-events", "none");
+  });
+}
+
 const GeneModelGtex = forwardRef(function GeneModelGtex(
-  { gene, junctionData, width, hoveredJunctionId = null, onHoverJunction, metric, minExpressionValue, hiddenGroups },
+  { gene, junctionData, width, hoveredJunctionId = null, onHoverJunction, metric, minExpressionValue, hiddenGroups, tejsByJunctionId = NO_TEJS },
   ref
 ) {
   const theme = useTheme();
+  // TEJ dot fill: matches the heatmap's TEJ label text -- the theme amber's
+  // darker generated shade in light mode, where it stands out better against
+  // the white background, and the amber itself in dark mode.
+  const tejDotColor = theme.palette.mode === "dark" ? theme.palette.secondary.main : theme.palette.secondary.dark;
+  // Ordinary junction arcs/dots (see applyMainModelHover): muted
+  // secondary-text gray in both modes -- filled dots in light mode, rings
+  // filled with the panel color in dark mode, where filled gray dots read
+  // as smudges against the dark background.
+  const junctionStyle = useMemo(() => ({
+    arcColor: theme.palette.text.secondary,
+    dotColor: theme.palette.text.secondary,
+    dotRing: theme.palette.mode === "dark",
+    ringFill: theme.palette.background.paper,
+  }), [theme.palette.text.secondary, theme.palette.mode, theme.palette.background.paper]);
   const containerRef = useRef(null);
   const svgRef = useRef(null);
   const txSvgRef = useRef(null);
@@ -332,6 +531,9 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState(null);
   const [hoveredExon, setHoveredExon] = useState(null);
+  // { junctionId, x, y } while a main-model arc/dot is hovered, for the
+  // junction name tooltip.
+  const [junctionTip, setJunctionTip] = useState(null);
   const [transcriptRows, setTranscriptRows] = useState([]);
   const [activeBiotypes, setActiveBiotypes] = useState(new Set());
 
@@ -345,6 +547,7 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
       setExons(null);
       setGeneId(null);
       setHoveredExon(null);
+      setJunctionTip(null);
       setTranscriptRows([]);
       return;
     }
@@ -352,6 +555,7 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
     setLoading(true);
     setFetchError(null);
     setHoveredExon(null);
+    setJunctionTip(null);
     (async () => {
       try {
         const ensg = await fetchEnsemblGeneId(gene, controller.signal);
@@ -469,6 +673,18 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
 
   const txHeight = txSvgHeight(visibleTranscriptRows.length);
 
+  // Junction name tooltip content, from the transcripts currently shown
+  // (biotype Chip filter), so it matches the rows highlighted below.
+  const junctionTipContent = useMemo(() => {
+    if (!junctionTip) return null;
+    const groups = junctionNameGroups(junctionTip.junctionId, visibleTranscriptRows, strand);
+    return {
+      coords: junctionIdToDisplayCoords(junctionTip.junctionId),
+      groups,
+      used: groups.reduce((n, g) => n + g.transcripts.length, 0),
+    };
+  }, [junctionTip, visibleTranscriptRows, strand]);
+
   useEffect(() => {
     if (!svgRef.current || !exons || exons.length === 0) return;
     drawMainModel(d3.select(svgRef.current), {
@@ -480,13 +696,31 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
       geneId,
       textColor: theme.palette.text.primary,
       primaryColor: theme.palette.primary.main,
-      hoveredJunctionId,
+      tejColor: tejDotColor,
+      junctionStyle,
+      tejsByJunctionId,
       onHoverJunction,
       onHoverExon: setHoveredExon,
+      onJunctionTip: setJunctionTip,
       container: containerRef.current,
     });
-  }, [exons, junctions, strand, gene, geneId, width, hoveredJunctionId, onHoverJunction,
-      theme.palette.text.primary, theme.palette.primary.main]);
+  }, [exons, junctions, strand, gene, geneId, width, onHoverJunction, tejsByJunctionId, junctionStyle,
+      theme.palette.text.primary, theme.palette.primary.main, tejDotColor]);
+
+  // Hover styling only -- runs after the draw effect above. Lists the draw
+  // effect's dependencies too, so it re-applies after every redraw (which
+  // resets the arcs/dots), not just when the hovered junction changes.
+  useEffect(() => {
+    if (!svgRef.current || !exons || exons.length === 0) return;
+    applyMainModelHover(d3.select(svgRef.current), {
+      hoveredJunctionId,
+      tejsByJunctionId,
+      primaryColor: theme.palette.primary.main,
+      tejColor: tejDotColor,
+      junctionStyle,
+    });
+  }, [hoveredJunctionId, junctionStyle, exons, junctions, strand, gene, geneId, width, onHoverJunction, tejsByJunctionId,
+      theme.palette.text.primary, theme.palette.primary.main, tejDotColor]);
 
   useEffect(() => {
     if (!txSvgRef.current || !exons || exons.length === 0) return;
@@ -501,10 +735,25 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
     });
   }, [exons, strand, width, visibleTranscriptRows, theme.palette.text.primary]);
 
+  // Same pattern as the main model's hover effect above, for the rows.
+  useEffect(() => {
+    if (!txSvgRef.current || !exons || exons.length === 0) return;
+    applyTranscriptRowsHover(d3.select(txSvgRef.current), {
+      hoveredJunctionId,
+      primaryColor: theme.palette.primary.main,
+    });
+  }, [hoveredJunctionId, exons, strand, width, visibleTranscriptRows,
+      theme.palette.text.primary, theme.palette.primary.main]);
+
   // Lets JunctionExpressionHeatmap.jsx's download button pull in a
   // matching, export-sized copy of the gene model (main model stacked above
   // the transcript rows, same as on screen minus the interactive Chips) to
   // stack under the heatmap on the same canvas.
+  //
+  // Drawn in the light theme's colors (EXPORT_PALETTE) whatever the page's
+  // mode, since the export always has a white background: light-mode text
+  // and exons, dark-amber TEJ dots, and the light-mode junction style
+  // (filled dots, not rings).
   useImperativeHandle(ref, () => ({
     buildExportSvg({ width: exportWidth }) {
       if (!exons || exons.length === 0) return null;
@@ -520,9 +769,16 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
         strand,
         gene,
         geneId,
-        textColor: theme.palette.text.primary,
-        primaryColor: theme.palette.primary.main,
-        hoveredJunctionId: null,
+        textColor: EXPORT_PALETTE.text.primary,
+        primaryColor: EXPORT_PALETTE.primary.main,
+        tejColor: EXPORT_PALETTE.secondary.dark,
+        junctionStyle: {
+          arcColor: EXPORT_PALETTE.text.secondary,
+          dotColor: EXPORT_PALETTE.text.secondary,
+          dotRing: false,
+          ringFill: EXPORT_PALETTE.background.paper,
+        },
+        tejsByJunctionId,
         onHoverJunction: () => {},
       });
       if (visibleTranscriptRows.length > 0) {
@@ -531,17 +787,27 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
           exons,
           strand,
           transcriptRows: visibleTranscriptRows,
-          textColor: theme.palette.text.primary,
+          textColor: EXPORT_PALETTE.text.primary,
         });
       }
       return svgEl;
     },
-  }), [exons, junctions, strand, gene, geneId, visibleTranscriptRows, theme.palette.text.primary, theme.palette.primary.main]);
+  }), [exons, junctions, strand, gene, geneId, visibleTranscriptRows, tejsByJunctionId]);
 
   if (!gene) return null;
 
   return (
-    <Box ref={containerRef} sx={{ position: "relative" }}>
+    // Leaving the gene model always clears its tooltips and the hovered
+    // junction -- a fallback in case an element's own mouseout didn't fire.
+    <Box
+      ref={containerRef}
+      sx={{ position: "relative" }}
+      onMouseLeave={() => {
+        setHoveredExon(null);
+        setJunctionTip(null);
+        onHoverJunction?.(null);
+      }}
+    >
       {loading ? (
         <Box sx={{ display: "flex", justifyContent: "center", p: 3 }}>
           <CircularProgress size={24} />
@@ -607,6 +873,51 @@ const GeneModelGtex = forwardRef(function GeneModelGtex(
           start: {hoveredExon.chromStart}<br />
           end: {hoveredExon.chromEnd}<br />
           length: {hoveredExon.length} bp
+        </Box>
+      )}
+      {junctionTip && junctionTipContent && (
+        <Box
+          sx={{
+            position: "absolute",
+            left: junctionTip.x,
+            top: junctionTip.y,
+            // Flips to the pointer's left on the right half of the plot so
+            // it doesn't run past the panel's edge.
+            transform: junctionTip.x > width / 2 ? "translate(calc(-100% - 12px), -12px)" : "translate(12px, -12px)",
+            pointerEvents: "none",
+            bgcolor: "background.paper",
+            color: "text.primary",
+            border: "1px solid",
+            borderColor: "divider",
+            borderRadius: 1,
+            px: 1,
+            py: 0.5,
+            fontSize: 12,
+            boxShadow: 2,
+            maxWidth: 380,
+            zIndex: 1,
+          }}
+        >
+          <b>
+            {junctionTipContent.coords.chr}:{junctionTipContent.coords.start.toLocaleString()}–{junctionTipContent.coords.end.toLocaleString()}
+          </b>
+          <Box sx={{ color: "text.secondary" }}>
+            {junctionTipContent.used > 0
+              ? `In ${junctionTipContent.used} of ${visibleTranscriptRows.length} shown transcripts`
+              : "Not in any shown transcript"}
+          </Box>
+          {junctionTipContent.groups.length > 0 && (
+            <Box sx={{ display: "grid", gridTemplateColumns: "auto 1fr", columnGap: 1.25 }}>
+              {junctionTipContent.groups.map((g) => (
+                <Fragment key={g.name}>
+                  <Box sx={{ fontFamily: "monospace", fontWeight: 700, color: "primary.main", whiteSpace: "nowrap" }}>
+                    {g.name}
+                  </Box>
+                  <Box>{g.transcripts.join(", ")}</Box>
+                </Fragment>
+              ))}
+            </Box>
+          )}
         </Box>
       )}
     </Box>
