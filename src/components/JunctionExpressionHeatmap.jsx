@@ -391,7 +391,7 @@ function drawLegend(dom, { width, legendMax, metricLabel, textColor, interpolato
 //
 // interpolator colors the cells (see cellColorInterpolator); cellStroke is
 // the hairline between them, matched to the background they sit on.
-function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, metric, textColor, interpolator = LIGHT_MODE_REDS, cellStroke = "#fff", tejsByJunctionId = new Map(), tejColor, tejLabelColor = tejColor, onHover, onMove, onLeave, onToggleEvoDevo, onHoverJunction, showEvoDevoToggles = true }) {
+function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, metric, textColor, interpolator = LIGHT_MODE_REDS, cellStroke = "#fff", tejsByJunctionId = new Map(), tejColor, tejLabelColor = tejColor, onHover, onMove, onLeave, onToggleEvoDevo, onHoverJunction, onTogglePinJunction, showEvoDevoToggles = true }) {
   svg.selectAll("*").remove();
 
   const { get: metricValue } = METRICS[metric];
@@ -481,6 +481,9 @@ function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, m
     .attr("fill", (j) => (tejsByJunctionId.has(j.junctionId) ? tejLabelColor : textColor))
     .style("cursor", "pointer")
     .text((j) => `${j.start}-${j.end}`)
+    // Clicking a label pins/unpins its junction, like clicking its arc in
+    // the gene model (see applyHeatmapHover).
+    .on("click", (e, j) => onTogglePinJunction?.(j.junctionId))
     .on("mouseover", (e, j) => onHoverJunction(j.junctionId))
     .on("mouseout", () => onHoverJunction(null));
 
@@ -565,19 +568,24 @@ function drawHeatmap(svg, { width, junctions, plotGroups, groupMeta, valueFor, m
 // Shows the hovered junction's column outline and bolds its label (TEJ
 // labels stay bold regardless) on a heatmap already drawn by drawHeatmap,
 // without redrawing it.
-function applyHeatmapHover(svg, { hoveredJunctionId, tejsByJunctionId }) {
+// Outlines (and bolds the label of) the hovered column and every pinned one
+// -- junctions pinned by clicking their arc in the gene model, which stay
+// outlined until clicked again.
+function applyHeatmapHover(svg, { hoveredJunctionId, pinnedJunctionIds = NO_PINS, tejsByJunctionId }) {
+  const isMarked = (j) => j.junctionId === hoveredJunctionId || pinnedJunctionIds.has(j.junctionId);
   svg.selectAll(".col-label")
-    .attr("font-weight", (j) => (j.junctionId === hoveredJunctionId || tejsByJunctionId.has(j.junctionId) ? 700 : 400));
+    .attr("font-weight", (j) => (isMarked(j) || tejsByJunctionId.has(j.junctionId) ? 700 : 400));
   svg.selectAll(".col-outline")
-    .attr("display", (j) => (j.junctionId === hoveredJunctionId ? null : "none"));
+    .attr("display", (j) => (isMarked(j) ? null : "none"));
 }
 
-// Shared default for tejsByJunctionId, so an omitted prop doesn't produce a
-// new Map (and a redraw) on every render.
+// Shared defaults for tejsByJunctionId / pinnedJunctionIds, so an omitted
+// prop doesn't produce a new Map/Set (and a redraw) on every render.
 const NO_TEJS = new Map();
+const NO_PINS = new Set();
 
 export default function JunctionExpressionHeatmap({
-  gene, data, width, geneModelRef = null, hoveredJunctionId = null, onHoverJunction,
+  gene, data, width, geneModelRef = null, hoveredJunctionId = null, onHoverJunction, pinnedJunctionIds = NO_PINS, onTogglePinJunction,
   metric, onMetricChange, minExpressionValue, onMinExpressionValueChange,
   hiddenGroups, onHiddenGroupsChange, tejsByJunctionId = NO_TEJS,
 }) {
@@ -768,16 +776,17 @@ export default function JunctionExpressionHeatmap({
       onLeave: () => setTooltip((prev) => ({ ...prev, visible: false })),
       onToggleEvoDevo: toggleEvoDevoExpand,
       onHoverJunction: (id) => onHoverJunction?.(id),
+      onTogglePinJunction,
     });
-  }, [junctions, plotGroups, groupMeta, width, metric, onHoverJunction, tejsByJunctionId, tejColor, tejLabelColor, cellInterpolator, cellStroke, theme.palette.text.primary]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [junctions, plotGroups, groupMeta, width, metric, onHoverJunction, onTogglePinJunction, tejsByJunctionId, tejColor, tejLabelColor, cellInterpolator, cellStroke, theme.palette.text.primary]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Hover styling only -- runs after the draw effect above. Lists the draw
   // effect's dependencies too, so it re-applies after every redraw (which
   // resets the outline/labels), not just when the hovered junction changes.
   useEffect(() => {
     if (!svgRef.current || junctions.length === 0) return;
-    applyHeatmapHover(d3.select(svgRef.current), { hoveredJunctionId, tejsByJunctionId });
-  }, [hoveredJunctionId, junctions, plotGroups, groupMeta, width, metric, onHoverJunction, tejsByJunctionId, tejColor, tejLabelColor, cellInterpolator, cellStroke, theme.palette.text.primary]);
+    applyHeatmapHover(d3.select(svgRef.current), { hoveredJunctionId, pinnedJunctionIds, tejsByJunctionId });
+  }, [hoveredJunctionId, pinnedJunctionIds, junctions, plotGroups, groupMeta, width, metric, onHoverJunction, onTogglePinJunction, tejsByJunctionId, tejColor, tejLabelColor, cellInterpolator, cellStroke, theme.palette.text.primary]);
 
   return (
     <Box>
